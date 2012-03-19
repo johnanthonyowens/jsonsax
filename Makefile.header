@@ -1,0 +1,24 @@
+CC = gcc
+CXX = g++
+AR = ar
+
+ifdef PLATFORM_MAC
+    DLIB_EXT = dylib
+    DLIB_PATH = DYLD_LIBRARY_PATH
+else
+    DLIB_EXT = so
+    DLIB_PATH = LD_LIBRARY_PATH
+endif
+
+CFLAGS = -Wall -Werror -Wunused-parameter -Wshadow
+ifdef DEBUG
+    CFLAGS += -g
+else
+    CFLAGS += -O3
+endif
+ALL_CFLAGS = -I$(ROOTDIR) -ansi -pedantic $(CFLAGS)
+
+CXXFLAGS = $(CFLAGS)
+ALL_CXXFLAGS = $(ALL_CFLAGS)
+
+BUILDDIR = $(ROOTDIR)/build
