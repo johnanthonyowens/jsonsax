@@ -16,7 +16,11 @@ ifdef DEBUG
 else
     CFLAGS += -O3
 endif
-ALL_CFLAGS = -I$(ROOTDIR) -ansi -pedantic $(CFLAGS)
+
+ALL_CFLAGS = -I$(ROOTDIR) -pedantic $(CFLAGS)
+ifdef ANSI
+    ALL_CFLAGS += -ansi
+endif
 
 CXXFLAGS = $(CFLAGS)
 ALL_CXXFLAGS = $(ALL_CFLAGS)
