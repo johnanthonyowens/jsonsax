@@ -2,6 +2,10 @@ CC = gcc
 CXX = g++
 AR = ar
 
+ifeq ($(shell uname),Darwin)
+     PLATFORM_MAC = 1
+endif
+
 ifdef PLATFORM_MAC
     DLIB_EXT = dylib
     DLIB_PATH = DYLD_LIBRARY_PATH
