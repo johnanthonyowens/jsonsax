@@ -23,6 +23,8 @@
 #include <stdlib.h>
 #include <memory.h>
 #include <locale.h>
+#include <math.h>
+#include <float.h>
 
 /* Mark APIs for export (as opposed to import) when we build this file. */
 #define JSON_BUILDING
@@ -39,6 +41,14 @@ typedef unsigned __int32 JSON_UInt32;
 #else
 #include <stdint.h>
 typedef uint32_t JSON_UInt32;
+#endif
+
+/* Provide NAN and INFINITY for C89. */
+#ifndef NAN
+#define NAN (strtod("NAN", NULL))
+#endif
+#ifndef INFINITY
+#define INFINITY (strtod("INF", NULL))
 #endif
 
 /* Especially-relevant Unicode codepoints. */
@@ -83,14 +93,15 @@ typedef uint32_t JSON_UInt32;
 /* Combinable parser status bits. */
 typedef enum tag_ParserStatus
 {
-    PARSER_RESET                 = 0,
-    PARSER_STARTED               = 1 << 0,
-    PARSER_FINISHED              = 1 << 1,
-    PARSER_IN_CALLBACK           = 1 << 2,
-    PARSER_AFTER_CARRIAGE_RETURN = 1 << 3,
-    PARSER_ALLOW_BOM             = 1 << 4,
-    PARSER_ALLOW_TRAILING_COMMAS = 1 << 5,
-    PARSER_TRACK_OBJECT_MEMBERS  = 1 << 6
+    PARSER_RESET                  = 0,
+    PARSER_STARTED                = 1 << 0,
+    PARSER_FINISHED               = 1 << 1,
+    PARSER_IN_CALLBACK            = 1 << 2,
+    PARSER_AFTER_CARRIAGE_RETURN  = 1 << 3,
+    PARSER_ALLOW_BOM              = 1 << 4,
+    PARSER_ALLOW_TRAILING_COMMAS  = 1 << 5,
+    PARSER_ALLOW_NAN_AND_INFINITY = 1 << 6,
+    PARSER_TRACK_OBJECT_MEMBERS   = 1 << 7
 } ParserStatus;
 
 /* Mutually-exclusive lexer states. */
@@ -143,28 +154,31 @@ typedef enum tag_DecoderState
 typedef enum tag_Symbol
 {
     /* Token values are in the form 0x0X. */
-    TOKEN_NULL             = 0x00,
-    TOKEN_TRUE             = 0x01,
-    TOKEN_FALSE            = 0x02,
-    TOKEN_STRING           = 0x03,
-    TOKEN_NUMBER           = 0x04,
-    TOKEN_LEFT_CURLY       = 0x05,
-    TOKEN_RIGHT_CURLY      = 0x06,
-    TOKEN_LEFT_SQUARE      = 0x07,
-    TOKEN_RIGHT_SQUARE     = 0x08,
-    TOKEN_COLON            = 0x09,
-    TOKEN_COMMA            = 0x0A,
+    TOKEN_NULL              = 0x00,
+    TOKEN_TRUE              = 0x01,
+    TOKEN_FALSE             = 0x02,
+    TOKEN_STRING            = 0x03,
+    TOKEN_NUMBER            = 0x04,
+    TOKEN_NAN               = 0x05,
+    TOKEN_INFINITY          = 0x06,
+    TOKEN_NEGATIVE_INFINITY = 0x07,
+    TOKEN_LEFT_CURLY        = 0x08,
+    TOKEN_RIGHT_CURLY       = 0x09,
+    TOKEN_LEFT_SQUARE       = 0x0A,
+    TOKEN_RIGHT_SQUARE      = 0x0B,
+    TOKEN_COLON             = 0x0C,
+    TOKEN_COMMA             = 0x0D,
 
     /* Non-terminal values are in the form 0x1X. */
-    NT_VALUE               = 0x10,
-    NT_MEMBERS             = 0x11,
-    NT_MEMBER              = 0x12,
-    NT_MORE_MEMBERS        = 0x13,
-    NT_MEMBERS_AFTER_COMMA = 0x14,
-    NT_ITEMS               = 0x15,
-    NT_ITEM                = 0x16,
-    NT_MORE_ITEMS          = 0x17,
-    NT_ITEMS_AFTER_COMMA   = 0x18
+    NT_VALUE                = 0x10,
+    NT_MEMBERS              = 0x11,
+    NT_MEMBER               = 0x12,
+    NT_MORE_MEMBERS         = 0x13,
+    NT_MEMBERS_AFTER_COMMA  = 0x14,
+    NT_ITEMS                = 0x15,
+    NT_ITEM                 = 0x16,
+    NT_MORE_ITEMS           = 0x17,
+    NT_ITEMS_AFTER_COMMA    = 0x18
 } Symbol;
 
 #define IS_NONTERMINAL(s) ((s) & 0x10)
@@ -764,20 +778,60 @@ static JSON_Status MakeStringCallback(JSON_Parser parser, JSON_StringHandler han
 
 static JSON_Status MakeNumberCallback(JSON_Parser parser, JSON_RawNumberHandler rawHandler, JSON_NumberHandler handler)
 {
+    /* Note that this is called for NaN, Infinity, and -Infinity, in addition
+       to "normal" number tokens. */
     if (rawHandler || handler)
     {
         /* Numbers should be null-terminated with a single null terminator byte
            before being converted to a double and/or passed to callbacks. */
         JSON_HandlerResult result;
-        NullTerminateNumberOutput(parser);
+        const char* pRawNumber;
+        switch (parser->token)
+        {
+        case TOKEN_NAN:
+            pRawNumber = "NaN";
+            break;
+
+        case TOKEN_INFINITY:
+            pRawNumber = "Infinity";
+            break;
+
+        case TOKEN_NEGATIVE_INFINITY:
+            pRawNumber = "-Infinity";
+            break;
+
+        default:
+            pRawNumber = (const char*)parser->pOutputBuffer;
+            NullTerminateNumberOutput(parser);
+            break;
+        }
         parser->parserStatus |= PARSER_IN_CALLBACK;
         if (rawHandler)
         {
-            result = rawHandler(parser, &parser->tokenLocation, (const char*)parser->pOutputBuffer);
+            result = rawHandler(parser, &parser->tokenLocation, pRawNumber);
         }
         else
         {
-            result = handler(parser, &parser->tokenLocation, InterpretNumber(parser));
+            double value;
+            switch (parser->token)
+            {
+            case TOKEN_NAN:
+                value = NAN;
+                break;
+
+            case TOKEN_INFINITY:
+                value = INFINITY;
+                break;
+
+            case TOKEN_NEGATIVE_INFINITY:
+                value = -INFINITY;
+                break;
+
+            default:
+                value = InterpretNumber(parser);
+                break;
+            }
+            result = handler(parser, &parser->tokenLocation, value);
         }
         parser->parserStatus &= ~PARSER_IN_CALLBACK;
         if (result != JSON_ContinueParsing)
@@ -886,18 +940,21 @@ static JSON_Status ReplaceTopSymbol(JSON_Parser parser, const Symbol* pSymbolsTo
    The order and number of the rows and columns in the productions table must
    match the token and non-terminal enum values in the Symbol enum.
 */
-static const unsigned char productions[11][9] =
+static const unsigned char productions[14][9] =
 {
 /*             V     MS    M     MM   MAC    IS    I     MI   IAC  */
-/* null   */ { 1,    0,    0,    0,    0,    15,   17,   0,    20 },
-/* true   */ { 2,    0,    0,    0,    0,    15,   17,   0,    20 },
+/*  null  */ { 1,    0,    0,    0,    0,    15,   17,   0,    20 },
+/*  true  */ { 2,    0,    0,    0,    0,    15,   17,   0,    20 },
 /* false  */ { 3,    0,    0,    0,    0,    15,   17,   0,    20 },
 /* string */ { 4,    8,    10,   0,    13,   15,   17,   0,    20 },
 /* number */ { 5,    0,    0,    0,    0,    15,   17,   0,    20 },
+/*  NaN   */ { 5,    0,    0,    0,    0,    15,   17,   0,    20 },
+/*  Inf   */ { 5,    0,    0,    0,    0,    15,   17,   0,    20 },
+/* -Inf   */ { 5,    0,    0,    0,    0,    15,   17,   0,    20 },
 /*   {    */ { 6,    0,    0,    0,    0,    15,   17,   0,    20 },
 /*   }    */ { 0,    9,    0,    12,   14,   0,    0,    0,    0  },
 /*   [    */ { 7,    0,    0,    0,    0,    15,   17,   0,    20 },
-/*   ]    */ { 0,    0,    0,    0,    0,    16,   0,    19,   21  },
+/*   ]    */ { 0,    0,    0,    0,    0,    16,   0,    19,   21 },
 /*   :    */ { 0,    0,    0,    0,    0,    0,    0,    0,    0  },
 /*   ,    */ { 0,    0,    0,    11,   0,    0,    0,    18,   0  }
 };
@@ -1089,11 +1146,13 @@ static JSON_Status ProcessToken(JSON_Parser parser)
 
 /* Lexer functions. */
 
-static const unsigned char expectedLiteralChars[] = { 'u', 'l', 'l', 0, 'r', 'u', 'e', 0, 'a', 'l', 's', 'e', 0 };
+static const unsigned char expectedLiteralChars[] = { 'u', 'l', 'l', 0, 'r', 'u', 'e', 0, 'a', 'l', 's', 'e', 0, 'a', 'N', 0, 'n', 'f', 'i', 'n', 'i', 't', 'y', 0  };
 
-#define NULL_LITERAL_EXPECTED_CHARS_START_INDEX  0 /* index of 'u' in expectedLiteralChars */
-#define TRUE_LITERAL_EXPECTED_CHARS_START_INDEX  4 /* index of 'r' in expectedLiteralChars */
-#define FALSE_LITERAL_EXPECTED_CHARS_START_INDEX 8 /* index of 'a' in expectedLiteralChars */
+#define NULL_LITERAL_EXPECTED_CHARS_START_INDEX     0
+#define TRUE_LITERAL_EXPECTED_CHARS_START_INDEX     4
+#define FALSE_LITERAL_EXPECTED_CHARS_START_INDEX    8
+#define NAN_LITERAL_EXPECTED_CHARS_START_INDEX      13
+#define INFINITY_LITERAL_EXPECTED_CHARS_START_INDEX 16
 
 static void StartToken(JSON_Parser parser, Symbol token)
 {
@@ -1195,29 +1254,39 @@ reprocess:
             codepointToOutput = c;
             parser->lexerState = LEXER_IN_NUMBER_SIGNIFICAND_INTEGER_DIGITS;
         }
-        else if (c != ' ' &&
-                 c != TAB_CODEPOINT &&
-                 c != LINE_FEED_CODEPOINT &&
-                 c != CARRIAGE_RETURN_CODEPOINT &&
-                 c != EOF_CODEPOINT)
+        else if (c == ' ' || c == TAB_CODEPOINT || c == LINE_FEED_CODEPOINT ||
+                 c == CARRIAGE_RETURN_CODEPOINT || c == EOF_CODEPOINT)
         {
-            if (c == BOM_CODEPOINT && parser->codepointLocation.byte == 0)
+            /* Ignore whitespace between tokens. */
+        }
+        else if (c == BOM_CODEPOINT && parser->codepointLocation.byte == 0)
+        {
+            if (parser->parserStatus & PARSER_ALLOW_BOM)
             {
-                if (parser->parserStatus & PARSER_ALLOW_BOM)
-                {
-                    /* OK, we'll allow the BOM. */
-                }
-                else
-                {
-                    SetErrorAtCodepoint(parser, JSON_Error_BOMNotAllowed);
-                    return JSON_Failure;
-                }
+                /* OK, we'll allow the BOM. */
             }
             else
             {
-                SetErrorAtCodepoint(parser, JSON_Error_UnknownToken);
+                SetErrorAtCodepoint(parser, JSON_Error_BOMNotAllowed);
                 return JSON_Failure;
             }
+        }
+        else if (c == 'N' && (parser->parserStatus & PARSER_ALLOW_NAN_AND_INFINITY))
+        {
+            StartToken(parser, TOKEN_NAN);
+            parser->lexerBits = NAN_LITERAL_EXPECTED_CHARS_START_INDEX;
+            parser->lexerState = LEXER_IN_LITERAL;
+        }
+        else if (c == 'I' && (parser->parserStatus & PARSER_ALLOW_NAN_AND_INFINITY))
+        {
+            StartToken(parser, TOKEN_INFINITY);
+            parser->lexerBits = INFINITY_LITERAL_EXPECTED_CHARS_START_INDEX;
+            parser->lexerState = LEXER_IN_LITERAL;
+        }
+        else
+        {
+            SetErrorAtCodepoint(parser, JSON_Error_UnknownToken);
+            return JSON_Failure;
         }
         break;
 
@@ -1498,6 +1567,12 @@ reprocess:
         {
             /* FlushLexer() will trigger the appropriate error. */
         }
+        else if (c == 'I' && (parser->parserStatus & PARSER_ALLOW_NAN_AND_INFINITY))
+        {
+            parser->token = TOKEN_NEGATIVE_INFINITY; /* changing horses mid-stream, so to speak */
+            parser->lexerBits = INFINITY_LITERAL_EXPECTED_CHARS_START_INDEX;
+            parser->lexerState = LEXER_IN_LITERAL;
+        }
         else
         {
             if (c == '0')
@@ -1512,7 +1587,9 @@ reprocess:
             }
             else
             {
-                SetErrorAtToken(parser, JSON_Error_InvalidNumber);
+                /* We trigger an unknown token error rather than an invalid number
+                   error so that "Foo" and "-Foo" trigger the same error. */
+                SetErrorAtToken(parser, JSON_Error_UnknownToken);
                 return JSON_Failure;
             }
         }
@@ -2760,6 +2837,28 @@ JSON_Status JSON_CALL JSON_SetAllowTrailingCommas(JSON_Parser parser, JSON_Boole
     else
     {
         parser->parserStatus &= ~PARSER_ALLOW_TRAILING_COMMAS;
+    }
+    return JSON_Success;
+}
+
+JSON_Boolean JSON_CALL JSON_GetAllowNaNAndInfinity(JSON_Parser parser)
+{
+    return (parser && (parser->parserStatus & PARSER_ALLOW_NAN_AND_INFINITY)) ? JSON_True : JSON_False;
+}
+
+JSON_Status JSON_CALL JSON_SetAllowNaNAndInfinity(JSON_Parser parser, JSON_Boolean allowNaNAndInfinity)
+{
+    if (!parser || (parser->parserStatus & PARSER_STARTED))
+    {
+        return JSON_Failure;
+    }
+    if (allowNaNAndInfinity)
+    {
+        parser->parserStatus |= PARSER_ALLOW_NAN_AND_INFINITY;
+    }
+    else
+    {
+        parser->parserStatus &= ~PARSER_ALLOW_NAN_AND_INFINITY;
     }
     return JSON_Success;
 }

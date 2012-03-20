@@ -134,6 +134,7 @@ typedef struct tag_ParserSettings
     size_t        maxOutputStringLength;
     JSON_Boolean  allowBOM;
     JSON_Boolean  allowTrailingCommas;
+    JSON_Boolean  allowNaNAndInfinity;
     JSON_Boolean  trackObjectMembers;
 } ParserSettings;
 
@@ -145,6 +146,7 @@ static void InitParserSettings(ParserSettings* pSettings)
     pSettings->maxOutputStringLength = (size_t)-1;
     pSettings->allowBOM = JSON_False;
     pSettings->allowTrailingCommas = JSON_False;
+    pSettings->allowNaNAndInfinity = JSON_False;
     pSettings->trackObjectMembers = JSON_False;
 }
 
@@ -156,6 +158,7 @@ static void GetParserSettings(JSON_Parser parser, ParserSettings* pSettings)
     pSettings->maxOutputStringLength = JSON_GetMaxOutputStringLength(parser);
     pSettings->allowBOM = JSON_GetAllowBOM(parser);
     pSettings->allowTrailingCommas = JSON_GetAllowTrailingCommas(parser);
+    pSettings->allowNaNAndInfinity = JSON_GetAllowNaNAndInfinity(parser);
     pSettings->trackObjectMembers = JSON_GetTrackObjectMembers(parser);
 }
 
@@ -167,6 +170,7 @@ static int ParserSettingsAreIdentical(const ParserSettings* pSettings1, const Pa
             pSettings1->maxOutputStringLength == pSettings2->maxOutputStringLength &&
             pSettings1->allowBOM == pSettings2->allowBOM &&
             pSettings1->allowTrailingCommas == pSettings2->allowTrailingCommas &&
+            pSettings1->allowNaNAndInfinity == pSettings2->allowNaNAndInfinity &&
             pSettings1->trackObjectMembers == pSettings2->trackObjectMembers);
 }
 
@@ -186,6 +190,7 @@ static int CheckParserSettings(JSON_Parser parser, const ParserSettings* pExpect
                "  JSON_GetMaxOutputStringLength() %8d   %8d\n"
                "  JSON_GetAllowBOM()              %8d   %8d\n"
                "  JSON_GetAllowTrailingCommas()   %8d   %8d\n"
+               "  JSON_GetAllowNaNAndInfinity()   %8d   %8d\n"
                "  JSON_GetTrackObjectMembers()    %8d   %8d\n"
                ,
                pExpectedSettings->userData, actualSettings.userData,
@@ -194,6 +199,7 @@ static int CheckParserSettings(JSON_Parser parser, const ParserSettings* pExpect
                (int)pExpectedSettings->maxOutputStringLength, (int)actualSettings.maxOutputStringLength,
                (int)pExpectedSettings->allowBOM, (int)actualSettings.allowBOM,
                (int)pExpectedSettings->allowTrailingCommas, (int)actualSettings.allowTrailingCommas,
+               (int)pExpectedSettings->allowNaNAndInfinity, (int)actualSettings.allowNaNAndInfinity,
                (int)pExpectedSettings->trackObjectMembers, (int)actualSettings.trackObjectMembers
             );
     }
@@ -417,6 +423,16 @@ static int CheckSetAllowTrailingCommas(JSON_Parser parser, JSON_Boolean allowTra
     if (JSON_SetAllowTrailingCommas(parser, allowTrailingCommas) != expectedStatus)
     {
         printf("FAILURE: expected JSON_SetAllowTrailingCommas() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
+        return 0;
+    }
+    return 1;
+}
+
+static int CheckSetAllowNaNAndInfinity(JSON_Parser parser, JSON_Boolean allowNaNAndInfinity, JSON_Status expectedStatus)
+{
+    if (JSON_SetAllowNaNAndInfinity(parser, allowNaNAndInfinity) != expectedStatus)
+    {
+        printf("FAILURE: expected JSON_SetAllowNaNAndInfinity() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
         return 0;
     }
     return 1;
@@ -683,6 +699,7 @@ static int TryToMisbehaveInCallback(JSON_Parser parser)
         !CheckSetOutputEncoding(parser, JSON_UTF32LE, JSON_Failure) ||
         !CheckSetAllowBOM(parser, JSON_True, JSON_Failure) ||
         !CheckSetAllowTrailingCommas(parser, JSON_True, JSON_Failure) ||
+        !CheckSetAllowNaNAndInfinity(parser, JSON_True, JSON_Failure) ||
         !CheckSetTrackObjectMembers(parser, JSON_True, JSON_Failure) ||
         !CheckParse(parser, " ", 1, JSON_False, JSON_Failure))
     {
@@ -939,6 +956,13 @@ static JSON_Parser AllowTrailingCommasParserFactory()
     return parser;
 }
 
+static JSON_Parser AllowNaNAndInfinityParserFactory()
+{
+    JSON_Parser parser = DefaultParserFactory();
+    JSON_SetAllowNaNAndInfinity(parser, JSON_True);
+    return parser;
+}
+
 static JSON_Parser TrackObjectMembersParserFactory()
 {
     JSON_Parser parser = DefaultParserFactory();
@@ -1074,6 +1098,7 @@ static void TestSetParserSettings()
     settings.outputEncoding = JSON_UTF16LE;
     settings.allowBOM = JSON_True;
     settings.allowTrailingCommas = JSON_True;
+    settings.allowNaNAndInfinity = JSON_True;
     settings.trackObjectMembers = JSON_True;
     if (CheckCreateParser(NULL, JSON_Success, &parser) &&
         CheckSetUserData(parser, settings.userData, JSON_Success) &&
@@ -1082,6 +1107,7 @@ static void TestSetParserSettings()
         CheckSetMaxOutputStringLength(parser, settings.maxOutputStringLength, JSON_Success) &&
         CheckSetAllowBOM(parser, settings.allowBOM, JSON_Success) &&
         CheckSetAllowTrailingCommas(parser, settings.allowTrailingCommas, JSON_Success) &&
+        CheckSetAllowNaNAndInfinity(parser, settings.allowNaNAndInfinity, JSON_Success) &&
         CheckSetTrackObjectMembers(parser, settings.trackObjectMembers, JSON_Success) &&
         CheckParserSettings(parser, &settings))
     {
@@ -1174,6 +1200,7 @@ static void TestResetParser()
         CheckSetMaxOutputStringLength(parser, 32, JSON_Success) &&
         CheckSetAllowBOM(parser, JSON_True, JSON_Success) &&
         CheckSetAllowTrailingCommas(parser, JSON_True, JSON_Success) &&
+        CheckSetAllowNaNAndInfinity(parser, JSON_True, JSON_Success) &&
         CheckSetTrackObjectMembers(parser, JSON_True, JSON_Success) &&
         CheckSetNullHandler(parser, &NullHandler, JSON_Success) &&
         CheckSetBooleanHandler(parser, &BooleanHandler, JSON_Success) &&
@@ -1617,6 +1644,162 @@ static void TestErrorStrings()
     }
 }
 
+typedef struct tag_IEEE754Test
+{
+    const char* pInput;
+    size_t      length;
+    double      expectedValue;
+} IEEE754Test;
+
+#define IEEE754_TEST(input, value) { input, sizeof(input) - 1, value },
+
+static const IEEE754Test s_IEEE754Tests[] =
+{
+    IEEE754_TEST("0", 0.0)
+    IEEE754_TEST("0.0", 0.0)
+    IEEE754_TEST("-0", -0.0)
+    IEEE754_TEST("1", 1.0)
+    IEEE754_TEST("1.0", 1.0)
+    IEEE754_TEST("-1", -1.0)
+    IEEE754_TEST("-1.0", -1.0)
+    IEEE754_TEST("0.5", 0.5)
+    IEEE754_TEST("-0.5", -0.5)
+    IEEE754_TEST("12345", 12345.0)
+    IEEE754_TEST("-12345", -12345.0)
+    IEEE754_TEST("12345e2", 12345.0e2)
+    IEEE754_TEST("12345e+2", 12345.0e2)
+    IEEE754_TEST("0.5e-2", 0.005)
+};
+
+static JSON_HandlerResult JSON_CALL CheckIEEE754InterpretationNumberHandler(JSON_Parser parser, const JSON_Location* pLocation, double value)
+{
+    const IEEE754Test* pTest = (const IEEE754Test*)JSON_GetUserData(parser);
+    (void)pLocation; /* unused */
+    if (value != pTest->expectedValue)
+    {
+        printf("FAILURE: expected %f instead of %f\n", pTest->expectedValue, value);
+        s_failureCount++;
+        return JSON_AbortParsing;
+    }
+    return JSON_ContinueParsing;
+}
+
+static void RunIEEE754Test(const IEEE754Test* pTest)
+{
+    JSON_Parser parser = NULL;
+    printf("Test IEEE 754 interpretation of %s ... ", pTest->pInput);
+    if (CheckCreateParserWithCustomMemorySuite(&MallocHandler, &ReallocHandler, &FreeHandler, JSON_Success, &parser) &&
+        CheckSetNumberHandler(parser, &CheckIEEE754InterpretationNumberHandler, JSON_Success) &&
+        CheckSetUserData(parser, (void*)pTest, JSON_Success))
+    {
+        if (JSON_Parse(parser, pTest->pInput, pTest->length, JSON_True) == JSON_Success)
+        {
+            printf("OK\n");
+        }
+    }
+    else
+    {
+        s_failureCount++;
+    }
+    JSON_FreeParser(parser);
+}
+
+static JSON_HandlerResult JSON_CALL CheckIEEE754NaNInterpretationNumberHandler(JSON_Parser parser, const JSON_Location* pLocation, double value)
+{
+    (void)parser; (void)pLocation; /* unused */
+    if (value == value)
+    {
+        return JSON_AbortParsing;
+    }
+    return JSON_ContinueParsing;
+}
+
+static void TestIEEE754NaNInterpretation()
+{
+    JSON_Parser parser = NULL;
+    printf("Test IEEE 754 interpretation of NaN ... ");
+    if (CheckCreateParserWithCustomMemorySuite(&MallocHandler, &ReallocHandler, &FreeHandler, JSON_Success, &parser) &&
+        CheckSetAllowNaNAndInfinity(parser, JSON_True, JSON_Success) &&
+        CheckSetNumberHandler(parser, &CheckIEEE754NaNInterpretationNumberHandler, JSON_Success) &&
+        CheckParse(parser, "NaN", 3, JSON_True, JSON_Success))
+    {
+        printf("OK\n");
+    }
+    else
+    {
+        s_failureCount++;
+    }
+    JSON_FreeParser(parser);
+}
+
+static JSON_HandlerResult JSON_CALL CheckIEEE754InfinityInterpretationNumberHandler(JSON_Parser parser, const JSON_Location* pLocation, double value)
+{
+    (void)parser; (void)pLocation; /* unused */
+    if (value <= 0 || value - value == 0.0)
+    {
+        return JSON_AbortParsing;
+    }
+    return JSON_ContinueParsing;
+}
+
+static void TestIEEE754InfinityInterpretation()
+{
+    JSON_Parser parser = NULL;
+    printf("Test IEEE 754 interpretation of Infinity ... ");
+    if (CheckCreateParserWithCustomMemorySuite(&MallocHandler, &ReallocHandler, &FreeHandler, JSON_Success, &parser) &&
+        CheckSetAllowNaNAndInfinity(parser, JSON_True, JSON_Success) &&
+        CheckSetNumberHandler(parser, &CheckIEEE754InfinityInterpretationNumberHandler, JSON_Success) &&
+        CheckParse(parser, "Infinity", 8, JSON_True, JSON_Success))
+    {
+        printf("OK\n");
+    }
+    else
+    {
+        s_failureCount++;
+    }
+    JSON_FreeParser(parser);
+}
+
+static JSON_HandlerResult JSON_CALL CheckIEEE754NegativeInfinityInterpretationNumberHandler(JSON_Parser parser, const JSON_Location* pLocation, double value)
+{
+    (void)parser; (void)pLocation; /* unused */
+    if (value >= 0.0 || value - value == 0.0)
+    {
+        return JSON_AbortParsing;
+    }
+    return JSON_ContinueParsing;
+}
+
+static void TestIEEE754NegativeInfinityInterpretation()
+{
+    JSON_Parser parser = NULL;
+    printf("Test IEEE 754 interpretation of -Infinity ... ");
+    if (CheckCreateParserWithCustomMemorySuite(&MallocHandler, &ReallocHandler, &FreeHandler, JSON_Success, &parser) &&
+        CheckSetAllowNaNAndInfinity(parser, JSON_True, JSON_Success) &&
+        CheckSetNumberHandler(parser, &CheckIEEE754NegativeInfinityInterpretationNumberHandler, JSON_Success) &&
+        CheckParse(parser, "-Infinity", 9, JSON_True, JSON_Success))
+    {
+        printf("OK\n");
+    }
+    else
+    {
+        s_failureCount++;
+    }
+    JSON_FreeParser(parser);
+}
+
+static void TestIEEE754NumberInterpretation()
+{
+    size_t i;
+    for  (i = 0; i < sizeof(s_IEEE754Tests)/sizeof(s_IEEE754Tests[0]); i++)
+    {
+        RunIEEE754Test(&s_IEEE754Tests[i]);
+    }
+    TestIEEE754NaNInterpretation();
+    TestIEEE754InfinityInterpretation();
+    TestIEEE754NegativeInfinityInterpretation();
+}
+
 #define PARSE_SUCCESS_TEST(name, create, input, final, enc, output) { name, create, input, sizeof(input) - 1, final, JSON_Error_None, 0, 0, 0, JSON_##enc, output },
 #define PARSE_FAILURE_TEST(name, create, input, final, err, byte, line, col, enc) { name, create, input, sizeof(input) - 1, final, JSON_Error_##err, byte, line, col, JSON_##enc, NULL },
 
@@ -1789,13 +1972,80 @@ PARSE_FAILURE_TEST("fal is not a literal", DefaultParserFactory, "fal ", FINAL, 
 PARSE_FAILURE_TEST("falx is not a literal", DefaultParserFactory, "falx", FINAL, UnknownToken, 0, 0, 0, UTF8)
 PARSE_FAILURE_TEST("fals is not a literal", DefaultParserFactory, "fals", FINAL, UnknownToken, 0, 0, 0, UTF8)
 PARSE_FAILURE_TEST("false0 is not a literal", DefaultParserFactory, "false0", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("false__ is not a literal", DefaultParserFactory, "false__", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("false_ is not a literal", DefaultParserFactory, "false_", FINAL, UnknownToken, 0, 0, 0, UTF8)
 PARSE_FAILURE_TEST("falseX is not a literal", DefaultParserFactory, "falseX", FINAL, UnknownToken, 0, 0, 0, UTF8)
 PARSE_FAILURE_TEST("FALSE is not a literal", DefaultParserFactory, "FALSE", FINAL, UnknownToken, 0, 0, 0, UTF8)
 PARSE_FAILURE_TEST("false truncated after f", DefaultParserFactory, "f", FINAL, UnknownToken, 0, 0, 0, UTF8)
 PARSE_FAILURE_TEST("false truncated after fa", DefaultParserFactory, "fa", FINAL, UnknownToken, 0, 0, 0, UTF8)
 PARSE_FAILURE_TEST("false truncated after fal", DefaultParserFactory, "fal", FINAL, UnknownToken, 0, 0, 0, UTF8)
 PARSE_FAILURE_TEST("false truncated after fals", DefaultParserFactory, "fals", FINAL, UnknownToken, 0, 0, 0, UTF8)
+
+/* NaN */
+
+PARSE_SUCCESS_TEST("NaN (1)", AllowNaNAndInfinityParserFactory, "NaN", FINAL, UTF8, "#(NaN):0,0,0;")
+PARSE_SUCCESS_TEST("NaN (2)", AllowNaNAndInfinityParserFactory, " NaN ", FINAL, UTF8, "#(NaN):1,0,1;")
+PARSE_FAILURE_TEST("N is not a literal", AllowNaNAndInfinityParserFactory, "N ", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("Na is not a literal", AllowNaNAndInfinityParserFactory, "Na ", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("Nax is not a literal", AllowNaNAndInfinityParserFactory, "Nax", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("Na0 is not a literal", AllowNaNAndInfinityParserFactory, "NaN0", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("NaN_ is not a literal", AllowNaNAndInfinityParserFactory, "NaN_", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("NaNX is not a literal", AllowNaNAndInfinityParserFactory, "NaNX", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("NAN is not a literal", AllowNaNAndInfinityParserFactory, "NAN", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("NaN truncated after N", AllowNaNAndInfinityParserFactory, "N", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("NaN truncated after Na", AllowNaNAndInfinityParserFactory, "Na", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("NaN not allowed", DefaultParserFactory, "NaN", FINAL, UnknownToken, 0, 0, 0, UTF8)
+
+/* Infinity */
+
+PARSE_SUCCESS_TEST("Infinity (1)", AllowNaNAndInfinityParserFactory, "Infinity", FINAL, UTF8, "#(Infinity):0,0,0;")
+PARSE_SUCCESS_TEST("Infinity (2)", AllowNaNAndInfinityParserFactory, " Infinity ", FINAL, UTF8, "#(Infinity):1,0,1;")
+PARSE_FAILURE_TEST("I is not a literal", AllowNaNAndInfinityParserFactory, "I ", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("In is not a literal", AllowNaNAndInfinityParserFactory, "In ", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("Inf is not a literal", AllowNaNAndInfinityParserFactory, "Inf ", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("Infi is not a literal", AllowNaNAndInfinityParserFactory, "Infi ", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("Infin is not a literal", AllowNaNAndInfinityParserFactory, "Infin ", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("Infini is not a literal", AllowNaNAndInfinityParserFactory, "Infini ", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("Infinit is not a literal", AllowNaNAndInfinityParserFactory, "Infinit ", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("Infinitx is not a literal", AllowNaNAndInfinityParserFactory, "Infinitx", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("Infinit0 is not a literal", AllowNaNAndInfinityParserFactory, "Infinit0", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("Infinity_ is not a literal", AllowNaNAndInfinityParserFactory, "Infinity_", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("InfinityX is not a literal", AllowNaNAndInfinityParserFactory, "InfinityX", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("INF is not a literal", AllowNaNAndInfinityParserFactory, "INF", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("INFINITY is not a literal", AllowNaNAndInfinityParserFactory, "INFINITY", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("Infinity truncated after I", AllowNaNAndInfinityParserFactory, "I", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("Infinity truncated after In", AllowNaNAndInfinityParserFactory, "In", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("Infinity truncated after Inf", AllowNaNAndInfinityParserFactory, "Inf", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("Infinity truncated after Infi", AllowNaNAndInfinityParserFactory, "Infi", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("Infinity truncated after Infin", AllowNaNAndInfinityParserFactory, "Infin", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("Infinity truncated after Infini", AllowNaNAndInfinityParserFactory, "Infini", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("Infinity truncated after Infinit", AllowNaNAndInfinityParserFactory, "Infinit", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("Infinity not allowed", DefaultParserFactory, "Infinity", FINAL, UnknownToken, 0, 0, 0, UTF8)
+
+/* -Infinity */
+
+PARSE_SUCCESS_TEST("-Infinity (1)", AllowNaNAndInfinityParserFactory, "-Infinity", FINAL, UTF8, "#(-Infinity):0,0,0;")
+PARSE_SUCCESS_TEST("-Infinity (2)", AllowNaNAndInfinityParserFactory, " -Infinity ", FINAL, UTF8, "#(-Infinity):1,0,1;")
+PARSE_FAILURE_TEST("-I is not a number", AllowNaNAndInfinityParserFactory, "-I ", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("-In is not a number", AllowNaNAndInfinityParserFactory, "-In ", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("-Inf is not a number", AllowNaNAndInfinityParserFactory, "-Inf ", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("-Infi is not a number", AllowNaNAndInfinityParserFactory, "-Infi ", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("-Infin is not a number", AllowNaNAndInfinityParserFactory, "-Infin ", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("-Infini is not a number", AllowNaNAndInfinityParserFactory, "-Infini ", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("-Infinit is not a number", AllowNaNAndInfinityParserFactory, "-Infinit ", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("-Infinitx is not a number", AllowNaNAndInfinityParserFactory, "-Infinitx", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("-Infinit0 is not a number", AllowNaNAndInfinityParserFactory, "-Infinit0", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("-Infinity_ is not a number", AllowNaNAndInfinityParserFactory, "-Infinity_", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("-InfinityX is not a number", AllowNaNAndInfinityParserFactory, "-InfinityX", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("-INF is not a number", AllowNaNAndInfinityParserFactory, "-INF", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("-INFINITY is not a number", AllowNaNAndInfinityParserFactory, "-INFINITY", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("-Infinity truncated after I", AllowNaNAndInfinityParserFactory, "-I", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("-Infinity truncated after In", AllowNaNAndInfinityParserFactory, "-In", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("-Infinity truncated after Inf", AllowNaNAndInfinityParserFactory, "-Inf", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("-Infinity truncated after Infi", AllowNaNAndInfinityParserFactory, "-Infi", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("-Infinity truncated after Infin", AllowNaNAndInfinityParserFactory, "-Infin", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("-Infinity truncated after Infini", AllowNaNAndInfinityParserFactory, "-Infini", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("-Infinity truncated after Infinit", AllowNaNAndInfinityParserFactory, "-Infinit", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("-Infinity not allowed", DefaultParserFactory, "-Infinity", FINAL, UnknownToken, 0, 0, 0, UTF8)
 
 /* numbers */
 
@@ -1853,8 +2103,8 @@ PARSE_FAILURE_TEST("number cannot have digits after leading 0 (1)", DefaultParse
 PARSE_FAILURE_TEST("number cannot have digits after leading 0 (2)", DefaultParserFactory, "01", FINAL, InvalidNumber, 0, 0, 0, UTF8)
 PARSE_FAILURE_TEST("number cannot have digits after leading 0 (3)", DefaultParserFactory, "-00", FINAL, InvalidNumber, 0, 0, 0, UTF8)
 PARSE_FAILURE_TEST("number cannot have digits after leading 0 (4)", DefaultParserFactory, "-01", FINAL, InvalidNumber, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("number requires digit after - sign", DefaultParserFactory, "-x", FINAL, InvalidNumber, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("number truncated after minus sign", DefaultParserFactory, "-", FINAL, IncompleteInput, 1, 0, 1, UTF8)
+PARSE_FAILURE_TEST("number requires digit after - sign", DefaultParserFactory, "-x", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("number truncated after - sign", DefaultParserFactory, "-", FINAL, IncompleteInput, 1, 0, 1, UTF8)
 PARSE_FAILURE_TEST("number requires digit after decimal point", DefaultParserFactory, "7.x", FINAL, InvalidNumber, 0, 0, 0, UTF8)
 PARSE_FAILURE_TEST("number truncated after decimal point", DefaultParserFactory, "7.", FINAL, IncompleteInput, 2, 0, 2, UTF8)
 PARSE_FAILURE_TEST("number requires digit or sign after e", DefaultParserFactory, "7ex", FINAL, InvalidNumber, 0, 0, 0, UTF8)
@@ -2093,6 +2343,7 @@ int main(int argc, char* argv[])
     TestStackReallocFailure();
     TestDuplicateMemberTrackingMallocFailure();
     TestErrorStrings();
+    TestIEEE754NumberInterpretation();
     TestParse();
     TestNoLeaks();
     if (!s_failureCount)

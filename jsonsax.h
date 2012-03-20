@@ -426,7 +426,9 @@ JSON_API(JSON_Status) JSON_SetNumberHandler(JSON_Parser parser, JSON_NumberHandl
  * encoded as ASCII, regardless of the parser instance's input and output
  * encoding settings. The text is guaranteed to contain only characters
  * allowed in JSON number values, that is: '0' - '9', '+', '-', '.', 'e',
- * and 'E'.
+ * and 'E'. If the option to allow NaN and Infinity is enabled (see
+ * JSON_SetAllowNaNAndInfinity() for details) the text may also be the
+ * string "NaN", "Infinity", or "-Infinity".
  *
  * Note that if this handler is set, the non-raw number handler will not be
  * called.
@@ -624,6 +626,21 @@ JSON_API(JSON_Status) JSON_SetAllowBOM(JSON_Parser parser, JSON_Boolean allowBOM
  */
 JSON_API(JSON_Boolean) JSON_GetAllowTrailingCommas(JSON_Parser parser);
 JSON_API(JSON_Status) JSON_SetAllowTrailingCommas(JSON_Parser parser, JSON_Boolean allowTrailingCommas);
+
+/* Get and set whether a parser instance allows NaN, Infinity, and -Infinity
+ * as number values.
+ *
+ * RFC 4627 does not provide any way to represent NaN, Infinity, or -Intinity,
+ *  but some clients may find it convenient to recognize these as literals,
+ * since they are emitted by many common JSON generators.
+ *
+ * The default value of this setting is JSON_False.
+ *
+ * Note that calls to JSON_SetAllowNaNAndInfinity() will return failure if the
+ * parser has started parsing.
+ */
+JSON_API(JSON_Boolean) JSON_GetAllowNaNAndInfinity(JSON_Parser parser);
+JSON_API(JSON_Status) JSON_SetAllowNaNAndInfinity(JSON_Parser parser, JSON_Boolean allowNaNAndInfinity);
 
 /* Get and set whether a parser instance tracks object member names for all
  * open objects and detects duplicate members if any occur in the input.
