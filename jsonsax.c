@@ -24,7 +24,6 @@
 #include <memory.h>
 #include <locale.h>
 #include <math.h>
-#include <float.h>
 
 /* Mark APIs for export (as opposed to import) when we build this file. */
 #define JSON_BUILDING
@@ -41,14 +40,6 @@ typedef unsigned __int32 JSON_UInt32;
 #else
 #include <stdint.h>
 typedef uint32_t JSON_UInt32;
-#endif
-
-/* Provide NAN and INFINITY for C89. */
-#ifndef NAN
-#define NAN (strtod("NAN", NULL))
-#endif
-#ifndef INFINITY
-#define INFINITY (strtod("INF", NULL))
 #endif
 
 /* Especially-relevant Unicode codepoints. */
@@ -813,25 +804,30 @@ static JSON_Status MakeNumberCallback(JSON_Parser parser, JSON_RawNumberHandler 
         else
         {
             double value;
+            JSON_NumberType type;
             switch (parser->token)
             {
             case TOKEN_NAN:
-                value = NAN;
+                value = 0.0;
+                type = JSON_NaN;
                 break;
 
             case TOKEN_INFINITY:
-                value = INFINITY;
+                value = HUGE_VAL;
+                type = JSON_Infinity;
                 break;
 
             case TOKEN_NEGATIVE_INFINITY:
-                value = -INFINITY;
+                value = -HUGE_VAL;
+                type = JSON_NegativeInfinity;
                 break;
 
             default:
                 value = InterpretNumber(parser);
+                type = JSON_NormalNumber;
                 break;
             }
-            result = handler(parser, &parser->tokenLocation, value);
+            result = handler(parser, &parser->tokenLocation, value, type);
         }
         parser->parserStatus &= ~PARSER_IN_CALLBACK;
         if (result != JSON_ContinueParsing)

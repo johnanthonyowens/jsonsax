@@ -24,6 +24,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
+#include <math.h>
 #include "jsonsax.h"
 
 static int s_failureCount = 0;
@@ -752,9 +753,9 @@ static JSON_HandlerResult JSON_CALL StringHandler(JSON_Parser parser, const JSON
     return JSON_ContinueParsing;
 }
 
-static JSON_HandlerResult JSON_CALL NumberHandler(JSON_Parser parser, const JSON_Location* pLocation, double value)
+static JSON_HandlerResult JSON_CALL NumberHandler(JSON_Parser parser, const JSON_Location* pLocation, double value, JSON_NumberType type)
 {
-    (void)pLocation; (void)value; /* unused */
+    (void)pLocation; (void)value; (void)type; /* unused */
     if (s_failParseCallback)
     {
         return JSON_AbortParsing;
@@ -1671,13 +1672,19 @@ static const IEEE754Test s_IEEE754Tests[] =
     IEEE754_TEST("0.5e-2", 0.005)
 };
 
-static JSON_HandlerResult JSON_CALL CheckIEEE754InterpretationNumberHandler(JSON_Parser parser, const JSON_Location* pLocation, double value)
+static JSON_HandlerResult JSON_CALL CheckIEEE754InterpretationNumberHandler(JSON_Parser parser, const JSON_Location* pLocation, double value, JSON_NumberType type)
 {
     const IEEE754Test* pTest = (const IEEE754Test*)JSON_GetUserData(parser);
     (void)pLocation; /* unused */
     if (value != pTest->expectedValue)
     {
-        printf("FAILURE: expected %f instead of %f\n", pTest->expectedValue, value);
+        printf("FAILURE: expected value to be %f instead of %f\n", pTest->expectedValue, value);
+        s_failureCount++;
+        return JSON_AbortParsing;
+    }
+    if (type != JSON_NormalNumber)
+    {
+        printf("FAILURE: expected type to be %d instead of %d\n", JSON_NormalNumber, (int)type);
         s_failureCount++;
         return JSON_AbortParsing;
     }
@@ -1704,10 +1711,10 @@ static void RunIEEE754Test(const IEEE754Test* pTest)
     JSON_FreeParser(parser);
 }
 
-static JSON_HandlerResult JSON_CALL CheckIEEE754NaNInterpretationNumberHandler(JSON_Parser parser, const JSON_Location* pLocation, double value)
+static JSON_HandlerResult JSON_CALL CheckIEEE754NaNInterpretationNumberHandler(JSON_Parser parser, const JSON_Location* pLocation, double value, JSON_NumberType type)
 {
     (void)parser; (void)pLocation; /* unused */
-    if (value == value)
+    if (value != 0.0 || type != JSON_NaN)
     {
         return JSON_AbortParsing;
     }
@@ -1732,10 +1739,10 @@ static void TestIEEE754NaNInterpretation()
     JSON_FreeParser(parser);
 }
 
-static JSON_HandlerResult JSON_CALL CheckIEEE754InfinityInterpretationNumberHandler(JSON_Parser parser, const JSON_Location* pLocation, double value)
+static JSON_HandlerResult JSON_CALL CheckIEEE754InfinityInterpretationNumberHandler(JSON_Parser parser, const JSON_Location* pLocation, double value, JSON_NumberType type)
 {
     (void)parser; (void)pLocation; /* unused */
-    if (value <= 0 || value - value == 0.0)
+    if (value != HUGE_VAL || type != JSON_Infinity)
     {
         return JSON_AbortParsing;
     }
@@ -1760,10 +1767,10 @@ static void TestIEEE754InfinityInterpretation()
     JSON_FreeParser(parser);
 }
 
-static JSON_HandlerResult JSON_CALL CheckIEEE754NegativeInfinityInterpretationNumberHandler(JSON_Parser parser, const JSON_Location* pLocation, double value)
+static JSON_HandlerResult JSON_CALL CheckIEEE754NegativeInfinityInterpretationNumberHandler(JSON_Parser parser, const JSON_Location* pLocation, double value, JSON_NumberType type)
 {
     (void)parser; (void)pLocation; /* unused */
-    if (value >= 0.0 || value - value == 0.0)
+    if (value != -HUGE_VAL || type != JSON_NegativeInfinity)
     {
         return JSON_AbortParsing;
     }

@@ -192,6 +192,15 @@ typedef enum tag_JSON_StringAttribute
 } JSON_StringAttribute;
 typedef int JSON_StringAttributes;
 
+/* Types of number value. */
+typedef enum tag_JSON_NumberType
+{
+    JSON_NormalNumber     = 0,
+    JSON_NaN              = 1,
+    JSON_Infinity         = 2,
+    JSON_NegativeInfinity = 3
+} JSON_NumberType;
+
 /* Information identifying a location in a parser instance's input stream.
  * All parse handlers receive the location of the token that triggered the
  * handler.
@@ -398,7 +407,30 @@ JSON_API(JSON_Status) JSON_SetStringHandler(JSON_Parser parser, JSON_StringHandl
  * floating-point value.
  *
  * Clients that want to interpret number values differently should set the
- * parser instance's raw number handler instead.
+ * parser instance's raw number handler instead. See SetRawNumberHandler()
+ * for details.
+ *
+ * For all RFC 4627-compliant number values, the type parameter will be
+ * JSON_NormalNumber.
+ *
+ * If the option to allow NaN and infinity is enabled and the value was
+ * represented in the input by the literal "NaN", the value parameter will
+ * be 0.0 (NOT one of the IEEE 754 NaN values) and the type parameter will
+ * be JSON_NaN.
+ *
+ * If the option to allow NaN and infinity is enabled and the value was
+ * represented in the input by the literal "Infinity", the value parameter
+ * will be HUGE_VAL and the type parameter will be JSON_Infinity.
+ *
+ * If the option to allow NaN and infinity is enabled and the value was
+ * represented in the input by the literal "-Infinity", the value parameter
+ * will be -HUGE_VAL and the type parameter will be JSON_NegativeInfinity.
+ *
+ * Note that if the value was represented in the input by a RFC 4627-compliant
+ * number value whose magnitude was simply too large to be represented by an
+ * IEEE 754 double-precision value, the value parameter will be the
+ * corresponding IEEE 754 infinity or negative infinity value, but the type
+ * parameter will be JSON_NormalNumber.
  *
  * If the handler returns JSON_AbortParsing, the parser will abort the parse,
  * set its error to JSON_Error_AbortedByHandler, and return JSON_Failure from
@@ -406,7 +438,7 @@ JSON_API(JSON_Status) JSON_SetStringHandler(JSON_Parser parser, JSON_StringHandl
  *
  * The handler can be changed at any time, even inside a handler.
  */
-typedef JSON_HandlerResult (JSON_CALL * JSON_NumberHandler)(JSON_Parser parser, const JSON_Location* pLocation, double value);
+typedef JSON_HandlerResult (JSON_CALL * JSON_NumberHandler)(JSON_Parser parser, const JSON_Location* pLocation, double value, JSON_NumberType type);
 JSON_API(JSON_NumberHandler) JSON_GetNumberHandler(JSON_Parser parser);
 JSON_API(JSON_Status) JSON_SetNumberHandler(JSON_Parser parser, JSON_NumberHandler handler);
 
@@ -426,9 +458,8 @@ JSON_API(JSON_Status) JSON_SetNumberHandler(JSON_Parser parser, JSON_NumberHandl
  * encoded as ASCII, regardless of the parser instance's input and output
  * encoding settings. The text is guaranteed to contain only characters
  * allowed in JSON number values, that is: '0' - '9', '+', '-', '.', 'e',
- * and 'E'. If the option to allow NaN and Infinity is enabled (see
- * JSON_SetAllowNaNAndInfinity() for details) the text may also be the
- * string "NaN", "Infinity", or "-Infinity".
+ * and 'E'. If the option to allow NaN and infinity is enabled, the text
+ * may also be the string "NaN", "Infinity", or "-Infinity".
  *
  * Note that if this handler is set, the non-raw number handler will not be
  * called.
@@ -630,8 +661,8 @@ JSON_API(JSON_Status) JSON_SetAllowTrailingCommas(JSON_Parser parser, JSON_Boole
 /* Get and set whether a parser instance allows NaN, Infinity, and -Infinity
  * as number values.
  *
- * RFC 4627 does not provide any way to represent NaN, Infinity, or -Intinity,
- *  but some clients may find it convenient to recognize these as literals,
+ * RFC 4627 does not provide any way to represent NaN, Infinity, or -Infinity,
+ * but some clients may find it convenient to recognize these as literals,
  * since they are emitted by many common JSON generators.
  *
  * The default value of this setting is JSON_False.
