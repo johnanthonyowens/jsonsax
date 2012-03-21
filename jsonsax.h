@@ -30,7 +30,8 @@
  *
  * JSONSAX is designed to be lightweight, portable, robust, fast, and have
  * minimal memory overhead, suitable for memory-constrained environments such
- * as embedded systems.
+ * as embedded systems. It has no external dependencies other than the
+ * standard ANSI C runtime library.
  *
  * Callback-based parsers are significantly more difficult to use than
  * those that simply build and returns DOM representations of the input,
@@ -60,6 +61,15 @@
  * 3. Detection of duplicate object members is not enabled by default (to
  *    avoid memory overhead) but can be enabled if desired. Clients can also
  *    choose to implement duplicate detection themselves.
+ *
+ * The parser can parse input encoded in UTF-8, UTF-16 (LE or BE), and
+ * UTF-32 (LE or BE). By default it automatically detects the input encoding;
+ * clients can also explicitly specify the input encoding on a parser-by-
+ * parser basis.
+ *
+ * The encoding of string values passed by the parser to the client can be
+ * UTF-8, UTF-16 (LE or BE), or UTF-32 (LE or BE). Clients can specify the
+ * output encoding on a parser-by-parser basis.
  *
  * The parser is strict when decoding the input stream, and will fail if it
  * encounters an encoding sequence that is not valid for the input encoding.

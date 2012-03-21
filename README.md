@@ -15,7 +15,7 @@ JSONSAX is a library written in ANSI C which implements a stream-oriented JSON p
 
 JSONSAX stands for "JSON Streamed Ala eXpat", and is so named because its usage parser is patterned after the "SAX" style implemented by the venerable Expat XML parser.
 
-JSONSAX is designed to be lightweight, portable, robust, fast, and have minimal memory overhead, suitable for memory-constrained environments such as embedded systems.
+JSONSAX is designed to be lightweight, portable, robust, fast, and have minimal memory overhead, suitable for memory-constrained environments such as embedded systems. It has no external dependencies other than the standard ANSI C runtime library.
 
 Callback-based parsers are significantly more difficult to use than those that simply build and returns DOM representations of the input, but they are useful in situations where the client wants to build a custom DOM representation of the input without incurring the overhead of a generic "intermediate" DOM representation built by the parser, or where the client wants to perform processing that doesn't require creating any kind of DOM at all.
 
@@ -28,6 +28,10 @@ The parser adheres to [RFC 4627](http://www.ietf.org/rfc/rfc4627.txt), with the 
 2. Number values are limited to 63 characters in length (imposing limits on the length of numbers is permitted by RFC 4637).
 
 3. Detection of duplicate object members is not enabled by default (to avoid memory overhead) but can be enabled if desired. Clients can also choose to implement duplicate detection themselves.
+
+The parser can parse input encoded in UTF-8, UTF-16 (LE or BE), and UTF-32 (LE or BE). By default it automatically detects the input encoding; clients can also explicitly specify the input encoding on a parser-by-parser basis.
+
+The encoding of string values passed by the parser to the client can be UTF-8, UTF-16 (LE or BE), or UTF-32 (LE or BE). Clients can specify the output encoding on a parser-by-parser basis.
 
 The parser is strict when decoding the input stream, and will fail if it encounters an encoding sequence that is not valid for the input encoding. Note especially that this includes (but is not limited to) the following:
 
