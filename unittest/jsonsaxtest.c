@@ -2008,6 +2008,8 @@ PARSE_SUCCESS_TEST("replace UTF-8 invalid continuation byte (21)", ReplaceInvali
 PARSE_FAILURE_TEST("replace UTF-8 invalid continuation byte (22)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xF1\xBF\xBF\x7F\"!", FINAL, UnknownToken, 9, 0, 7, UTF8)
 PARSE_SUCCESS_TEST("replace UTF-8 invalid continuation byte (23)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xF1\xBF\xBF\xC0\"", FINAL, UTF8, "string(0x14, 61 62 63 EF BF BD EF BF BD):0,0,0;")
 PARSE_FAILURE_TEST("replace UTF-8 invalid continuation byte (24)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xF1\xBF\xBF\xC0\"!", FINAL, UnknownToken, 9, 0, 7, UTF8)
+PARSE_SUCCESS_TEST("Unicode 5.2.0 replacement example (1)", ReplaceInvalidEncodingSequencesParserFactory, "   \"\x61\xF1\x80\x80\xE1\x80\xC2\x62\x80\x63\x80\xBF\x64\"", FINAL, UTF8, "string(0x14, 61 EF BF BD EF BF BD EF BF BD 62 EF BF BD 63 EF BF BD EF BF BD 64):3,0,3;")
+PARSE_FAILURE_TEST("Unicode 5.2.0 replacement example (2)", ReplaceInvalidEncodingSequencesParserFactory, "   \"\x61\xF1\x80\x80\xE1\x80\xC2\x62\x80\x63\x80\xBF\x64\"!", FINAL, UnknownToken, 18, 0, 15, UTF8)
 PARSE_SUCCESS_TEST("replace UTF-16LE standalone trailing surrogate (1)", ReplaceInvalidEncodingSequencesParserFactory, "\"\x00" "_\x00" "\x00\xDC" "\"\x00", FINAL, UTF16LE, "string(0x14, 5F EF BF BD):0,0,0;")
 PARSE_FAILURE_TEST("replace UTF-16LE standalone trailing surrogate (2)", ReplaceInvalidEncodingSequencesParserFactory, "\"\x00" "_\x00" "\x00\xDC" "\"\x00" "!\x00", FINAL, UnknownToken, 8, 0, 4, UTF16LE)
 PARSE_SUCCESS_TEST("replace UTF-16LE standalone trailing surrogate (3)", ReplaceInvalidEncodingSequencesParserFactory, "\"\x00" "_\x00" "\xFF\xDF" "\"\x00", FINAL, UTF16LE, "string(0x14, 5F EF BF BD):0,0,0;")
@@ -2383,7 +2385,6 @@ PARSE_SUCCESS_TEST("empty string object member name (1)", DefaultParserFactory, 
 PARSE_SUCCESS_TEST("empty string object member name (2)", TrackObjectMembersParserFactory, "{\"\":0}", FINAL, UTF8, "{:0,0,0;member(0x0, ):1,0,1;#(0):4,0,4;}:5,0,5;")
 PARSE_SUCCESS_TEST("empty string object member name (3)", TrackObjectMembersParserFactory, "{\"\":0,\"x\":1}", FINAL, UTF8, "{:0,0,0;member(0x0, ):1,0,1;#(0):4,0,4;member(0x0, 78):6,0,6;#(1):10,0,10;}:11,0,11;")
 PARSE_FAILURE_TEST("empty string object member name (4)", TrackObjectMembersParserFactory, "{\"\":0,\"\":1}", FINAL, DuplicateObjectMember, 6,0,6, UTF8)
-
 
 /* arrays */
 
