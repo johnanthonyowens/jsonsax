@@ -71,14 +71,21 @@
  * UTF-8, UTF-16 (LE or BE), or UTF-32 (LE or BE). Clients can specify the
  * output encoding on a parser-by-parser basis.
  *
- * The parser is strict when decoding the input stream, and will fail if it
- * encounters an encoding sequence that is not valid for the input encoding.
- * Note especially that this includes (but is not limited to) the following:
+ * By default, the parser is strict when decoding the input stream, and will
+ * fail if it encounters an encoding sequence that is not valid for the input
+ * encoding. Note especially that this includes (but is not limited to) the
+ * following:
  *
  *  - Overlong encoding sequences in UTF-8.
  *  - Surrogate codepoints encoded in UTF-8 or UTF-32.
  *  - Unpaired or improperly-paired surrogates in UTF-16.
  *  - Codepoints outside the Unicode range encoded in UTF-8 or UTF-32.
+ *
+ * Clients also have the option, on a parser-by-parser basis, of replacing
+ * invalid encoding sequences in the input stream with the Unicode replacement
+ * character (U+FFFD) rather than triggering an error. The replacement follows
+ * the rules and recommendations described in section 3.9 of version 5.2.0 of
+ * [the Unicode Standard](http://www.unicode.org/versions/Unicode5.2.0/).
  *
  * The JSONSAX library is licensed under the MIT License.
  */
@@ -198,7 +205,8 @@ typedef enum tag_JSON_StringAttribute
     JSON_ContainsNullCharacter     = 1 << 0, /* U+0000 */
     JSON_ContainsControlCharacter  = 1 << 1, /* U+0000 - U+001F */
     JSON_ContainsNonASCIICharacter = 1 << 2, /* U+0080 - U+10FFFF */
-    JSON_ContainsNonBMPCharacter   = 1 << 3  /* U+10000 - U+10FFFF */
+    JSON_ContainsNonBMPCharacter   = 1 << 3, /* U+10000 - U+10FFFF */
+    JSON_ContainsReplacedCharacter = 1 << 4  /* an invalid encoding sequence was replaced by U+FFFD */
 } JSON_StringAttribute;
 typedef int JSON_StringAttributes;
 
@@ -395,12 +403,21 @@ JSON_API(JSON_Status) JSON_SetBooleanHandler(JSON_Parser parser, JSON_BooleanHan
  * The pBytes parameter points to a buffer containing the string value,
  * encoded according to the parser instance's output encoding setting. The
  * buffer is null-terminated (the null terminator character is also encoded).
+ * Note, however, that JSON strings may contain embedded null characters,
+ * which are specifiable using the escape sequence \u0000.
  *
  * The length parameter specifies the number of bytes (NOT characters) in
  * the encoded string, not including the encoded null terminator.
  *
- * Note, however, that JSON strings may contain embedded null characters,
- * which are specifiable using the escape sequence \u0000.
+ * The attributes parameter provides information about the characters
+ * that comprise the string. If the option to replace invalid encoding
+ * sequences is enabled and the string contains any Unicode replacement
+ * characters (U+FFFD) that were the result of replacing invalid encoding
+ * sequences in the input, the attributes will include the value
+ * JSON_ContainsReplacedCharacter. Note that the absence of this attribute
+ * does not imply that the string does not contain any U+FFFD characters,
+ * since such characters may have been present in the original input, and
+ * not inserted by a replacement operation.
  *
  * If the handler returns JSON_AbortParsing, the parser will abort the parse,
  * set its error to JSON_Error_AbortedByHandler, and return JSON_Failure from
@@ -516,12 +533,21 @@ JSON_API(JSON_Status) JSON_SetEndObjectHandler(JSON_Parser parser, JSON_EndObjec
  * The pBytes parameter points to a buffer containing the member name,
  * encoded according to the parser instance's output encoding setting. The
  * buffer is null-terminated (the null terminator character is also encoded).
+ * Note, however, that JSON strings may contain embedded null characters,
+ * which are specifiable using the escape sequence \u0000.
  *
  * The length parameter specifies the number of bytes (NOT characters) in
  * the encoded string, not including the encoded null terminator.
  *
- * Note, however, that JSON strings may contain embedded null characters,
- * which are specifiable using the escape sequence \u0000.
+ * The attributes parameter provides information about the characters
+ * that comprise the string. If the option to replace invalid encoding
+ * sequences is enabled and the string contains any Unicode replacement
+ * characters (U+FFFD) that were the result of replacing invalid encoding
+ * sequences in the input, the attributes will include the value
+ * JSON_ContainsReplacedCharacter. Note that the absence of this attribute
+ * does not imply that the string does not contain any U+FFFD characters,
+ * since such characters may have been present in the original input, and
+ * not inserted by a replacement operation.
  *
  * The handler can indicate that the current object already contains a member
  * with the specified name by returning JSON_TreatAsDuplicateObjectMember.
@@ -682,6 +708,18 @@ JSON_API(JSON_Status) JSON_SetAllowTrailingCommas(JSON_Parser parser, JSON_Boole
  */
 JSON_API(JSON_Boolean) JSON_GetAllowNaNAndInfinity(JSON_Parser parser);
 JSON_API(JSON_Status) JSON_SetAllowNaNAndInfinity(JSON_Parser parser, JSON_Boolean allowNaNAndInfinity);
+
+/* Get and set whether a parser instance replaces invalid encoding sequences
+ * it encounters in the input stream with the Unicode replacement character
+ * U+FFFD rather than triggering an error.
+ *
+ * The default value of this setting is JSON_False.
+ *
+ * Note that calls to JSON_SetReplaceInvalidEncodingSequences() will return
+ * failure if the parser has started parsing.
+ */
+JSON_API(JSON_Boolean) JSON_GetReplaceInvalidEncodingSequences(JSON_Parser parser);
+JSON_API(JSON_Status) JSON_SetReplaceInvalidEncodingSequences(JSON_Parser parser, JSON_Boolean replaceInvalidEncodingSequences);
 
 /* Get and set whether a parser instance tracks object member names for all
  * open objects and detects duplicate members if any occur in the input.

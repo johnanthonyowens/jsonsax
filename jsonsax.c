@@ -43,20 +43,21 @@ typedef uint32_t JSON_UInt32;
 #endif
 
 /* Especially-relevant Unicode codepoints. */
-#define BACKSPACE_CODEPOINT         0x0008
-#define TAB_CODEPOINT               0x0009
-#define LINE_FEED_CODEPOINT         0x000A
-#define FORM_FEED_CODEPOINT         0x000C
-#define CARRIAGE_RETURN_CODEPOINT   0x000D
-#define FIRST_NON_CONTROL_CODEPOINT 0x0020
-#define FIRST_NON_ASCII_CODEPOINT   0x0080
-#define FIRST_2_BYTE_UTF8_CODEPOINT 0x0080
-#define FIRST_3_BYTE_UTF8_CODEPOINT 0x0800
-#define BOM_CODEPOINT               0xFEFF
-#define FIRST_NON_BMP_CODEPOINT     0x10000
-#define FIRST_4_BYTE_UTF8_CODEPOINT 0x10000
-#define MAX_CODEPOINT               0x10FFFF
-#define EOF_CODEPOINT               0xFFFFFFFF
+#define BACKSPACE_CODEPOINT             0x0008
+#define TAB_CODEPOINT                   0x0009
+#define LINE_FEED_CODEPOINT             0x000A
+#define FORM_FEED_CODEPOINT             0x000C
+#define CARRIAGE_RETURN_CODEPOINT       0x000D
+#define FIRST_NON_CONTROL_CODEPOINT     0x0020
+#define FIRST_NON_ASCII_CODEPOINT       0x0080
+#define FIRST_2_BYTE_UTF8_CODEPOINT     0x0080
+#define FIRST_3_BYTE_UTF8_CODEPOINT     0x0800
+#define BOM_CODEPOINT                   0xFEFF
+#define REPLACEMENT_CHARACTER_CODEPOINT 0xFFFD
+#define FIRST_NON_BMP_CODEPOINT         0x10000
+#define FIRST_4_BYTE_UTF8_CODEPOINT     0x10000
+#define MAX_CODEPOINT                   0x10FFFF
+#define EOF_CODEPOINT                   0xFFFFFFFF
 
 /* Bit-masking macros. */
 #define BOTTOM_BIT(b)    ((b) & 0x1)
@@ -84,15 +85,16 @@ typedef uint32_t JSON_UInt32;
 /* Combinable parser status bits. */
 typedef enum tag_ParserStatus
 {
-    PARSER_RESET                  = 0,
-    PARSER_STARTED                = 1 << 0,
-    PARSER_FINISHED               = 1 << 1,
-    PARSER_IN_CALLBACK            = 1 << 2,
-    PARSER_AFTER_CARRIAGE_RETURN  = 1 << 3,
-    PARSER_ALLOW_BOM              = 1 << 4,
-    PARSER_ALLOW_TRAILING_COMMAS  = 1 << 5,
-    PARSER_ALLOW_NAN_AND_INFINITY = 1 << 6,
-    PARSER_TRACK_OBJECT_MEMBERS   = 1 << 7
+    PARSER_RESET                               = 0,
+    PARSER_STARTED                             = 1 << 0,
+    PARSER_FINISHED                            = 1 << 1,
+    PARSER_IN_CALLBACK                         = 1 << 2,
+    PARSER_AFTER_CARRIAGE_RETURN               = 1 << 3,
+    PARSER_ALLOW_BOM                           = 1 << 4,
+    PARSER_ALLOW_TRAILING_COMMAS               = 1 << 5,
+    PARSER_ALLOW_NAN_AND_INFINITY              = 1 << 6,
+    PARSER_REPLACE_INVALID_ENCODING_SEQUENCES  = 1 << 7,
+    PARSER_TRACK_OBJECT_MEMBERS                = 1 << 8
 } ParserStatus;
 
 /* Mutually-exclusive lexer states. */
@@ -135,8 +137,6 @@ typedef enum tag_DecoderState
     DECODER_PROCESSED_2_OF_4 = 0x24,
     DECODER_PROCESSED_3_OF_4 = 0x34
 } DecoderState;
-
-#define DECODER_SEQUENCE_LENGTH(state) ((state) & 0xF)
 
 /* Mutually-exclusive parser tokens and non-terminals. The values are defined
    so that the bottom 4 bits of a value can be used as an index into the
@@ -210,9 +210,9 @@ struct JSON_ParserData
     JSON_StartArrayHandler   startArrayHandler;
     JSON_EndArrayHandler     endArrayHandler;
     JSON_ArrayItemHandler    arrayItemHandler;
+    ParserStatus             parserStatus;
     unsigned char            inputEncoding;     /* real type is JSON_Encoding */
     unsigned char            outputEncoding;    /* real type is JSON_Encoding */
-    unsigned char            parserStatus;      /* real type is ParserStatus */
     unsigned char            lexerState;        /* real type is LexerState */
     unsigned char            token;             /* real type is Symbol */
     unsigned char            decoderState;      /* real type is DecoderState */
@@ -1156,10 +1156,9 @@ static void StartToken(JSON_Parser parser, Symbol token)
     parser->tokenLocation = parser->codepointLocation;
 }
 
-static JSON_Status ProcessCodepoint(JSON_Parser parser)
+static JSON_Status ProcessCodepoint(JSON_Parser parser, size_t encodedLength)
 {
     JSON_UInt32 c = parser->decoderBits;
-    size_t encodedLength = DECODER_SEQUENCE_LENGTH(parser->decoderState);
     JSON_UInt32 codepointToOutput = EOF_CODEPOINT;
     int tokenFinished = 0;
 
@@ -1176,6 +1175,7 @@ static JSON_Status ProcessCodepoint(JSON_Parser parser)
     }
 
 reprocess:
+
     switch (parser->lexerState)
     {
     case LEXER_IDLE:
@@ -1802,7 +1802,7 @@ static JSON_Status FlushLexer(JSON_Parser parser)
        itself, since it is outside the Unicode range and therefore cannot
        be encoded in any of the possible input encodings. */
     parser->decoderBits = EOF_CODEPOINT;
-    if (!ProcessCodepoint(parser))
+    if (!ProcessCodepoint(parser, 0))
     {
         return JSON_Failure;
     }
@@ -1939,29 +1939,66 @@ static JSON_Status ProcessUnknownByte(JSON_Parser parser, unsigned char b)
     return JSON_Success;
 }
 
+static JSON_Status ProcessInvalidEncodingSequence(JSON_Parser parser, size_t encodedLength)
+{
+    /* Note that we set JSON_ContainsReplacedCharacter in the output
+       attributes even though the encoding sequence is not necessarily
+       inside a string token. But it doesn't hurt anything, since the
+       output attributes are reset every time we start a new token. */
+    if (parser->parserStatus & PARSER_REPLACE_INVALID_ENCODING_SEQUENCES)
+    {
+        parser->decoderBits = REPLACEMENT_CHARACTER_CODEPOINT;
+        parser->outputAttributes |= JSON_ContainsReplacedCharacter;
+        if (!ProcessCodepoint(parser, encodedLength))
+        {
+            return JSON_Failure;
+        }
+    }
+    else
+    {
+        SetErrorAtCodepoint(parser, JSON_Error_InvalidEncodingSequence);
+        return JSON_Failure;
+    }
+    return JSON_Success;
+}
+
 static JSON_Status ProcessUTF8Byte(JSON_Parser parser, unsigned char b)
 {
     /* When the input encoding is UTF-8, the decoded codepoint's bits are
        recorded in the bottom 3 bytes of decoderBits as they are decoded.
        The top byte is not used. */
 
-    int isCodepointDecoded = 0;
-    int isSequenceInvalid = 0;
+    size_t completedSequenceLength = 0;
+    int isSequenceInvalid;
+    int isFirstByteOfSequence;
+
+reprocess:
+
+    isSequenceInvalid = 0;
+    isFirstByteOfSequence = 0;
     switch (parser->decoderState)
     {
     case DECODER_PROCESSED_0_OF_1:
+        isFirstByteOfSequence = 1;
         if (IS_UTF8_SINGLE_BYTE(b))
         {
             parser->decoderBits = b;
-            isCodepointDecoded = 1;
+            completedSequenceLength = 1;
         }
         else if (IS_UTF8_FIRST_BYTE_OF_2(b))
         {
             /* UTF-8 2-byte sequences that are overlong encodings can be
                detected from just the first byte (C0 or C1). */
-            parser->decoderState = DECODER_PROCESSED_1_OF_2;
             parser->decoderBits = BOTTOM_5_BITS(b) << 6;
-            isSequenceInvalid = (parser->decoderBits < FIRST_2_BYTE_UTF8_CODEPOINT);
+            if (parser->decoderBits < FIRST_2_BYTE_UTF8_CODEPOINT)
+            {
+                isSequenceInvalid = 1;
+                completedSequenceLength = 1;
+            }
+            else
+            {
+                parser->decoderState = DECODER_PROCESSED_1_OF_2;
+            }
         }
         else if (IS_UTF8_FIRST_BYTE_OF_3(b))
         {
@@ -1972,15 +2009,23 @@ static JSON_Status ProcessUTF8Byte(JSON_Parser parser, unsigned char b)
         {
             /* Some UTF-8 4-byte sequences that encode out-of-range
                codepoints can be detected from the first byte (F5 - FF). */
-            parser->decoderState = DECODER_PROCESSED_1_OF_4;
             parser->decoderBits = BOTTOM_3_BITS(b) << 18;
-            isSequenceInvalid = (parser->decoderBits > MAX_CODEPOINT);
+            if (parser->decoderBits > MAX_CODEPOINT)
+            {
+                isSequenceInvalid = 1;
+                completedSequenceLength = 1;
+            }
+            else
+            {
+                parser->decoderState = DECODER_PROCESSED_1_OF_4;
+            }
         }
         else
         {
             /* The byte is of the form 11111xxx or 10xxxxxx, and is not
                a valid first byte for a UTF-8 sequence. */
             isSequenceInvalid = 1;
+            completedSequenceLength = 1;
         }
         break;
 
@@ -1988,11 +2033,12 @@ static JSON_Status ProcessUTF8Byte(JSON_Parser parser, unsigned char b)
         if (IS_UTF8_CONTINUATION_BYTE(b))
         {
             parser->decoderBits |= BOTTOM_6_BITS(b);
-            isCodepointDecoded = 1;
+            completedSequenceLength = 2;
         }
         else
         {
             isSequenceInvalid = 1;
+            completedSequenceLength = 1;
         }
         break;
 
@@ -2001,13 +2047,21 @@ static JSON_Status ProcessUTF8Byte(JSON_Parser parser, unsigned char b)
         {
             /* UTF-8 3-byte sequences that are overlong encodings or encode
                surrogate codepoints can be detected after 2 bytes. */
-            parser->decoderState = DECODER_PROCESSED_2_OF_3;
             parser->decoderBits |= BOTTOM_6_BITS(b) << 6;
-            isSequenceInvalid = (parser->decoderBits < FIRST_3_BYTE_UTF8_CODEPOINT) || IS_SURROGATE(parser->decoderBits);
+            if ((parser->decoderBits < FIRST_3_BYTE_UTF8_CODEPOINT) || IS_SURROGATE(parser->decoderBits))
+            {
+                isSequenceInvalid = 1;
+                completedSequenceLength = 1;
+            }
+            else
+            {
+                parser->decoderState = DECODER_PROCESSED_2_OF_3;
+            }
         }
         else
         {
             isSequenceInvalid = 1;
+            completedSequenceLength = 1;
         }
         break;
 
@@ -2015,10 +2069,12 @@ static JSON_Status ProcessUTF8Byte(JSON_Parser parser, unsigned char b)
         if (IS_UTF8_CONTINUATION_BYTE(b))
         {
             parser->decoderBits |= BOTTOM_6_BITS(b);
-            isCodepointDecoded = 1;        }
+            completedSequenceLength = 3;
+        }
         else
         {
             isSequenceInvalid = 1;
+            completedSequenceLength = 2;
         }
         break;
 
@@ -2027,13 +2083,21 @@ static JSON_Status ProcessUTF8Byte(JSON_Parser parser, unsigned char b)
         {
             /* UTF-8 4-byte sequences that are overlong encodings or encode
                out-of-range codepoints can be detected after 2 bytes. */
-            parser->decoderState = DECODER_PROCESSED_2_OF_4;
             parser->decoderBits |= BOTTOM_6_BITS(b) << 12;
-            isSequenceInvalid = (parser->decoderBits < FIRST_4_BYTE_UTF8_CODEPOINT) || (parser->decoderBits > MAX_CODEPOINT);
+            if ((parser->decoderBits < FIRST_4_BYTE_UTF8_CODEPOINT) || (parser->decoderBits > MAX_CODEPOINT))
+            {
+                isSequenceInvalid = 1;
+                completedSequenceLength = 1;
+            }
+            else
+            {
+                parser->decoderState = DECODER_PROCESSED_2_OF_4;
+            }
         }
         else
         {
             isSequenceInvalid = 1;
+            completedSequenceLength = 1;
         }
         break;
 
@@ -2046,6 +2110,7 @@ static JSON_Status ProcessUTF8Byte(JSON_Parser parser, unsigned char b)
         else
         {
             isSequenceInvalid = 1;
+            completedSequenceLength = 2;
         }
         break;
 
@@ -2053,22 +2118,38 @@ static JSON_Status ProcessUTF8Byte(JSON_Parser parser, unsigned char b)
         if (IS_UTF8_CONTINUATION_BYTE(b))
         {
             parser->decoderBits |= BOTTOM_6_BITS(b);
-            isCodepointDecoded = 1;
+            completedSequenceLength = 4;
         }
         else
         {
             isSequenceInvalid = 1;
+            completedSequenceLength = 3;
         }
         break;
     }
 
     if (isSequenceInvalid)
     {
-        SetErrorAtCodepoint(parser, JSON_Error_InvalidEncodingSequence);
-        return JSON_Failure;
+        /* If the current byte is the first byte of the encoding sequence,
+           then the replacement character we emit below logically replaces
+           the current byte, which is then considered processed. But if the
+           current byte is NOT the first byte of the encoding sequence, then
+           the replacement character we emit logically replaces the preceding
+           bytes of the sequence, the current byte is NOT considered
+           processed, and we must reprocess it as the first byte of a new
+           sequence. */
+        if (!ProcessInvalidEncodingSequence(parser, completedSequenceLength))
+        {
+            return JSON_Failure;
+        }
+        completedSequenceLength = 0;
+        if (!isFirstByteOfSequence)
+        {
+            goto reprocess;
+        }
     }
 
-    return isCodepointDecoded ? ProcessCodepoint(parser) : JSON_Success;
+    return completedSequenceLength ? ProcessCodepoint(parser, completedSequenceLength) : JSON_Success;
 }
 
 static JSON_Status ProcessUTF16LEByte(JSON_Parser parser, unsigned char b)
@@ -2080,13 +2161,17 @@ static JSON_Status ProcessUTF16LEByte(JSON_Parser parser, unsigned char b)
        surrogate into the high 2 bytes of decoderBits, and decodes the
        trailing surrogate's bits in the bottom 2 bytes of decoderBits. */
 
-    int isCodepointDecoded = 0;
-    int isSequenceInvalid = 0;
+    size_t completedSequenceLength = 0;
+    int isSequenceInvalid;
+
+reprocess:
+
+    isSequenceInvalid = 0;
     switch (parser->decoderState)
     {
     case DECODER_PROCESSED_0_OF_1:
-        parser->decoderState = DECODER_PROCESSED_1_OF_2;
         parser->decoderBits = b;
+        parser->decoderState = DECODER_PROCESSED_1_OF_2;
         break;
 
     case DECODER_PROCESSED_1_OF_2:
@@ -2095,22 +2180,23 @@ static JSON_Status ProcessUTF16LEByte(JSON_Parser parser, unsigned char b)
         {
             /* A trailing surrogate cannot appear on its own. */
             isSequenceInvalid = 1;
+            completedSequenceLength = 2;
         }
         else if (IS_LEADING_SURROGATE(parser->decoderBits))
         {
             /* A leading surrogate implies a 4-byte surrogate pair. */
-            parser->decoderState = DECODER_PROCESSED_2_OF_4;
             parser->decoderBits <<= 16;
+            parser->decoderState = DECODER_PROCESSED_2_OF_4;
         }
         else
         {
-            isCodepointDecoded = 1;
+            completedSequenceLength = 2;
         }
         break;
 
     case DECODER_PROCESSED_2_OF_4:
-        parser->decoderState = DECODER_PROCESSED_3_OF_4;
         parser->decoderBits |= b;
+        parser->decoderState = DECODER_PROCESSED_3_OF_4;
         break;
 
     case DECODER_PROCESSED_3_OF_4:
@@ -2119,22 +2205,42 @@ static JSON_Status ProcessUTF16LEByte(JSON_Parser parser, unsigned char b)
         {
             /* A leading surrogate must be followed by a trailing one. */
             isSequenceInvalid = 1;
+            completedSequenceLength = 2;
         }
         else
         {
             parser->decoderBits = CODEPOINT_FROM_SURROGATES(parser->decoderBits);
-            isCodepointDecoded = 1;
+            completedSequenceLength = 4;
         }
         break;
     }
 
     if (isSequenceInvalid)
     {
-        SetErrorAtCodepoint(parser, JSON_Error_InvalidEncodingSequence);
-        return JSON_Failure;
+        /* If the sequence is invalid because the current code unit is an
+           unpaired trailing surrogate, then the replacement character we emit
+           below logically replaces the current code unit, which is then
+           considered processed. But if the sequence is invalid because the
+           preceding code unit is an unpaired leading surrogate, then the
+           replacement character we emit logically replaces the leading
+           surrogate, the current code unit is NOT considered processed, and
+           we must reprocess it as the first code unit of a new sequence. */
+        int shouldReprocessByte =  (parser->decoderState == DECODER_PROCESSED_3_OF_4);
+        JSON_UInt32 savedDecoderBits = parser->decoderBits & 0xFF;
+        if (!ProcessInvalidEncodingSequence(parser, completedSequenceLength))
+        {
+            return JSON_Failure;
+        }
+        completedSequenceLength = 0;
+        if (shouldReprocessByte)
+        {
+            parser->decoderBits = savedDecoderBits;
+            parser->decoderState = DECODER_PROCESSED_1_OF_2;
+            goto reprocess;
+        }
     }
 
-    return isCodepointDecoded ? ProcessCodepoint(parser) : JSON_Success;
+    return completedSequenceLength ? ProcessCodepoint(parser, completedSequenceLength) : JSON_Success;
 }
 
 static JSON_Status ProcessUTF16BEByte(JSON_Parser parser, unsigned char b)
@@ -2146,58 +2252,86 @@ static JSON_Status ProcessUTF16BEByte(JSON_Parser parser, unsigned char b)
        surrogate into the high 2 bytes of decoderBits, and decodes the
        trailing surrogate's bits in the bottom 2 bytes of decoderBits. */
 
-    int isCodepointDecoded = 0;
-    int isSequenceInvalid = 0;
+    size_t completedSequenceLength = 0;
+    int isSequenceInvalid;
+
+reprocess:
+
+    isSequenceInvalid = 0;
     switch (parser->decoderState)
     {
     case DECODER_PROCESSED_0_OF_1:
-        parser->decoderState = DECODER_PROCESSED_1_OF_2;
         parser->decoderBits = b << 8;
-        if (IS_TRAILING_SURROGATE(parser->decoderBits))
-        {
-            /* A trailing surrogate cannot appear on its own. */
-            isSequenceInvalid = 1;
-        }
+        parser->decoderState = DECODER_PROCESSED_1_OF_2;
         break;
 
     case DECODER_PROCESSED_1_OF_2:
         parser->decoderBits |= b;
-        if (IS_LEADING_SURROGATE(parser->decoderBits))
+        if (IS_TRAILING_SURROGATE(parser->decoderBits))
+        {
+            /* A trailing surrogate cannot appear on its own. */
+            isSequenceInvalid = 1;
+            completedSequenceLength = 2;
+        }
+        else if (IS_LEADING_SURROGATE(parser->decoderBits))
         {
             /* A leading surrogate implies a 4-byte surrogate pair. */
-            parser->decoderState = DECODER_PROCESSED_2_OF_4;
             parser->decoderBits <<= 16;
+            parser->decoderState = DECODER_PROCESSED_2_OF_4;
         }
         else
         {
-            isCodepointDecoded = 1;
+            completedSequenceLength = 2;
         }
         break;
 
     case DECODER_PROCESSED_2_OF_4:
-        parser->decoderState = DECODER_PROCESSED_3_OF_4;
         parser->decoderBits |= b << 8;
-        if (!IS_TRAILING_SURROGATE(parser->decoderBits & 0xFFFF))
-        {
-            /* A leading surrogate must be followed by a trailing one. */
-            isSequenceInvalid = 1;
-        }
+        parser->decoderState = DECODER_PROCESSED_3_OF_4;
         break;
 
     case DECODER_PROCESSED_3_OF_4:
         parser->decoderBits |= b;
-        parser->decoderBits = CODEPOINT_FROM_SURROGATES(parser->decoderBits);
-        isCodepointDecoded = 1;
+        if (!IS_TRAILING_SURROGATE(parser->decoderBits & 0xFFFF))
+        {
+            /* A leading surrogate must be followed by a trailing one. */
+            isSequenceInvalid = 1;
+            completedSequenceLength = 2;
+        }
+        else
+        {
+            parser->decoderBits = CODEPOINT_FROM_SURROGATES(parser->decoderBits);
+            completedSequenceLength = 4;
+        }
         break;
     }
 
     if (isSequenceInvalid)
     {
-        SetErrorAtCodepoint(parser, JSON_Error_InvalidEncodingSequence);
-        return JSON_Failure;
+        /* If the sequence is invalid because the current code unit is an
+           unpaired trailing surrogate, then the replacement character we emit
+           below logically replaces the current code unit, which is then
+           considered processed. But if the sequence is invalid because the
+           preceding code unit is an unpaired leading surrogate, then the
+           replacement character we emit logically replaces the leading
+           surrogate, the current code unit is NOT considered processed, and
+           we must reprocess it as the first code unit of a new sequence. */
+        int shouldReprocessByte =  (parser->decoderState == DECODER_PROCESSED_3_OF_4);
+        JSON_UInt32 savedDecoderBits = parser->decoderBits & 0xFF00;
+        if (!ProcessInvalidEncodingSequence(parser, completedSequenceLength))
+        {
+            return JSON_Failure;
+        }
+        completedSequenceLength = 0;
+        if (shouldReprocessByte)
+        {
+            parser->decoderBits = savedDecoderBits;
+            parser->decoderState = DECODER_PROCESSED_1_OF_2;
+            goto reprocess;
+        }
     }
 
-    return isCodepointDecoded ? ProcessCodepoint(parser) : JSON_Success;
+    return completedSequenceLength ? ProcessCodepoint(parser, completedSequenceLength) : JSON_Success;
 }
 
 static JSON_Status ProcessUTF32LEByte(JSON_Parser parser, unsigned char b)
@@ -2205,8 +2339,6 @@ static JSON_Status ProcessUTF32LEByte(JSON_Parser parser, unsigned char b)
     /* When the input encoding is UTF-32, the decoded codepoint's bits are
        recorded in decoderBits as they are decoded. */
 
-    int isCodepointDecoded = 0;
-    int isSequenceInvalid = 0;
     switch (parser->decoderState)
     {
     case DECODER_PROCESSED_0_OF_1:
@@ -2220,37 +2352,18 @@ static JSON_Status ProcessUTF32LEByte(JSON_Parser parser, unsigned char b)
         break;
 
     case DECODER_PROCESSED_2_OF_4:
-        /* All UTF-32LE sequences that encode surrogate codepoints can be
-           detected after 3 bytes, since the fourth byte is assumed to be 0.
-           Additionally, some UTF-32LE sequences that encode out-of-range
-           codepoints can be detected after 3 bytes. */
         parser->decoderState = DECODER_PROCESSED_3_OF_4;
         parser->decoderBits |= b << 16;
-        isSequenceInvalid = IS_SURROGATE(parser->decoderBits) || (parser->decoderBits > MAX_CODEPOINT);
         break;
 
     case DECODER_PROCESSED_3_OF_4:
-        /* UTF-32LE sequences that encode out-of-range codepoints can be
-           detected after 4 bytes. */
         parser->decoderBits |= b << 24;
-        if (parser->decoderBits > MAX_CODEPOINT)
-        {
-            isSequenceInvalid = 1;
-        }
-        else
-        {
-            isCodepointDecoded = 1;
-        }
-        break;
+        return (IS_SURROGATE(parser->decoderBits) || (parser->decoderBits > MAX_CODEPOINT))
+            ? ProcessInvalidEncodingSequence(parser, 4)
+            : ProcessCodepoint(parser, 4);
     }
 
-    if (isSequenceInvalid)
-    {
-        SetErrorAtCodepoint(parser, JSON_Error_InvalidEncodingSequence);
-        return JSON_Failure;
-    }
-
-    return isCodepointDecoded ? ProcessCodepoint(parser) : JSON_Success;
+    return JSON_Success;
 }
 
 static JSON_Status ProcessUTF32BEByte(JSON_Parser parser, unsigned char b)
@@ -2258,47 +2371,31 @@ static JSON_Status ProcessUTF32BEByte(JSON_Parser parser, unsigned char b)
     /* When the input encoding is UTF-32, the decoded codepoint's bits are
        recorded in decoderBits as they are decoded. */
 
-    int isCodepointDecoded = 0;
-    int isSequenceInvalid = 0;
     switch (parser->decoderState)
     {
     case DECODER_PROCESSED_0_OF_1:
-        /* Some UTF-32BE sequences that encode out-of-range codepoints can be
-           detected from just the first byte, which SHOULD always be 0. */
         parser->decoderState = DECODER_PROCESSED_1_OF_4;
         parser->decoderBits = b << 24;
-        isSequenceInvalid = (parser->decoderBits > MAX_CODEPOINT);
         break;
 
     case DECODER_PROCESSED_1_OF_4:
-        /* All UTF-32BE sequences that encode out-of-range codepoints can be
-           detected after 2 bytes. */
         parser->decoderState = DECODER_PROCESSED_2_OF_4;
         parser->decoderBits |= b << 16;
-        isSequenceInvalid = (parser->decoderBits > MAX_CODEPOINT);
         break;
 
     case DECODER_PROCESSED_2_OF_4:
-        /* UTF-32BE sequences that encode surrogate codepoints can be
-           detected after 3 bytes. */
         parser->decoderState = DECODER_PROCESSED_3_OF_4;
         parser->decoderBits |= b << 8;
-        isSequenceInvalid = IS_SURROGATE(parser->decoderBits);
         break;
 
     case DECODER_PROCESSED_3_OF_4:
         parser->decoderBits |= b;
-        isCodepointDecoded = 1;
-        break;
+        return (IS_SURROGATE(parser->decoderBits) || (parser->decoderBits > MAX_CODEPOINT))
+            ? ProcessInvalidEncodingSequence(parser, 4)
+            : ProcessCodepoint(parser, 4);
     }
 
-    if (isSequenceInvalid)
-    {
-        SetErrorAtCodepoint(parser, JSON_Error_InvalidEncodingSequence);
-        return JSON_Failure;
-    }
-
-    return isCodepointDecoded ? ProcessCodepoint(parser) : JSON_Success;
+    return JSON_Success;
 }
 
 typedef JSON_Status (*ByteDecoder)(JSON_Parser parser, unsigned char b);
@@ -2836,6 +2933,28 @@ JSON_Status JSON_CALL JSON_SetAllowNaNAndInfinity(JSON_Parser parser, JSON_Boole
     else
     {
         parser->parserStatus &= ~PARSER_ALLOW_NAN_AND_INFINITY;
+    }
+    return JSON_Success;
+}
+
+JSON_Boolean JSON_CALL JSON_GetReplaceInvalidEncodingSequences(JSON_Parser parser)
+{
+    return (parser && (parser->parserStatus & PARSER_REPLACE_INVALID_ENCODING_SEQUENCES)) ? JSON_True : JSON_False;
+}
+
+JSON_Status JSON_CALL JSON_SetReplaceInvalidEncodingSequences(JSON_Parser parser, JSON_Boolean replaceInvalidEncodingSequences)
+{
+    if (!parser || (parser->parserStatus & PARSER_STARTED))
+    {
+        return JSON_Failure;
+    }
+    if (replaceInvalidEncodingSequences)
+    {
+        parser->parserStatus |= PARSER_REPLACE_INVALID_ENCODING_SEQUENCES;
+    }
+    else
+    {
+        parser->parserStatus &= ~PARSER_REPLACE_INVALID_ENCODING_SEQUENCES;
     }
     return JSON_Success;
 }

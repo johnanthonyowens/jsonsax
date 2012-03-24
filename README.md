@@ -33,12 +33,14 @@ The parser can parse input encoded in UTF-8, UTF-16 (LE or BE), and UTF-32 (LE o
 
 The encoding of string values passed by the parser to the client can be UTF-8, UTF-16 (LE or BE), or UTF-32 (LE or BE). Clients can specify the output encoding on a parser-by-parser basis.
 
-The parser is strict when decoding the input stream, and will fail if it encounters an encoding sequence that is not valid for the input encoding. Note especially that this includes (but is not limited to) the following:
+By default, the parser is strict when decoding the input stream, and will fail if it encounters an encoding sequence that is not valid for the input encoding. Note especially that this includes (but is not limited to) the following:
 
  - Overlong encoding sequences in UTF-8.
  - Surrogate codepoints encoded in UTF-8 or UTF-32.
  - Unpaired or improperly-paired surrogates in UTF-16.
  - Codepoints outside the Unicode range encoded in UTF-8 or UTF-32.
+
+Clients also have the option, on a parser-by-parser basis, of replacing invalid encoding sequences in the input stream with the Unicode replacement character (U+FFFD) rather than triggering an error. The replacement follows the rules and recommendations described in section 3.9 of version 5.2.0 of [the Unicode Standard](http://www.unicode.org/versions/Unicode5.2.0/).
 
 The JSONSAX library is licensed under the MIT License.
 
