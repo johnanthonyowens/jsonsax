@@ -174,17 +174,18 @@ typedef enum tag_JSON_Error
     JSON_Error_OutOfMemory                     = 1,
     JSON_Error_AbortedByHandler                = 2,
     JSON_Error_BOMNotAllowed                   = 3,
-    JSON_Error_IncompleteInput                 = 4,
-    JSON_Error_InvalidEncodingSequence         = 5,
-    JSON_Error_UnknownToken                    = 6,
-    JSON_Error_UnexpectedToken                 = 7,
-    JSON_Error_UnescapedControlCharacter       = 8,
-    JSON_Error_InvalidEscapeSequence           = 9,
-    JSON_Error_UnpairedSurrogateEscapeSequence = 10,
-    JSON_Error_TooLongString                   = 11,
-    JSON_Error_InvalidNumber                   = 12,
-    JSON_Error_TooLongNumber                   = 13,
-    JSON_Error_DuplicateObjectMember           = 14
+    JSON_Error_InvalidEncodingSequence         = 4,
+    JSON_Error_UnknownToken                    = 5,
+    JSON_Error_UnexpectedToken                 = 6,
+    JSON_Error_IncompleteToken                 = 7,
+    JSON_Error_ExpectedMoreTokens              = 8,
+    JSON_Error_UnescapedControlCharacter       = 9,
+    JSON_Error_InvalidEscapeSequence           = 10,
+    JSON_Error_UnpairedSurrogateEscapeSequence = 11,
+    JSON_Error_TooLongString                   = 12,
+    JSON_Error_InvalidNumber                   = 13,
+    JSON_Error_TooLongNumber                   = 14,
+    JSON_Error_DuplicateObjectMember           = 15
 } JSON_Error;
 
 /* Text encodings. */

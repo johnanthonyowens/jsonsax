@@ -673,7 +673,7 @@ static JSON_Status FlushParser(JSON_Parser parser)
     /* The symbol stack should be empty when parsing finishes. */
     if (parser->symbolStackUsed)
     {
-        SetErrorAtCodepoint(parser, JSON_Error_IncompleteInput);
+        SetErrorAtCodepoint(parser, JSON_Error_ExpectedMoreTokens);
         return JSON_Failure;
     }
     return JSON_Success;
@@ -1810,7 +1810,7 @@ static JSON_Status FlushLexer(JSON_Parser parser)
     /* The lexer should be idle when parsing finishes. */
     if (parser->lexerState != LEXER_IDLE)
     {
-        SetErrorAtCodepoint(parser, JSON_Error_IncompleteInput);
+        SetErrorAtCodepoint(parser, JSON_Error_IncompleteToken);
         return JSON_Failure;
     }
     return JSON_Success;
@@ -2616,10 +2616,11 @@ static const char* errorStrings[] =
     /* JSON_Error_OutOfMemory */                     "the parser could not allocate enough memory",
     /* JSON_Error_AbortedByHandler */                "parsing was aborted by a handler",
     /* JSON_Error_BOMNotAllowed */                   "the input begins with a byte-order mark (BOM), which is not allowed by RFC 4627",
-    /* JSON_Error_IncompleteInput */                 "the input is incomplete",
     /* JSON_Error_InvalidEncodingSequence */         "the input contains a byte or sequence of bytes that is not valid for the input encoding",
     /* JSON_Error_UnknownToken */                    "the input contains an unknown token",
     /* JSON_Error_UnexpectedToken */                 "the input contains an unexpected token",
+    /* JSON_Error_IncompleteToken */                 "the input ends in the middle of a token",
+    /* JSON_Error_MoreTokensExpected */              "the input ends when more tokens are expected",
     /* JSON_Error_UnescapedControlCharacter */       "the input contains a string containing an unescaped control character (U+0000 - U+001F)",
     /* JSON_Error_InvalidEscapeSequence */           "the input contains a string containing an invalid escape sequence",
     /* JSON_Error_UnpairedSurrogateEscapeSequence */ "the input contains a string containing an unmatched UTF-16 surrogate codepoint",
