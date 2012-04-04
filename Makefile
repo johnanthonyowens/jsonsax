@@ -16,7 +16,7 @@ clean :
 build_dynamic : $(BUILDDIR)/libjsonsax.$(DLIB_EXT)
 
 $(BUILDDIR)/libjsonsax.$(DLIB_EXT) : $(BUILDDIR)/jsonsax.o
-	$(LD) $(LDFLAGS) -shared $^ -o $@
+	$(CC) $(LDFLAGS) -shared $^ -o $@
 
 $(BUILDDIR)/jsonsax.o : jsonsax.c jsonsax.h
 	mkdir -p $(BUILDDIR)

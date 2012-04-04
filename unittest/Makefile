@@ -7,7 +7,7 @@ default : run_tests
 # Build dynamically-linked tests
 
 $(BUILDDIR)/jsonsaxtest : $(BUILDDIR)/jsonsaxtest.o $(BUILDDIR)/libjsonsax.$(DLIB_EXT)
-	$(LD) $(LDFLAGS) $^ -o $@
+	$(CC) $(LDFLAGS) $^ -o $@
 
 $(BUILDDIR)/jsonsaxtest.o : jsonsaxtest.c ../jsonsax.h
 	$(CC) $(CFLAGS) -c $< -o $@
@@ -15,7 +15,7 @@ $(BUILDDIR)/jsonsaxtest.o : jsonsaxtest.c ../jsonsax.h
 # Build statically-linked tests
 
 $(BUILDDIR)/jsonsaxtest_static : $(BUILDDIR)/jsonsaxtest_static.o $(BUILDDIR)/libjsonsax.a
-	$(LD) $(LDFLAGS) $^ -o $@
+	$(CC) $(LDFLAGS) $^ -o $@
 
 $(BUILDDIR)/jsonsaxtest_static.o : jsonsaxtest.c ../jsonsax.h
 	$(CC) $(CFLAGS) -D JSONSAX_STATIC -c $< -o $@
@@ -23,7 +23,7 @@ $(BUILDDIR)/jsonsaxtest_static.o : jsonsaxtest.c ../jsonsax.h
 # Build dynamically-linked C++ tests
 
 $(BUILDDIR)/jsonsaxtest_cpp : $(BUILDDIR)/jsonsaxtest_cpp.o $(BUILDDIR)/libjsonsax.$(DLIB_EXT)
-	$(LD) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@
 
 $(BUILDDIR)/jsonsaxtest_cpp.o : jsonsaxtest.c ../jsonsax.h
 	$(CXX) $(CXXFLAGS) -x c++ -c $< -o $@
@@ -31,7 +31,7 @@ $(BUILDDIR)/jsonsaxtest_cpp.o : jsonsaxtest.c ../jsonsax.h
 # Build statically-linked C++ tests
 
 $(BUILDDIR)/jsonsaxtest_static_cpp : $(BUILDDIR)/jsonsaxtest_static_cpp.o $(BUILDDIR)/libjsonsax.a
-	$(LD) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@
 
 $(BUILDDIR)/jsonsaxtest_static_cpp.o : jsonsaxtest.c ../jsonsax.h
 	$(CXX) $(CXXFLAGS) -D JSONSAX_STATIC -x c++ -c $< -o $@
