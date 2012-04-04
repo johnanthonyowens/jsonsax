@@ -16,11 +16,11 @@ clean :
 build_dynamic : $(BUILDDIR)/libjsonsax.$(DLIB_EXT)
 
 $(BUILDDIR)/libjsonsax.$(DLIB_EXT) : $(BUILDDIR)/jsonsax.o
-	$(CC) $(CFLAGS) -shared $^ -o $@
+	$(LD) $(LDFLAGS) -shared $^ -o $@
 
 $(BUILDDIR)/jsonsax.o : jsonsax.c jsonsax.h
 	mkdir -p $(BUILDDIR)
-	$(CC) $(ALL_CFLAGS) -c $< -o $@
+	$(CC) $(CFLAGS) -c $< -o $@
 
 # Build static library
 
@@ -32,7 +32,7 @@ $(BUILDDIR)/libjsonsax.a : $(BUILDDIR)/jsonsax_static.o
 
 $(BUILDDIR)/jsonsax_static.o : jsonsax.c jsonsax.h
 	mkdir -p $(BUILDDIR)
-	$(CC) $(ALL_CFLAGS) -D JSON_STATIC -c $< -o $@
+	$(CC) $(CFLAGS) -D JSON_STATIC -c $< -o $@
 
 # Build and run unit tests
 
