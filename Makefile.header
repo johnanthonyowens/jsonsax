@@ -1,7 +1,6 @@
 CC = gcc
 CXX = g++
 AR = ar
-LD = gcc
 
 ifeq ($(shell uname),Darwin)
      PLATFORM_MAC = 1
@@ -18,6 +17,7 @@ endif
 CFLAGS = -Wall -Werror -Wunused-parameter -Wshadow
 ifdef DEBUG
     CFLAGS += -g
+    LDFLAGS += -g
 else
     CFLAGS += -O3
 endif
