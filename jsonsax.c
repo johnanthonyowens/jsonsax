@@ -682,24 +682,20 @@ static JSON_Status FlushParser(JSON_Parser parser)
 static double InterpretNumber(JSON_Parser parser)
 {
     /* The C standard does not provide a locale-independent floating-point
-       number parser. We have to change the decimal point in our string to
-       the locale-specific character before calling strtod(). We are
-       assuming here that the decimal point is always a single character
-       in every locale. */
+       number parser, so we have to change the decimal point in our string to
+       the locale-specific character before calling strtod(). We assume here
+       that the decimal point is always a single character in every locale.
+       To ensure correctness, we cannot cache the character, since we must
+       account for the valid albeit extraordinarily unlikely scenario wherein
+       the client changes the locale between calls to JSON_Parse() or (even
+       more unlikely) changes the locale from inside a handler. */
     double value;
-    char localeDecimalPoint = *(localeconv()->decimal_point);
-    if (localeDecimalPoint != '.')
+    if (parser->outputAttributes)
     {
-        unsigned char* pDecimalPoint;
-        for (pDecimalPoint = parser->pOutputBuffer; *pDecimalPoint; pDecimalPoint++)
-        while (*pDecimalPoint)
-        {
-            if (*pDecimalPoint == '.')
-            {
-                *pDecimalPoint = (unsigned char)localeDecimalPoint;
-                break;
-            }
-        }
+        /* The 1-based index of the decimal point character is stored in
+           outputAttributes. */
+        char localeDecimalPoint = *(localeconv()->decimal_point);
+        parser->pOutputBuffer[parser->outputAttributes - 1] = localeDecimalPoint;
     }
     value = strtod((const char*)parser->pOutputBuffer, NULL);
     return value;
@@ -1594,7 +1590,11 @@ reprocess:
     case LEXER_IN_NUMBER_SIGNIFICAND_AFTER_LEADING_ZERO:
         if (c == '.')
         {
+            /* We save the index of the decimal point character in the token
+               in outputAttributes. The index is 1-based and 0 indicates that
+               the token did not contain a decimal point. */
             codepointToOutput = '.';
+            parser->outputAttributes = (unsigned char)(parser->outputBufferUsed + 1);
             parser->lexerState = LEXER_IN_NUMBER_SIGNIFICAND_AFTER_DOT;
         }
         else if (c == 'e' || c == 'E')
@@ -1625,7 +1625,11 @@ reprocess:
         }
         else if (c == '.')
         {
+            /* We save the index of the decimal point character in the token
+               in outputAttributes. The index is 1-based and 0 indicates that
+               the token did not contain a decimal point. */
             codepointToOutput = '.';
+            parser->outputAttributes = (unsigned char)(parser->outputBufferUsed + 1);
             parser->lexerState = LEXER_IN_NUMBER_SIGNIFICAND_AFTER_DOT;
         }
         else if (c == 'e' || c == 'E')
@@ -1941,14 +1945,18 @@ static JSON_Status ProcessUnknownByte(JSON_Parser parser, unsigned char b)
 
 static JSON_Status ProcessInvalidEncodingSequence(JSON_Parser parser, size_t encodedLength)
 {
-    /* Note that we set JSON_ContainsReplacedCharacter in the output
-       attributes even though the encoding sequence is not necessarily
-       inside a string token. But it doesn't hurt anything, since the
-       output attributes are reset every time we start a new token. */
     if (parser->parserStatus & PARSER_REPLACE_INVALID_ENCODING_SEQUENCES)
     {
         parser->decoderBits = REPLACEMENT_CHARACTER_CODEPOINT;
-        parser->outputAttributes |= JSON_ContainsReplacedCharacter;
+        if (parser->lexerState == LEXER_IN_STRING)
+        {
+            /* Note that we set JSON_ContainsReplacedCharacter in the output
+               attributes only when the encoding sequence represents a single
+               codepoint inside a string token; that is the only case where
+               replacing the invalid sequence avoids triggering an error and
+               the string attributes actually get passed to a handler. */
+            parser->outputAttributes |= JSON_ContainsReplacedCharacter;
+        }
         if (!ProcessCodepoint(parser, encodedLength))
         {
             return JSON_Failure;
