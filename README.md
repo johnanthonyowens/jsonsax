@@ -2,11 +2,11 @@ JSONSAX Library
 ===============
 
 JSONSAX is a library written in ANSI C which implements a stream-oriented JSON
-parser that uses callbacks to notify its client of the structure represented by
-JSON text as it is parsed.
+parser that uses callbacks to notify its client of the JSON document structure
+as the document is parsed.
 
 JSONSAX stands for "JSON Streamed Ala eXpat", and is so named because its usage
-parser is patterned after the "SAX" style implemented by the venerable Expat XML
+is patterned after the "SAX" style implemented by the venerable Expat XML
 parser.
 
 JSONSAX is designed to be lightweight, portable, robust, fast, and have minimal
