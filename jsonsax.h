@@ -104,7 +104,7 @@ extern "C" {
  * specifiers. By default, the library will be compiled to support dynamic
  * linkage. In order to build the library for static linkage, the JSON_STATIC
  * macro must be defined when the library itself is built AND when the client
- * includes jsax.h.
+ * includes jsonsax.h.
  */
 #if defined(JSON_STATIC)
 #define JSON_EXPORT /* nothing */
