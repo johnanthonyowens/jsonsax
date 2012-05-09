@@ -211,14 +211,13 @@ typedef enum tag_JSON_StringAttribute
 } JSON_StringAttribute;
 typedef int JSON_StringAttributes;
 
-/* Types of number value. */
-typedef enum tag_JSON_NumberType
+/* Types of "special" number. */
+typedef enum tag_JSON_SpecialNumber
 {
-    JSON_NormalNumber     = 0,
-    JSON_NaN              = 1,
-    JSON_Infinity         = 2,
-    JSON_NegativeInfinity = 3
-} JSON_NumberType;
+    JSON_NaN              = 0,
+    JSON_Infinity         = 1,
+    JSON_NegativeInfinity = 2
+} JSON_SpecialNumber;
 
 /* Information identifying a location in a parser instance's input stream.
  * All parse handlers receive the location of the token that triggered the
@@ -438,35 +437,13 @@ JSON_API(JSON_Status) JSON_SetStringHandler(JSON_Parser parser, JSON_StringHandl
  * parser instance's raw number handler instead. See SetRawNumberHandler()
  * for details.
  *
- * For all RFC 4627-compliant number values, the type parameter will be
- * JSON_NormalNumber.
- *
- * If the option to allow NaN and infinity is enabled and the value was
- * represented in the input by the literal "NaN", the value parameter will
- * be 0.0 (NOT one of the IEEE 754 NaN values) and the type parameter will
- * be JSON_NaN.
- *
- * If the option to allow NaN and infinity is enabled and the value was
- * represented in the input by the literal "Infinity", the value parameter
- * will be HUGE_VAL and the type parameter will be JSON_Infinity.
- *
- * If the option to allow NaN and infinity is enabled and the value was
- * represented in the input by the literal "-Infinity", the value parameter
- * will be -HUGE_VAL and the type parameter will be JSON_NegativeInfinity.
- *
- * Note that if the value was represented in the input by a RFC 4627-compliant
- * number value whose magnitude was simply too large to be represented by an
- * IEEE 754 double-precision value, the value parameter will be the
- * corresponding IEEE 754 infinity or negative infinity value, but the type
- * parameter will be JSON_NormalNumber.
- *
  * If the handler returns JSON_AbortParsing, the parser will abort the parse,
  * set its error to JSON_Error_AbortedByHandler, and return JSON_Failure from
  * the pending call to JSON_Parse().
  *
  * The handler can be changed at any time, even inside a handler.
  */
-typedef JSON_HandlerResult (JSON_CALL * JSON_NumberHandler)(JSON_Parser parser, const JSON_Location* pLocation, double value, JSON_NumberType type);
+typedef JSON_HandlerResult (JSON_CALL * JSON_NumberHandler)(JSON_Parser parser, const JSON_Location* pLocation, double value);
 JSON_API(JSON_NumberHandler) JSON_GetNumberHandler(JSON_Parser parser);
 JSON_API(JSON_Status) JSON_SetNumberHandler(JSON_Parser parser, JSON_NumberHandler handler);
 
@@ -486,8 +463,7 @@ JSON_API(JSON_Status) JSON_SetNumberHandler(JSON_Parser parser, JSON_NumberHandl
  * encoded as ASCII, regardless of the parser instance's input and output
  * encoding settings. The text is guaranteed to contain only characters
  * allowed in JSON number values, that is: '0' - '9', '+', '-', '.', 'e',
- * and 'E'. If the option to allow NaN and infinity is enabled, the text
- * may also be the string "NaN", "Infinity", or "-Infinity".
+ * and 'E'.
  *
  * Note that if this handler is set, the non-raw number handler will not be
  * called.
@@ -501,6 +477,19 @@ JSON_API(JSON_Status) JSON_SetNumberHandler(JSON_Parser parser, JSON_NumberHandl
 typedef JSON_HandlerResult (JSON_CALL * JSON_RawNumberHandler)(JSON_Parser parser, const JSON_Location* pLocation, const char* pValue);
 JSON_API(JSON_RawNumberHandler) JSON_GetRawNumberHandler(JSON_Parser parser);
 JSON_API(JSON_Status) JSON_SetRawNumberHandler(JSON_Parser parser, JSON_RawNumberHandler handler);
+
+/* Get and set the handler that is called when a parser instance parses one
+ * of the "special" number literals NaN, Infinity, and -Inifinity.
+ *
+ * If the handler returns JSON_AbortParsing, the parser will abort the parse,
+ * set its error to JSON_Error_AbortedByHandler, and return JSON_Failure from
+ * the pending call to JSON_Parse().
+ *
+ * The handler can be changed at any time, even inside a handler.
+ */
+typedef JSON_HandlerResult (JSON_CALL * JSON_SpecialNumberHandler)(JSON_Parser parser, const JSON_Location* pLocation, JSON_SpecialNumber value);
+JSON_API(JSON_SpecialNumberHandler) JSON_GetSpecialNumberHandler(JSON_Parser parser);
+JSON_API(JSON_Status) JSON_SetSpecialNumberHandler(JSON_Parser parser, JSON_SpecialNumberHandler handler);
 
 /* Get and set the handler that is called when a parser instance parses the
  * left curly brace that begins an object.
@@ -695,8 +684,8 @@ JSON_API(JSON_Status) JSON_SetAllowBOM(JSON_Parser parser, JSON_Boolean allowBOM
 JSON_API(JSON_Boolean) JSON_GetAllowTrailingCommas(JSON_Parser parser);
 JSON_API(JSON_Status) JSON_SetAllowTrailingCommas(JSON_Parser parser, JSON_Boolean allowTrailingCommas);
 
-/* Get and set whether a parser instance allows NaN, Infinity, and -Infinity
- * as number values.
+/* Get and set whether a parser instance allows the "special" number literals
+ * NaN, Infinity, and -Infinity.
  *
  * RFC 4627 does not provide any way to represent NaN, Infinity, or -Infinity,
  * but some clients may find it convenient to recognize these as literals,
@@ -704,11 +693,11 @@ JSON_API(JSON_Status) JSON_SetAllowTrailingCommas(JSON_Parser parser, JSON_Boole
  *
  * The default value of this setting is JSON_False.
  *
- * Note that calls to JSON_SetAllowNaNAndInfinity() will return failure if the
+ * Note that calls to JSON_SetAllowSpecialNumbers() will return failure if the
  * parser has started parsing.
  */
-JSON_API(JSON_Boolean) JSON_GetAllowNaNAndInfinity(JSON_Parser parser);
-JSON_API(JSON_Status) JSON_SetAllowNaNAndInfinity(JSON_Parser parser, JSON_Boolean allowNaNAndInfinity);
+JSON_API(JSON_Boolean) JSON_GetAllowSpecialNumbers(JSON_Parser parser);
+JSON_API(JSON_Status) JSON_SetAllowSpecialNumbers(JSON_Parser parser, JSON_Boolean allowSpecialNumbers);
 
 /* Get and set whether a parser instance replaces invalid encoding sequences
  * it encounters in the input stream with the Unicode replacement character

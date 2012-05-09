@@ -135,7 +135,7 @@ typedef struct tag_ParserSettings
     size_t        maxOutputStringLength;
     JSON_Boolean  allowBOM;
     JSON_Boolean  allowTrailingCommas;
-    JSON_Boolean  allowNaNAndInfinity;
+    JSON_Boolean  allowSpecialNumbers;
     JSON_Boolean  replaceInvalidEncodingSequences;
     JSON_Boolean  trackObjectMembers;
 } ParserSettings;
@@ -148,7 +148,7 @@ static void InitParserSettings(ParserSettings* pSettings)
     pSettings->maxOutputStringLength = (size_t)-1;
     pSettings->allowBOM = JSON_False;
     pSettings->allowTrailingCommas = JSON_False;
-    pSettings->allowNaNAndInfinity = JSON_False;
+    pSettings->allowSpecialNumbers = JSON_False;
     pSettings->replaceInvalidEncodingSequences = JSON_False;
     pSettings->trackObjectMembers = JSON_False;
 }
@@ -161,7 +161,7 @@ static void GetParserSettings(JSON_Parser parser, ParserSettings* pSettings)
     pSettings->maxOutputStringLength = JSON_GetMaxOutputStringLength(parser);
     pSettings->allowBOM = JSON_GetAllowBOM(parser);
     pSettings->allowTrailingCommas = JSON_GetAllowTrailingCommas(parser);
-    pSettings->allowNaNAndInfinity = JSON_GetAllowNaNAndInfinity(parser);
+    pSettings->allowSpecialNumbers = JSON_GetAllowSpecialNumbers(parser);
     pSettings->replaceInvalidEncodingSequences = JSON_GetReplaceInvalidEncodingSequences(parser);
     pSettings->trackObjectMembers = JSON_GetTrackObjectMembers(parser);
 }
@@ -174,7 +174,7 @@ static int ParserSettingsAreIdentical(const ParserSettings* pSettings1, const Pa
             pSettings1->maxOutputStringLength == pSettings2->maxOutputStringLength &&
             pSettings1->allowBOM == pSettings2->allowBOM &&
             pSettings1->allowTrailingCommas == pSettings2->allowTrailingCommas &&
-            pSettings1->allowNaNAndInfinity == pSettings2->allowNaNAndInfinity &&
+            pSettings1->allowSpecialNumbers == pSettings2->allowSpecialNumbers &&
             pSettings1->replaceInvalidEncodingSequences == pSettings2->replaceInvalidEncodingSequences &&
             pSettings1->trackObjectMembers == pSettings2->trackObjectMembers);
 }
@@ -201,13 +201,13 @@ static int CheckParserSettings(JSON_Parser parser, const ParserSettings* pExpect
             );
         printf("  JSON_GetAllowBOM()                     %8d   %8d\n"
                "  JSON_GetAllowTrailingCommas()          %8d   %8d\n"
-               "  JSON_GetAllowNaNAndInfinity()          %8d   %8d\n"
+               "  JSON_GetAllowSpecialNumbers()          %8d   %8d\n"
                "  JSON_ReplaceInvalidEncodingSequences() %8d   %8d\n"
                "  JSON_GetTrackObjectMembers()           %8d   %8d\n"
                ,
                (int)pExpectedSettings->allowBOM, (int)actualSettings.allowBOM,
                (int)pExpectedSettings->allowTrailingCommas, (int)actualSettings.allowTrailingCommas,
-               (int)pExpectedSettings->allowNaNAndInfinity, (int)actualSettings.allowNaNAndInfinity,
+               (int)pExpectedSettings->allowSpecialNumbers, (int)actualSettings.allowSpecialNumbers,
                (int)pExpectedSettings->replaceInvalidEncodingSequences, (int)actualSettings.replaceInvalidEncodingSequences,
                (int)pExpectedSettings->trackObjectMembers, (int)actualSettings.trackObjectMembers
             );
@@ -217,17 +217,18 @@ static int CheckParserSettings(JSON_Parser parser, const ParserSettings* pExpect
 
 typedef struct tag_ParserHandlers
 {
-    JSON_NullHandler         nullHandler;
-    JSON_BooleanHandler      booleanHandler;
-    JSON_StringHandler       stringHandler;
-    JSON_NumberHandler       numberHandler;
-    JSON_RawNumberHandler    rawNumberHandler;
-    JSON_StartObjectHandler  startObjectHandler;
-    JSON_EndObjectHandler    endObjectHandler;
-    JSON_ObjectMemberHandler objectMemberHandler;
-    JSON_StartArrayHandler   startArrayHandler;
-    JSON_EndArrayHandler     endArrayHandler;
-    JSON_ArrayItemHandler    arrayItemHandler;
+    JSON_NullHandler          nullHandler;
+    JSON_BooleanHandler       booleanHandler;
+    JSON_StringHandler        stringHandler;
+    JSON_NumberHandler        numberHandler;
+    JSON_RawNumberHandler     rawNumberHandler;
+    JSON_SpecialNumberHandler specialNumberHandler;
+    JSON_StartObjectHandler   startObjectHandler;
+    JSON_EndObjectHandler     endObjectHandler;
+    JSON_ObjectMemberHandler  objectMemberHandler;
+    JSON_StartArrayHandler    startArrayHandler;
+    JSON_EndArrayHandler      endArrayHandler;
+    JSON_ArrayItemHandler     arrayItemHandler;
 } ParserHandlers;
 
 static void InitParserHandlers(ParserHandlers* pHandlers)
@@ -237,6 +238,7 @@ static void InitParserHandlers(ParserHandlers* pHandlers)
     pHandlers->stringHandler = NULL;
     pHandlers->numberHandler = NULL;
     pHandlers->rawNumberHandler = NULL;
+    pHandlers->specialNumberHandler = NULL;
     pHandlers->startObjectHandler = NULL;
     pHandlers->endObjectHandler = NULL;
     pHandlers->objectMemberHandler = NULL;
@@ -252,6 +254,7 @@ static void GetParserHandlers(JSON_Parser parser, ParserHandlers* pHandlers)
     pHandlers->stringHandler = JSON_GetStringHandler(parser);
     pHandlers->numberHandler = JSON_GetNumberHandler(parser);
     pHandlers->rawNumberHandler = JSON_GetRawNumberHandler(parser);
+    pHandlers->specialNumberHandler = JSON_GetSpecialNumberHandler(parser);
     pHandlers->startObjectHandler = JSON_GetStartObjectHandler(parser);
     pHandlers->endObjectHandler = JSON_GetEndObjectHandler(parser);
     pHandlers->objectMemberHandler = JSON_GetObjectMemberHandler(parser);
@@ -267,6 +270,7 @@ static int ParserHandlersAreIdentical(const ParserHandlers* pHandlers1, const Pa
             pHandlers1->stringHandler == pHandlers2->stringHandler &&
             pHandlers1->numberHandler == pHandlers2->numberHandler &&
             pHandlers1->rawNumberHandler == pHandlers2->rawNumberHandler &&
+            pHandlers1->specialNumberHandler == pHandlers2->specialNumberHandler &&
             pHandlers1->startObjectHandler == pHandlers2->startObjectHandler &&
             pHandlers1->endObjectHandler == pHandlers2->endObjectHandler &&
             pHandlers1->objectMemberHandler == pHandlers2->objectMemberHandler &&
@@ -292,12 +296,14 @@ static int CheckParserHandlers(JSON_Parser parser, const ParserHandlers* pExpect
                "  JSON_GetStringHandler()       %8s   %8s\n"
                "  JSON_GetNumberHandler()       %8s   %8s\n"
                "  JSON_GetRawNumberHandler()    %8s   %8s\n"
+               "  JSON_GetSpecialNumberHandler()%8s   %8s\n"
                ,
                HANDLER_STRING(pExpectedHandlers->nullHandler), HANDLER_STRING(actualHandlers.nullHandler),
                HANDLER_STRING(pExpectedHandlers->booleanHandler), HANDLER_STRING(actualHandlers.booleanHandler),
                HANDLER_STRING(pExpectedHandlers->stringHandler), HANDLER_STRING(actualHandlers.stringHandler),
                HANDLER_STRING(pExpectedHandlers->numberHandler), HANDLER_STRING(actualHandlers.numberHandler),
-               HANDLER_STRING(pExpectedHandlers->rawNumberHandler), HANDLER_STRING(actualHandlers.rawNumberHandler)
+               HANDLER_STRING(pExpectedHandlers->rawNumberHandler), HANDLER_STRING(actualHandlers.rawNumberHandler),
+               HANDLER_STRING(pExpectedHandlers->specialNumberHandler), HANDLER_STRING(actualHandlers.specialNumberHandler)
             );
         printf("  JSON_GetStartObjectHandler()  %8s   %8s\n"
                "  JSON_GetEndObjectHandler()    %8s   %8s\n"
@@ -437,11 +443,11 @@ static int CheckSetAllowTrailingCommas(JSON_Parser parser, JSON_Boolean allowTra
     return 1;
 }
 
-static int CheckSetAllowNaNAndInfinity(JSON_Parser parser, JSON_Boolean allowNaNAndInfinity, JSON_Status expectedStatus)
+static int CheckSetAllowSpecialNumbers(JSON_Parser parser, JSON_Boolean allowSpecialNumbers, JSON_Status expectedStatus)
 {
-    if (JSON_SetAllowNaNAndInfinity(parser, allowNaNAndInfinity) != expectedStatus)
+    if (JSON_SetAllowSpecialNumbers(parser, allowSpecialNumbers) != expectedStatus)
     {
-        printf("FAILURE: expected JSON_SetAllowNaNAndInfinity() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
+        printf("FAILURE: expected JSON_SetAllowSpecialNumbers() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
         return 0;
     }
     return 1;
@@ -512,6 +518,16 @@ static int CheckSetRawNumberHandler(JSON_Parser parser, JSON_RawNumberHandler ha
     if (JSON_SetRawNumberHandler(parser, handler) != expectedStatus)
     {
         printf("FAILURE: expected JSON_SetRawNumberHandler() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
+        return 0;
+    }
+    return 1;
+}
+
+static int CheckSetSpecialNumberHandler(JSON_Parser parser, JSON_SpecialNumberHandler handler, JSON_Status expectedStatus)
+{
+    if (JSON_SetSpecialNumberHandler(parser, handler) != expectedStatus)
+    {
+        printf("FAILURE: expected JSON_SetSpecialNumberHandler() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
         return 0;
     }
     return 1;
@@ -718,7 +734,7 @@ static int TryToMisbehaveInCallback(JSON_Parser parser)
         !CheckSetOutputEncoding(parser, JSON_UTF32LE, JSON_Failure) ||
         !CheckSetAllowBOM(parser, JSON_True, JSON_Failure) ||
         !CheckSetAllowTrailingCommas(parser, JSON_True, JSON_Failure) ||
-        !CheckSetAllowNaNAndInfinity(parser, JSON_True, JSON_Failure) ||
+        !CheckSetAllowSpecialNumbers(parser, JSON_True, JSON_Failure) ||
         !CheckSetReplaceInvalidEncodingSequences(parser, JSON_True, JSON_Failure) ||
         !CheckSetTrackObjectMembers(parser, JSON_True, JSON_Failure) ||
         !CheckParse(parser, " ", 1, JSON_False, JSON_Failure))
@@ -772,9 +788,9 @@ static JSON_HandlerResult JSON_CALL StringHandler(JSON_Parser parser, const JSON
     return JSON_ContinueParsing;
 }
 
-static JSON_HandlerResult JSON_CALL NumberHandler(JSON_Parser parser, const JSON_Location* pLocation, double value, JSON_NumberType type)
+static JSON_HandlerResult JSON_CALL NumberHandler(JSON_Parser parser, const JSON_Location* pLocation, double value)
 {
-    (void)pLocation; (void)value; (void)type; /* unused */
+    (void)pLocation; (void)value; /* unused */
     if (s_failParseCallback)
     {
         return JSON_AbortParsing;
@@ -797,6 +813,36 @@ static JSON_HandlerResult JSON_CALL RawNumberHandler(JSON_Parser parser, const J
         return JSON_AbortParsing;
     }
     OutputFormatted("#(%s):%d,%d,%d;", pValue, (int)pLocation->byte, (int)pLocation->line, (int)pLocation->column);
+    return JSON_ContinueParsing;
+}
+
+static JSON_HandlerResult JSON_CALL SpecialNumberHandler(JSON_Parser parser, const JSON_Location* pLocation, JSON_SpecialNumber value)
+{
+    const char* pValue;
+    if (s_failParseCallback)
+    {
+        return JSON_AbortParsing;
+    }
+    if (s_misbehaveInCallback && TryToMisbehaveInCallback(parser))
+    {
+        return JSON_AbortParsing;
+    }
+    switch (value)
+    {
+    case JSON_NaN:
+        pValue = "NaN";
+        break;
+    case JSON_Infinity:
+        pValue = "Infinity";
+        break;
+    case JSON_NegativeInfinity:
+        pValue = "-Infinity";
+        break;
+    default:
+        pValue = "UNKNOWN";
+        break;
+    }
+    OutputFormatted("%s:%d,%d,%d;", pValue, (int)pLocation->byte, (int)pLocation->line, (int)pLocation->column);
     return JSON_ContinueParsing;
 }
 
@@ -952,6 +998,7 @@ static JSON_Parser DefaultParserFactory()
         JSON_SetStringHandler(parser, &StringHandler);
         JSON_SetNumberHandler(parser, &NumberHandler);
         JSON_SetRawNumberHandler(parser, &RawNumberHandler);
+        JSON_SetSpecialNumberHandler(parser, &SpecialNumberHandler);
         JSON_SetStartObjectHandler(parser, &StartObjectHandler);
         JSON_SetEndObjectHandler(parser, &EndObjectHandler);
         JSON_SetObjectMemberHandler(parser, &ObjectMemberHandler);
@@ -976,10 +1023,10 @@ static JSON_Parser AllowTrailingCommasParserFactory()
     return parser;
 }
 
-static JSON_Parser AllowNaNAndInfinityParserFactory()
+static JSON_Parser AllowSpecialNumbersParserFactory()
 {
     JSON_Parser parser = DefaultParserFactory();
-    JSON_SetAllowNaNAndInfinity(parser, JSON_True);
+    JSON_SetAllowSpecialNumbers(parser, JSON_True);
     return parser;
 }
 
@@ -1125,7 +1172,7 @@ static void TestSetParserSettings()
     settings.outputEncoding = JSON_UTF16LE;
     settings.allowBOM = JSON_True;
     settings.allowTrailingCommas = JSON_True;
-    settings.allowNaNAndInfinity = JSON_True;
+    settings.allowSpecialNumbers = JSON_True;
     settings.replaceInvalidEncodingSequences = JSON_True;
     settings.trackObjectMembers = JSON_True;
     if (CheckCreateParser(NULL, JSON_Success, &parser) &&
@@ -1135,7 +1182,7 @@ static void TestSetParserSettings()
         CheckSetMaxOutputStringLength(parser, settings.maxOutputStringLength, JSON_Success) &&
         CheckSetAllowBOM(parser, settings.allowBOM, JSON_Success) &&
         CheckSetAllowTrailingCommas(parser, settings.allowTrailingCommas, JSON_Success) &&
-        CheckSetAllowNaNAndInfinity(parser, settings.allowNaNAndInfinity, JSON_Success) &&
+        CheckSetAllowSpecialNumbers(parser, settings.allowSpecialNumbers, JSON_Success) &&
         CheckSetReplaceInvalidEncodingSequences(parser, settings.replaceInvalidEncodingSequences, JSON_Success) &&
         CheckSetTrackObjectMembers(parser, settings.trackObjectMembers, JSON_Success) &&
         CheckParserSettings(parser, &settings))
@@ -1183,6 +1230,7 @@ static void TestSetParserHandlers()
     handlers.stringHandler = &StringHandler;
     handlers.numberHandler = &NumberHandler;
     handlers.rawNumberHandler = &RawNumberHandler;
+    handlers.specialNumberHandler = &SpecialNumberHandler;
     handlers.startObjectHandler = &StartObjectHandler;
     handlers.endObjectHandler = &EndObjectHandler;
     handlers.objectMemberHandler = &ObjectMemberHandler;
@@ -1195,6 +1243,7 @@ static void TestSetParserHandlers()
         CheckSetStringHandler(parser, handlers.stringHandler, JSON_Success) &&
         CheckSetNumberHandler(parser, handlers.numberHandler, JSON_Success) &&
         CheckSetRawNumberHandler(parser, handlers.rawNumberHandler, JSON_Success) &&
+        CheckSetSpecialNumberHandler(parser, handlers.specialNumberHandler, JSON_Success) &&
         CheckSetStartObjectHandler(parser, handlers.startObjectHandler, JSON_Success) &&
         CheckSetEndObjectHandler(parser, handlers.endObjectHandler, JSON_Success) &&
         CheckSetObjectMemberHandler(parser, handlers.objectMemberHandler, JSON_Success) &&
@@ -1229,7 +1278,7 @@ static void TestResetParser()
         CheckSetMaxOutputStringLength(parser, 32, JSON_Success) &&
         CheckSetAllowBOM(parser, JSON_True, JSON_Success) &&
         CheckSetAllowTrailingCommas(parser, JSON_True, JSON_Success) &&
-        CheckSetAllowNaNAndInfinity(parser, JSON_True, JSON_Success) &&
+        CheckSetAllowSpecialNumbers(parser, JSON_True, JSON_Success) &&
         CheckSetReplaceInvalidEncodingSequences(parser, JSON_True, JSON_Success) &&
         CheckSetTrackObjectMembers(parser, JSON_True, JSON_Success) &&
         CheckSetNullHandler(parser, &NullHandler, JSON_Success) &&
@@ -1237,6 +1286,7 @@ static void TestResetParser()
         CheckSetStringHandler(parser, &StringHandler, JSON_Success) &&
         CheckSetNumberHandler(parser, &NumberHandler, JSON_Success) &&
         CheckSetRawNumberHandler(parser, &RawNumberHandler, JSON_Success) &&
+        CheckSetSpecialNumberHandler(parser, &SpecialNumberHandler, JSON_Success) &&
         CheckSetStartObjectHandler(parser, &StartObjectHandler, JSON_Success) &&
         CheckSetEndObjectHandler(parser, &EndObjectHandler, JSON_Success) &&
         CheckSetObjectMemberHandler(parser, &ObjectMemberHandler, JSON_Success) &&
@@ -1282,6 +1332,11 @@ static void TestMisbehaveInCallbacks()
         CheckResetParser(parser, JSON_Success) &&
         CheckSetRawNumberHandler(parser, &RawNumberHandler, JSON_Success) &&
         CheckParse(parser, "7", 1, JSON_True, JSON_Success) &&
+
+        CheckResetParser(parser, JSON_Success) &&
+        CheckSetAllowSpecialNumbers(parser, JSON_True, JSON_Success) &&
+        CheckSetSpecialNumberHandler(parser, &SpecialNumberHandler, JSON_Success) &&
+        CheckParse(parser, "NaN", 3, JSON_True, JSON_Success) &&
 
         CheckResetParser(parser, JSON_Success) &&
         CheckSetStartObjectHandler(parser, &StartObjectHandler, JSON_Success) &&
@@ -1354,6 +1409,12 @@ static void TestAbortInCallbacks()
         CheckResetParser(parser, JSON_Success) &&
         CheckSetRawNumberHandler(parser, &RawNumberHandler, JSON_Success) &&
         CheckParse(parser, " 7", 2, JSON_True, JSON_Failure) &&
+        CheckParserState(parser, &state) &&
+
+        CheckResetParser(parser, JSON_Success) &&
+        CheckSetAllowSpecialNumbers(parser, JSON_True, JSON_Success) &&
+        CheckSetSpecialNumberHandler(parser, &SpecialNumberHandler, JSON_Success) &&
+        CheckParse(parser, " NaN", 4, JSON_True, JSON_Failure) &&
         CheckParserState(parser, &state) &&
 
         CheckResetParser(parser, JSON_Success) &&
@@ -1629,6 +1690,7 @@ static void TestMissingParser()
         CheckSetStringHandler(NULL, &StringHandler, JSON_Failure) &&
         CheckSetNumberHandler(NULL, &NumberHandler, JSON_Failure) &&
         CheckSetRawNumberHandler(NULL, &RawNumberHandler, JSON_Failure) &&
+        CheckSetSpecialNumberHandler(NULL, &SpecialNumberHandler, JSON_Failure) &&
         CheckSetStartObjectHandler(NULL, &StartObjectHandler, JSON_Failure) &&
         CheckSetEndObjectHandler(NULL, &EndObjectHandler, JSON_Failure) &&
         CheckSetObjectMemberHandler(NULL, &ObjectMemberHandler, JSON_Failure) &&
@@ -1702,19 +1764,13 @@ static const IEEE754Test s_IEEE754Tests[] =
     IEEE754_TEST("0.5e-2", 0.005)
 };
 
-static JSON_HandlerResult JSON_CALL CheckIEEE754InterpretationNumberHandler(JSON_Parser parser, const JSON_Location* pLocation, double value, JSON_NumberType type)
+static JSON_HandlerResult JSON_CALL CheckIEEE754InterpretationNumberHandler(JSON_Parser parser, const JSON_Location* pLocation, double value)
 {
     const IEEE754Test* pTest = (const IEEE754Test*)JSON_GetUserData(parser);
     (void)pLocation; /* unused */
     if (value != pTest->expectedValue)
     {
         printf("FAILURE: expected value to be %f instead of %f\n", pTest->expectedValue, value);
-        s_failureCount++;
-        return JSON_AbortParsing;
-    }
-    if (type != JSON_NormalNumber)
-    {
-        printf("FAILURE: expected type to be %d instead of %d\n", JSON_NormalNumber, (int)type);
         s_failureCount++;
         return JSON_AbortParsing;
     }
@@ -1741,90 +1797,6 @@ static void RunIEEE754Test(const IEEE754Test* pTest)
     JSON_FreeParser(parser);
 }
 
-static JSON_HandlerResult JSON_CALL CheckIEEE754NaNInterpretationNumberHandler(JSON_Parser parser, const JSON_Location* pLocation, double value, JSON_NumberType type)
-{
-    (void)parser; (void)pLocation; /* unused */
-    if (value != 0.0 || type != JSON_NaN)
-    {
-        return JSON_AbortParsing;
-    }
-    return JSON_ContinueParsing;
-}
-
-static void TestIEEE754NaNInterpretation()
-{
-    JSON_Parser parser = NULL;
-    printf("Test IEEE 754 interpretation of NaN ... ");
-    if (CheckCreateParserWithCustomMemorySuite(&MallocHandler, &ReallocHandler, &FreeHandler, JSON_Success, &parser) &&
-        CheckSetAllowNaNAndInfinity(parser, JSON_True, JSON_Success) &&
-        CheckSetNumberHandler(parser, &CheckIEEE754NaNInterpretationNumberHandler, JSON_Success) &&
-        CheckParse(parser, "NaN", 3, JSON_True, JSON_Success))
-    {
-        printf("OK\n");
-    }
-    else
-    {
-        s_failureCount++;
-    }
-    JSON_FreeParser(parser);
-}
-
-static JSON_HandlerResult JSON_CALL CheckIEEE754InfinityInterpretationNumberHandler(JSON_Parser parser, const JSON_Location* pLocation, double value, JSON_NumberType type)
-{
-    (void)parser; (void)pLocation; /* unused */
-    if (value != HUGE_VAL || type != JSON_Infinity)
-    {
-        return JSON_AbortParsing;
-    }
-    return JSON_ContinueParsing;
-}
-
-static void TestIEEE754InfinityInterpretation()
-{
-    JSON_Parser parser = NULL;
-    printf("Test IEEE 754 interpretation of Infinity ... ");
-    if (CheckCreateParserWithCustomMemorySuite(&MallocHandler, &ReallocHandler, &FreeHandler, JSON_Success, &parser) &&
-        CheckSetAllowNaNAndInfinity(parser, JSON_True, JSON_Success) &&
-        CheckSetNumberHandler(parser, &CheckIEEE754InfinityInterpretationNumberHandler, JSON_Success) &&
-        CheckParse(parser, "Infinity", 8, JSON_True, JSON_Success))
-    {
-        printf("OK\n");
-    }
-    else
-    {
-        s_failureCount++;
-    }
-    JSON_FreeParser(parser);
-}
-
-static JSON_HandlerResult JSON_CALL CheckIEEE754NegativeInfinityInterpretationNumberHandler(JSON_Parser parser, const JSON_Location* pLocation, double value, JSON_NumberType type)
-{
-    (void)parser; (void)pLocation; /* unused */
-    if (value != -HUGE_VAL || type != JSON_NegativeInfinity)
-    {
-        return JSON_AbortParsing;
-    }
-    return JSON_ContinueParsing;
-}
-
-static void TestIEEE754NegativeInfinityInterpretation()
-{
-    JSON_Parser parser = NULL;
-    printf("Test IEEE 754 interpretation of -Infinity ... ");
-    if (CheckCreateParserWithCustomMemorySuite(&MallocHandler, &ReallocHandler, &FreeHandler, JSON_Success, &parser) &&
-        CheckSetAllowNaNAndInfinity(parser, JSON_True, JSON_Success) &&
-        CheckSetNumberHandler(parser, &CheckIEEE754NegativeInfinityInterpretationNumberHandler, JSON_Success) &&
-        CheckParse(parser, "-Infinity", 9, JSON_True, JSON_Success))
-    {
-        printf("OK\n");
-    }
-    else
-    {
-        s_failureCount++;
-    }
-    JSON_FreeParser(parser);
-}
-
 static void TestIEEE754NumberInterpretation()
 {
     size_t i;
@@ -1832,9 +1804,6 @@ static void TestIEEE754NumberInterpretation()
     {
         RunIEEE754Test(&s_IEEE754Tests[i]);
     }
-    TestIEEE754NaNInterpretation();
-    TestIEEE754InfinityInterpretation();
-    TestIEEE754NegativeInfinityInterpretation();
 }
 
 #define PARSE_SUCCESS_TEST(name, create, input, final, enc, output) { name, create, input, sizeof(input) - 1, final, JSON_Error_None, 0, 0, 0, JSON_##enc, output },
@@ -2117,69 +2086,69 @@ PARSE_FAILURE_TEST("false truncated after fals", DefaultParserFactory, "fals", F
 
 /* NaN */
 
-PARSE_SUCCESS_TEST("NaN (1)", AllowNaNAndInfinityParserFactory, "NaN", FINAL, UTF8, "#(NaN):0,0,0;")
-PARSE_SUCCESS_TEST("NaN (2)", AllowNaNAndInfinityParserFactory, " NaN ", FINAL, UTF8, "#(NaN):1,0,1;")
-PARSE_FAILURE_TEST("N is not a literal", AllowNaNAndInfinityParserFactory, "N ", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("Na is not a literal", AllowNaNAndInfinityParserFactory, "Na ", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("Nax is not a literal", AllowNaNAndInfinityParserFactory, "Nax", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("Na0 is not a literal", AllowNaNAndInfinityParserFactory, "NaN0", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("NaN_ is not a literal", AllowNaNAndInfinityParserFactory, "NaN_", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("NaNX is not a literal", AllowNaNAndInfinityParserFactory, "NaNX", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("NAN is not a literal", AllowNaNAndInfinityParserFactory, "NAN", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("NaN truncated after N", AllowNaNAndInfinityParserFactory, "N", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("NaN truncated after Na", AllowNaNAndInfinityParserFactory, "Na", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_SUCCESS_TEST("NaN (1)", AllowSpecialNumbersParserFactory, "NaN", FINAL, UTF8, "NaN:0,0,0;")
+PARSE_SUCCESS_TEST("NaN (2)", AllowSpecialNumbersParserFactory, " NaN ", FINAL, UTF8, "NaN:1,0,1;")
+PARSE_FAILURE_TEST("N is not a literal", AllowSpecialNumbersParserFactory, "N ", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("Na is not a literal", AllowSpecialNumbersParserFactory, "Na ", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("Nax is not a literal", AllowSpecialNumbersParserFactory, "Nax", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("Na0 is not a literal", AllowSpecialNumbersParserFactory, "NaN0", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("NaN_ is not a literal", AllowSpecialNumbersParserFactory, "NaN_", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("NaNX is not a literal", AllowSpecialNumbersParserFactory, "NaNX", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("NAN is not a literal", AllowSpecialNumbersParserFactory, "NAN", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("NaN truncated after N", AllowSpecialNumbersParserFactory, "N", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("NaN truncated after Na", AllowSpecialNumbersParserFactory, "Na", FINAL, UnknownToken, 0, 0, 0, UTF8)
 PARSE_FAILURE_TEST("NaN not allowed", DefaultParserFactory, "NaN", FINAL, UnknownToken, 0, 0, 0, UTF8)
 
 /* Infinity */
 
-PARSE_SUCCESS_TEST("Infinity (1)", AllowNaNAndInfinityParserFactory, "Infinity", FINAL, UTF8, "#(Infinity):0,0,0;")
-PARSE_SUCCESS_TEST("Infinity (2)", AllowNaNAndInfinityParserFactory, " Infinity ", FINAL, UTF8, "#(Infinity):1,0,1;")
-PARSE_FAILURE_TEST("I is not a literal", AllowNaNAndInfinityParserFactory, "I ", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("In is not a literal", AllowNaNAndInfinityParserFactory, "In ", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("Inf is not a literal", AllowNaNAndInfinityParserFactory, "Inf ", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("Infi is not a literal", AllowNaNAndInfinityParserFactory, "Infi ", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("Infin is not a literal", AllowNaNAndInfinityParserFactory, "Infin ", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("Infini is not a literal", AllowNaNAndInfinityParserFactory, "Infini ", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("Infinit is not a literal", AllowNaNAndInfinityParserFactory, "Infinit ", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("Infinitx is not a literal", AllowNaNAndInfinityParserFactory, "Infinitx", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("Infinit0 is not a literal", AllowNaNAndInfinityParserFactory, "Infinit0", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("Infinity_ is not a literal", AllowNaNAndInfinityParserFactory, "Infinity_", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("InfinityX is not a literal", AllowNaNAndInfinityParserFactory, "InfinityX", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("INF is not a literal", AllowNaNAndInfinityParserFactory, "INF", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("INFINITY is not a literal", AllowNaNAndInfinityParserFactory, "INFINITY", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("Infinity truncated after I", AllowNaNAndInfinityParserFactory, "I", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("Infinity truncated after In", AllowNaNAndInfinityParserFactory, "In", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("Infinity truncated after Inf", AllowNaNAndInfinityParserFactory, "Inf", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("Infinity truncated after Infi", AllowNaNAndInfinityParserFactory, "Infi", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("Infinity truncated after Infin", AllowNaNAndInfinityParserFactory, "Infin", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("Infinity truncated after Infini", AllowNaNAndInfinityParserFactory, "Infini", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("Infinity truncated after Infinit", AllowNaNAndInfinityParserFactory, "Infinit", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_SUCCESS_TEST("Infinity (1)", AllowSpecialNumbersParserFactory, "Infinity", FINAL, UTF8, "Infinity:0,0,0;")
+PARSE_SUCCESS_TEST("Infinity (2)", AllowSpecialNumbersParserFactory, " Infinity ", FINAL, UTF8, "Infinity:1,0,1;")
+PARSE_FAILURE_TEST("I is not a literal", AllowSpecialNumbersParserFactory, "I ", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("In is not a literal", AllowSpecialNumbersParserFactory, "In ", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("Inf is not a literal", AllowSpecialNumbersParserFactory, "Inf ", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("Infi is not a literal", AllowSpecialNumbersParserFactory, "Infi ", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("Infin is not a literal", AllowSpecialNumbersParserFactory, "Infin ", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("Infini is not a literal", AllowSpecialNumbersParserFactory, "Infini ", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("Infinit is not a literal", AllowSpecialNumbersParserFactory, "Infinit ", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("Infinitx is not a literal", AllowSpecialNumbersParserFactory, "Infinitx", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("Infinit0 is not a literal", AllowSpecialNumbersParserFactory, "Infinit0", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("Infinity_ is not a literal", AllowSpecialNumbersParserFactory, "Infinity_", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("InfinityX is not a literal", AllowSpecialNumbersParserFactory, "InfinityX", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("INF is not a literal", AllowSpecialNumbersParserFactory, "INF", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("INFINITY is not a literal", AllowSpecialNumbersParserFactory, "INFINITY", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("Infinity truncated after I", AllowSpecialNumbersParserFactory, "I", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("Infinity truncated after In", AllowSpecialNumbersParserFactory, "In", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("Infinity truncated after Inf", AllowSpecialNumbersParserFactory, "Inf", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("Infinity truncated after Infi", AllowSpecialNumbersParserFactory, "Infi", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("Infinity truncated after Infin", AllowSpecialNumbersParserFactory, "Infin", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("Infinity truncated after Infini", AllowSpecialNumbersParserFactory, "Infini", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("Infinity truncated after Infinit", AllowSpecialNumbersParserFactory, "Infinit", FINAL, UnknownToken, 0, 0, 0, UTF8)
 PARSE_FAILURE_TEST("Infinity not allowed", DefaultParserFactory, "Infinity", FINAL, UnknownToken, 0, 0, 0, UTF8)
 
 /* -Infinity */
 
-PARSE_SUCCESS_TEST("-Infinity (1)", AllowNaNAndInfinityParserFactory, "-Infinity", FINAL, UTF8, "#(-Infinity):0,0,0;")
-PARSE_SUCCESS_TEST("-Infinity (2)", AllowNaNAndInfinityParserFactory, " -Infinity ", FINAL, UTF8, "#(-Infinity):1,0,1;")
-PARSE_FAILURE_TEST("-I is not a number", AllowNaNAndInfinityParserFactory, "-I ", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("-In is not a number", AllowNaNAndInfinityParserFactory, "-In ", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("-Inf is not a number", AllowNaNAndInfinityParserFactory, "-Inf ", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("-Infi is not a number", AllowNaNAndInfinityParserFactory, "-Infi ", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("-Infin is not a number", AllowNaNAndInfinityParserFactory, "-Infin ", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("-Infini is not a number", AllowNaNAndInfinityParserFactory, "-Infini ", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("-Infinit is not a number", AllowNaNAndInfinityParserFactory, "-Infinit ", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("-Infinitx is not a number", AllowNaNAndInfinityParserFactory, "-Infinitx", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("-Infinit0 is not a number", AllowNaNAndInfinityParserFactory, "-Infinit0", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("-Infinity_ is not a number", AllowNaNAndInfinityParserFactory, "-Infinity_", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("-InfinityX is not a number", AllowNaNAndInfinityParserFactory, "-InfinityX", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("-INF is not a number", AllowNaNAndInfinityParserFactory, "-INF", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("-INFINITY is not a number", AllowNaNAndInfinityParserFactory, "-INFINITY", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("-Infinity truncated after I", AllowNaNAndInfinityParserFactory, "-I", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("-Infinity truncated after In", AllowNaNAndInfinityParserFactory, "-In", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("-Infinity truncated after Inf", AllowNaNAndInfinityParserFactory, "-Inf", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("-Infinity truncated after Infi", AllowNaNAndInfinityParserFactory, "-Infi", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("-Infinity truncated after Infin", AllowNaNAndInfinityParserFactory, "-Infin", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("-Infinity truncated after Infini", AllowNaNAndInfinityParserFactory, "-Infini", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("-Infinity truncated after Infinit", AllowNaNAndInfinityParserFactory, "-Infinit", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_SUCCESS_TEST("-Infinity (1)", AllowSpecialNumbersParserFactory, "-Infinity", FINAL, UTF8, "-Infinity:0,0,0;")
+PARSE_SUCCESS_TEST("-Infinity (2)", AllowSpecialNumbersParserFactory, " -Infinity ", FINAL, UTF8, "-Infinity:1,0,1;")
+PARSE_FAILURE_TEST("-I is not a number", AllowSpecialNumbersParserFactory, "-I ", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("-In is not a number", AllowSpecialNumbersParserFactory, "-In ", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("-Inf is not a number", AllowSpecialNumbersParserFactory, "-Inf ", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("-Infi is not a number", AllowSpecialNumbersParserFactory, "-Infi ", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("-Infin is not a number", AllowSpecialNumbersParserFactory, "-Infin ", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("-Infini is not a number", AllowSpecialNumbersParserFactory, "-Infini ", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("-Infinit is not a number", AllowSpecialNumbersParserFactory, "-Infinit ", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("-Infinitx is not a number", AllowSpecialNumbersParserFactory, "-Infinitx", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("-Infinit0 is not a number", AllowSpecialNumbersParserFactory, "-Infinit0", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("-Infinity_ is not a number", AllowSpecialNumbersParserFactory, "-Infinity_", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("-InfinityX is not a number", AllowSpecialNumbersParserFactory, "-InfinityX", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("-INF is not a number", AllowSpecialNumbersParserFactory, "-INF", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("-INFINITY is not a number", AllowSpecialNumbersParserFactory, "-INFINITY", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("-Infinity truncated after I", AllowSpecialNumbersParserFactory, "-I", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("-Infinity truncated after In", AllowSpecialNumbersParserFactory, "-In", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("-Infinity truncated after Inf", AllowSpecialNumbersParserFactory, "-Inf", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("-Infinity truncated after Infi", AllowSpecialNumbersParserFactory, "-Infi", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("-Infinity truncated after Infin", AllowSpecialNumbersParserFactory, "-Infin", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("-Infinity truncated after Infini", AllowSpecialNumbersParserFactory, "-Infini", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("-Infinity truncated after Infinit", AllowSpecialNumbersParserFactory, "-Infinit", FINAL, UnknownToken, 0, 0, 0, UTF8)
 PARSE_FAILURE_TEST("-Infinity not allowed", DefaultParserFactory, "-Infinity", FINAL, UnknownToken, 0, 0, 0, UTF8)
 
 /* numbers */

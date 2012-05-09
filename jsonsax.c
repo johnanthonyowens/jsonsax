@@ -92,7 +92,7 @@ typedef enum tag_ParserStatus
     PARSER_AFTER_CARRIAGE_RETURN               = 1 << 3,
     PARSER_ALLOW_BOM                           = 1 << 4,
     PARSER_ALLOW_TRAILING_COMMAS               = 1 << 5,
-    PARSER_ALLOW_NAN_AND_INFINITY              = 1 << 6,
+    PARSER_ALLOW_SPECIAL_NUMBERS               = 1 << 6,
     PARSER_REPLACE_INVALID_ENCODING_SEQUENCES  = 1 << 7,
     PARSER_TRACK_OBJECT_MEMBERS                = 1 << 8
 } ParserStatus;
@@ -197,42 +197,43 @@ typedef struct tag_MemberNames
 /* A parser instance. */
 struct JSON_ParserData
 {
-    JSON_MemorySuite         memorySuite;
-    void*                    userData;
-    JSON_NullHandler         nullHandler;
-    JSON_BooleanHandler      booleanHandler;
-    JSON_StringHandler       stringHandler;
-    JSON_NumberHandler       numberHandler;
-    JSON_RawNumberHandler    rawNumberHandler;
-    JSON_StartObjectHandler  startObjectHandler;
-    JSON_EndObjectHandler    endObjectHandler;
-    JSON_ObjectMemberHandler objectMemberHandler;
-    JSON_StartArrayHandler   startArrayHandler;
-    JSON_EndArrayHandler     endArrayHandler;
-    JSON_ArrayItemHandler    arrayItemHandler;
-    ParserStatus             parserStatus;
-    unsigned char            inputEncoding;     /* real type is JSON_Encoding */
-    unsigned char            outputEncoding;    /* real type is JSON_Encoding */
-    unsigned char            lexerState;        /* real type is LexerState */
-    unsigned char            token;             /* real type is Symbol */
-    unsigned char            decoderState;      /* real type is DecoderState */
-    unsigned char            error;             /* real type is JSON_Error */
-    unsigned char            outputAttributes;  /* real type is JSON_StringAttributes */
-    JSON_UInt32              lexerBits;
-    JSON_UInt32              decoderBits;
-    JSON_Location            codepointLocation;
-    JSON_Location            tokenLocation;
-    JSON_Location            errorLocation;
-    unsigned char*           pOutputBuffer;     /* initially set to defaultOutputBuffer */
-    size_t                   outputBufferLength;
-    size_t                   outputBufferUsed;
-    size_t                   maxOutputStringLength;
-    unsigned char*           pSymbolStack;      /* initially set to defaultSymbolStack */
-    size_t                   symbolStackSize;
-    size_t                   symbolStackUsed;
-    MemberNames*             pMemberNames;
-    unsigned char            defaultOutputBuffer[DEFAULT_OUTPUT_BUFFER_LENGTH];
-    unsigned char            defaultSymbolStack[DEFAULT_SYMBOL_STACK_SIZE];
+    JSON_MemorySuite          memorySuite;
+    void*                     userData;
+    JSON_NullHandler          nullHandler;
+    JSON_BooleanHandler       booleanHandler;
+    JSON_StringHandler        stringHandler;
+    JSON_NumberHandler        numberHandler;
+    JSON_RawNumberHandler     rawNumberHandler;
+    JSON_SpecialNumberHandler specialNumberHandler;
+    JSON_StartObjectHandler   startObjectHandler;
+    JSON_EndObjectHandler     endObjectHandler;
+    JSON_ObjectMemberHandler  objectMemberHandler;
+    JSON_StartArrayHandler    startArrayHandler;
+    JSON_EndArrayHandler      endArrayHandler;
+    JSON_ArrayItemHandler     arrayItemHandler;
+    ParserStatus              parserStatus;
+    unsigned char             inputEncoding;     /* real type is JSON_Encoding */
+    unsigned char             outputEncoding;    /* real type is JSON_Encoding */
+    unsigned char             lexerState;        /* real type is LexerState */
+    unsigned char             token;             /* real type is Symbol */
+    unsigned char             decoderState;      /* real type is DecoderState */
+    unsigned char             error;             /* real type is JSON_Error */
+    unsigned char             outputAttributes;  /* real type is JSON_StringAttributes */
+    JSON_UInt32               lexerBits;
+    JSON_UInt32               decoderBits;
+    JSON_Location             codepointLocation;
+    JSON_Location             tokenLocation;
+    JSON_Location             errorLocation;
+    unsigned char*            pOutputBuffer;     /* initially set to defaultOutputBuffer */
+    size_t                    outputBufferLength;
+    size_t                    outputBufferUsed;
+    size_t                    maxOutputStringLength;
+    unsigned char*            pSymbolStack;      /* initially set to defaultSymbolStack */
+    size_t                    symbolStackSize;
+    size_t                    symbolStackUsed;
+    MemberNames*              pMemberNames;
+    unsigned char             defaultOutputBuffer[DEFAULT_OUTPUT_BUFFER_LENGTH];
+    unsigned char             defaultSymbolStack[DEFAULT_SYMBOL_STACK_SIZE];
 };
 
 static void* JSON_CALL DefaultMallocHandler(JSON_Parser parser, size_t size)
@@ -394,6 +395,7 @@ static void ResetParserData(JSON_Parser parser, int isInitialized)
     parser->stringHandler = NULL;
     parser->numberHandler = NULL;
     parser->rawNumberHandler = NULL;
+    parser->specialNumberHandler = NULL;
     parser->startObjectHandler = NULL;
     parser->endObjectHandler = NULL;
     parser->objectMemberHandler = NULL;
@@ -765,33 +767,13 @@ static JSON_Status MakeStringCallback(JSON_Parser parser, JSON_StringHandler han
 
 static JSON_Status MakeNumberCallback(JSON_Parser parser, JSON_RawNumberHandler rawHandler, JSON_NumberHandler handler)
 {
-    /* Note that this is called for NaN, Infinity, and -Infinity, in addition
-       to "normal" number tokens. */
     if (rawHandler || handler)
     {
         /* Numbers should be null-terminated with a single null terminator byte
            before being converted to a double and/or passed to callbacks. */
         JSON_HandlerResult result;
-        const char* pRawNumber;
-        switch (parser->token)
-        {
-        case TOKEN_NAN:
-            pRawNumber = "NaN";
-            break;
-
-        case TOKEN_INFINITY:
-            pRawNumber = "Infinity";
-            break;
-
-        case TOKEN_NEGATIVE_INFINITY:
-            pRawNumber = "-Infinity";
-            break;
-
-        default:
-            pRawNumber = (const char*)parser->pOutputBuffer;
-            NullTerminateNumberOutput(parser);
-            break;
-        }
+        const char* pRawNumber = (const char*)parser->pOutputBuffer;
+        NullTerminateNumberOutput(parser);
         parser->parserStatus |= PARSER_IN_CALLBACK;
         if (rawHandler)
         {
@@ -799,32 +781,26 @@ static JSON_Status MakeNumberCallback(JSON_Parser parser, JSON_RawNumberHandler 
         }
         else
         {
-            double value;
-            JSON_NumberType type;
-            switch (parser->token)
-            {
-            case TOKEN_NAN:
-                value = 0.0;
-                type = JSON_NaN;
-                break;
-
-            case TOKEN_INFINITY:
-                value = HUGE_VAL;
-                type = JSON_Infinity;
-                break;
-
-            case TOKEN_NEGATIVE_INFINITY:
-                value = -HUGE_VAL;
-                type = JSON_NegativeInfinity;
-                break;
-
-            default:
-                value = InterpretNumber(parser);
-                type = JSON_NormalNumber;
-                break;
-            }
-            result = handler(parser, &parser->tokenLocation, value, type);
+            result = handler(parser, &parser->tokenLocation, InterpretNumber(parser));
         }
+        parser->parserStatus &= ~PARSER_IN_CALLBACK;
+        if (result != JSON_ContinueParsing)
+        {
+            SetErrorAtToken(parser, JSON_Error_AbortedByHandler);
+            return JSON_Failure;
+        }
+    }
+    return JSON_Success;
+}
+
+static JSON_Status MakeSpecialNumberCallback(JSON_Parser parser, JSON_SpecialNumberHandler handler)
+{
+    if (handler)
+    {
+        JSON_HandlerResult result;
+        parser->parserStatus |= PARSER_IN_CALLBACK;
+        result = handler(parser, &parser->tokenLocation, parser->token == TOKEN_NAN ? JSON_NaN :
+                         (parser->token == TOKEN_INFINITY ? JSON_Infinity : JSON_NegativeInfinity));
         parser->parserStatus &= ~PARSER_IN_CALLBACK;
         if (result != JSON_ContinueParsing)
         {
@@ -1003,9 +979,19 @@ static JSON_Status ProcessToken(JSON_Parser parser)
                 break;
 
             case 5: /* VALUE => number */
-                if (!MakeNumberCallback(parser, parser->rawNumberHandler, parser->numberHandler))
+                if (parser->token == TOKEN_NUMBER)
                 {
-                    return JSON_Failure;
+                    if (!MakeNumberCallback(parser, parser->rawNumberHandler, parser->numberHandler))
+                    {
+                        return JSON_Failure;
+                    }
+                }
+                else
+                {
+                    if (!MakeSpecialNumberCallback(parser, parser->specialNumberHandler))
+                    {
+                        return JSON_Failure;
+                    }
                 }
                 break;
 
@@ -1263,13 +1249,13 @@ reprocess:
                 return JSON_Failure;
             }
         }
-        else if (c == 'N' && (parser->parserStatus & PARSER_ALLOW_NAN_AND_INFINITY))
+        else if (c == 'N' && (parser->parserStatus & PARSER_ALLOW_SPECIAL_NUMBERS))
         {
             StartToken(parser, TOKEN_NAN);
             parser->lexerBits = NAN_LITERAL_EXPECTED_CHARS_START_INDEX;
             parser->lexerState = LEXER_IN_LITERAL;
         }
-        else if (c == 'I' && (parser->parserStatus & PARSER_ALLOW_NAN_AND_INFINITY))
+        else if (c == 'I' && (parser->parserStatus & PARSER_ALLOW_SPECIAL_NUMBERS))
         {
             StartToken(parser, TOKEN_INFINITY);
             parser->lexerBits = INFINITY_LITERAL_EXPECTED_CHARS_START_INDEX;
@@ -1559,7 +1545,7 @@ reprocess:
         {
             /* FlushLexer() will trigger the appropriate error. */
         }
-        else if (c == 'I' && (parser->parserStatus & PARSER_ALLOW_NAN_AND_INFINITY))
+        else if (c == 'I' && (parser->parserStatus & PARSER_ALLOW_SPECIAL_NUMBERS))
         {
             parser->token = TOKEN_NEGATIVE_INFINITY; /* changing horses mid-stream, so to speak */
             parser->lexerBits = INFINITY_LITERAL_EXPECTED_CHARS_START_INDEX;
@@ -2735,6 +2721,21 @@ JSON_Status JSON_CALL JSON_SetRawNumberHandler(JSON_Parser parser, JSON_RawNumbe
     return JSON_Success;
 }
 
+JSON_SpecialNumberHandler JSON_CALL JSON_GetSpecialNumberHandler(JSON_Parser parser)
+{
+    return parser ? parser->specialNumberHandler : NULL;
+}
+
+JSON_Status JSON_CALL JSON_SetSpecialNumberHandler(JSON_Parser parser, JSON_SpecialNumberHandler handler)
+{
+    if (!parser)
+    {
+        return JSON_Failure;
+    }
+    parser->specialNumberHandler = handler;
+    return JSON_Success;
+}
+
 JSON_StartObjectHandler JSON_CALL JSON_GetStartObjectHandler(JSON_Parser parser)
 {
     return parser ? parser->startObjectHandler : NULL;
@@ -2924,24 +2925,24 @@ JSON_Status JSON_CALL JSON_SetAllowTrailingCommas(JSON_Parser parser, JSON_Boole
     return JSON_Success;
 }
 
-JSON_Boolean JSON_CALL JSON_GetAllowNaNAndInfinity(JSON_Parser parser)
+JSON_Boolean JSON_CALL JSON_GetAllowSpecialNumbers(JSON_Parser parser)
 {
-    return (parser && (parser->parserStatus & PARSER_ALLOW_NAN_AND_INFINITY)) ? JSON_True : JSON_False;
+    return (parser && (parser->parserStatus & PARSER_ALLOW_SPECIAL_NUMBERS)) ? JSON_True : JSON_False;
 }
 
-JSON_Status JSON_CALL JSON_SetAllowNaNAndInfinity(JSON_Parser parser, JSON_Boolean allowNaNAndInfinity)
+JSON_Status JSON_CALL JSON_SetAllowSpecialNumbers(JSON_Parser parser, JSON_Boolean allowSpecialNumbers)
 {
     if (!parser || (parser->parserStatus & PARSER_STARTED))
     {
         return JSON_Failure;
     }
-    if (allowNaNAndInfinity)
+    if (allowSpecialNumbers)
     {
-        parser->parserStatus |= PARSER_ALLOW_NAN_AND_INFINITY;
+        parser->parserStatus |= PARSER_ALLOW_SPECIAL_NUMBERS;
     }
     else
     {
-        parser->parserStatus &= ~PARSER_ALLOW_NAN_AND_INFINITY;
+        parser->parserStatus &= ~PARSER_ALLOW_SPECIAL_NUMBERS;
     }
     return JSON_Success;
 }
