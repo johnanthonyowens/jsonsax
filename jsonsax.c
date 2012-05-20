@@ -1800,7 +1800,7 @@ static JSON_Status FlushLexer(JSON_Parser parser)
     /* The lexer should be idle when parsing finishes. */
     if (parser->lexerState != LEXER_IDLE)
     {
-        SetErrorAtCodepoint(parser, JSON_Error_IncompleteToken);
+        SetErrorAtToken(parser, JSON_Error_IncompleteToken);
         return JSON_Failure;
     }
     return JSON_Success;
