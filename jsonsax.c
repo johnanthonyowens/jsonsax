@@ -91,10 +91,11 @@ typedef enum tag_ParserStatus
     PARSER_IN_CALLBACK                         = 1 << 2,
     PARSER_AFTER_CARRIAGE_RETURN               = 1 << 3,
     PARSER_ALLOW_BOM                           = 1 << 4,
-    PARSER_ALLOW_TRAILING_COMMAS               = 1 << 5,
-    PARSER_ALLOW_SPECIAL_NUMBERS               = 1 << 6,
-    PARSER_REPLACE_INVALID_ENCODING_SEQUENCES  = 1 << 7,
-    PARSER_TRACK_OBJECT_MEMBERS                = 1 << 8
+    PARSER_ALLOW_COMMENTS                      = 1 << 5,
+    PARSER_ALLOW_TRAILING_COMMAS               = 1 << 6,
+    PARSER_ALLOW_SPECIAL_NUMBERS               = 1 << 7,
+    PARSER_REPLACE_INVALID_ENCODING_SEQUENCES  = 1 << 8,
+    PARSER_TRACK_OBJECT_MEMBERS                = 1 << 9
 } ParserStatus;
 
 /* Mutually-exclusive lexer states. */
@@ -121,7 +122,11 @@ typedef enum tag_LexerState
     LEXER_IN_NUMBER_SIGNIFICAND_FRACTIONAL_DIGITS           = 18,
     LEXER_IN_NUMBER_AFTER_E                                 = 19,
     LEXER_IN_NUMBER_AFTER_EXPONENT_SIGN                     = 20,
-    LEXER_IN_NUMBER_EXPONENT_DIGITS                         = 21
+    LEXER_IN_NUMBER_EXPONENT_DIGITS                         = 21,
+    LEXER_IN_COMMENT_AFTER_SLASH                            = 22,
+    LEXER_IN_SINGLE_LINE_COMMENT                            = 23,
+    LEXER_IN_MULTI_LINE_COMMENT                             = 24,
+    LEXER_IN_MULTI_LINE_COMMENT_AFTER_STAR                  = 25
 } LexerState;
 
 /* Mutually-exclusive decoder states. The values are defined so that the
@@ -159,6 +164,7 @@ typedef enum tag_Symbol
     TOKEN_RIGHT_SQUARE      = 0x0B,
     TOKEN_COLON             = 0x0C,
     TOKEN_COMMA             = 0x0D,
+    TOKEN_COMMENT           = 0x0E,
 
     /* Non-terminal values are in the form 0x1X. */
     NT_VALUE                = 0x10,
@@ -929,189 +935,193 @@ static const unsigned char productions[14][9] =
 
 static JSON_Status ProcessToken(JSON_Parser parser)
 {
-    int processTopSymbol;
-
-    /* If the stack is empty, no more tokens were expected. */
-    if (parser->symbolStackUsed == 0)
+    /* Comment tokens are simply ignored whenever they are encountered. */
+    if (parser->token != TOKEN_COMMENT)
     {
-        SetErrorAtToken(parser, JSON_Error_UnexpectedToken);
-        return JSON_Failure;
-    }
+        int processTopSymbol;
 
-    do
-    {
-        Symbol topSymbol = (Symbol)parser->pSymbolStack[parser->symbolStackUsed - 1];
-        Symbol symbolsToPush[2];
-        size_t numberOfSymbolsToPush = 0;
-        processTopSymbol = 0;
-        if (IS_TOKEN(topSymbol))
+        /* If the stack is empty, no more tokens were expected. */
+        if (parser->symbolStackUsed == 0)
         {
-            if (parser->token != topSymbol)
-            {
-                SetErrorAtToken(parser, JSON_Error_UnexpectedToken);
-                return JSON_Failure;
-            }
-        }
-        else
-        {
-            switch (productions[parser->token][BOTTOM_4_BITS(topSymbol)])
-            {
-            case 1: /* VALUE => null */
-                if (!MakeSimpleCallback(parser, parser->nullHandler))
-                {
-                    return JSON_Failure;
-                }
-                break;
-
-            case 2: /* VALUE => true */
-            case 3: /* VALUE => false */
-                if (!MakeBooleanCallback(parser, parser->booleanHandler))
-                {
-                    return JSON_Failure;
-                }
-                break;
-
-            case 4: /* VALUE => string */
-                if (!MakeStringCallback(parser, parser->stringHandler, 0/* handleDuplicateMemberResult */))
-                {
-                    return JSON_Failure;
-                }
-                break;
-
-            case 5: /* VALUE => number */
-                if (parser->token == TOKEN_NUMBER)
-                {
-                    if (!MakeNumberCallback(parser, parser->rawNumberHandler, parser->numberHandler))
-                    {
-                        return JSON_Failure;
-                    }
-                }
-                else
-                {
-                    if (!MakeSpecialNumberCallback(parser, parser->specialNumberHandler))
-                    {
-                        return JSON_Failure;
-                    }
-                }
-                break;
-
-            case 6: /* VALUE => { MEMBERS } */
-                if (!MakeSimpleCallback(parser, parser->startObjectHandler) ||
-                    !PushObject(parser))
-                {
-                    return JSON_Failure;
-                }
-                symbolsToPush[0] = TOKEN_RIGHT_CURLY;
-                symbolsToPush[1] = NT_MEMBERS;
-                numberOfSymbolsToPush = 2;
-                break;
-
-            case 7: /* VALUE => [ ITEMS ] */
-                if (!MakeSimpleCallback(parser, parser->startArrayHandler))
-                {
-                    return JSON_Failure;
-                }
-                symbolsToPush[0] = TOKEN_RIGHT_SQUARE;
-                symbolsToPush[1] = NT_ITEMS;
-                numberOfSymbolsToPush = 2;
-                break;
-
-            case 8: /* MEMBERS => MEMBER MORE_MEMBERS */
-            case 13: /* MEMBERS_AFTER_COMMA => MEMBER MORE_MEMBERS */
-                symbolsToPush[0] = NT_MORE_MEMBERS;
-                symbolsToPush[1] = NT_MEMBER;
-                numberOfSymbolsToPush = 2;
-                processTopSymbol = 1;
-                break;
-
-            case 14: /* MEMBERS_AFTER_COMMA => e (only if AllowTrailingCommas is enabled) */
-                if (parser->parserStatus & PARSER_ALLOW_TRAILING_COMMAS)
-                {
-                    /* fallthrough */
-                }
-                else
-                {
-                    SetErrorAtToken(parser, JSON_Error_UnexpectedToken);
-                    return JSON_Failure;
-                }
-            case 9:  /* MEMBERS => e */
-            case 12: /* MORE_MEMBERS => e */
-                PopObject(parser);
-                if (!MakeSimpleCallback(parser, parser->endObjectHandler))
-                {
-                    return JSON_Failure;
-                }
-                processTopSymbol = 1;
-                break;
-
-            case 10: /* MEMBER => string : VALUE */
-                if (!AddMemberNameToObject(parser) || /* will fail if member is duplicate */
-                    !MakeStringCallback(parser, parser->objectMemberHandler, 1/* handleDuplicateMemberResult */))
-                {
-                    return JSON_Failure;
-                }
-                symbolsToPush[0] = NT_VALUE;
-                symbolsToPush[1] = TOKEN_COLON;
-                numberOfSymbolsToPush = 2;
-                break;
-
-            case 11: /* MORE_MEMBERS => , MEMBERS_AFTER_COMMA */
-                symbolsToPush[0] = NT_MEMBERS_AFTER_COMMA;
-                numberOfSymbolsToPush = 1;
-                break;
-
-            case 15: /* ITEMS => ITEM MORE_ITEMS */
-            case 20: /* ITEMS_AFTER_COMMA => ITEM MORE_ITEMS */
-                symbolsToPush[0] = NT_MORE_ITEMS;
-                symbolsToPush[1] = NT_ITEM;
-                numberOfSymbolsToPush = 2;
-                processTopSymbol = 1;
-                break;
-
-            case 21: /* ITEMS_AFTER_COMMA => e (only if AllowTrailingCommas is enabled) */
-                if (parser->parserStatus & PARSER_ALLOW_TRAILING_COMMAS)
-                {
-                    /* fallthrough */
-                }
-                else
-                {
-                    SetErrorAtToken(parser, JSON_Error_UnexpectedToken);
-                    return JSON_Failure;
-                }
-            case 16: /* ITEMS => e */
-            case 19: /* MORE_ITEMS => e */
-                if (!MakeSimpleCallback(parser, parser->endArrayHandler))
-                {
-                    return JSON_Failure;
-                }
-                processTopSymbol = 1;
-                break;
-
-            case 17: /* ITEM => VALUE */
-                if (!MakeSimpleCallback(parser, parser->arrayItemHandler))
-                {
-                    return JSON_Failure;
-                }
-                symbolsToPush[0] = NT_VALUE;
-                numberOfSymbolsToPush = 1;
-                processTopSymbol = 1;
-                break;
-
-            case 18: /* MORE_ITEMS => , ITEMS_AFTER_COMMA */
-                symbolsToPush[0] = NT_ITEMS_AFTER_COMMA;
-                numberOfSymbolsToPush = 1;
-                break;
-
-            default: /* no production */
-                SetErrorAtToken(parser, JSON_Error_UnexpectedToken);
-                return JSON_Failure;
-            }
-        }
-        if (!ReplaceTopSymbol(parser, symbolsToPush, numberOfSymbolsToPush))
-        {
+            SetErrorAtToken(parser, JSON_Error_UnexpectedToken);
             return JSON_Failure;
         }
-    } while (processTopSymbol);
+
+        do
+        {
+            Symbol topSymbol = (Symbol)parser->pSymbolStack[parser->symbolStackUsed - 1];
+            Symbol symbolsToPush[2];
+            size_t numberOfSymbolsToPush = 0;
+            processTopSymbol = 0;
+            if (IS_TOKEN(topSymbol))
+            {
+                if (parser->token != topSymbol)
+                {
+                    SetErrorAtToken(parser, JSON_Error_UnexpectedToken);
+                    return JSON_Failure;
+                }
+            }
+            else
+            {
+                switch (productions[parser->token][BOTTOM_4_BITS(topSymbol)])
+                {
+                case 1: /* VALUE => null */
+                    if (!MakeSimpleCallback(parser, parser->nullHandler))
+                    {
+                        return JSON_Failure;
+                    }
+                    break;
+
+                case 2: /* VALUE => true */
+                case 3: /* VALUE => false */
+                    if (!MakeBooleanCallback(parser, parser->booleanHandler))
+                    {
+                        return JSON_Failure;
+                    }
+                    break;
+
+                case 4: /* VALUE => string */
+                    if (!MakeStringCallback(parser, parser->stringHandler, 0/* handleDuplicateMemberResult */))
+                    {
+                        return JSON_Failure;
+                    }
+                    break;
+
+                case 5: /* VALUE => number */
+                    if (parser->token == TOKEN_NUMBER)
+                    {
+                        if (!MakeNumberCallback(parser, parser->rawNumberHandler, parser->numberHandler))
+                        {
+                            return JSON_Failure;
+                        }
+                    }
+                    else
+                    {
+                        if (!MakeSpecialNumberCallback(parser, parser->specialNumberHandler))
+                        {
+                            return JSON_Failure;
+                        }
+                    }
+                    break;
+
+                case 6: /* VALUE => { MEMBERS } */
+                    if (!MakeSimpleCallback(parser, parser->startObjectHandler) ||
+                        !PushObject(parser))
+                    {
+                        return JSON_Failure;
+                    }
+                    symbolsToPush[0] = TOKEN_RIGHT_CURLY;
+                    symbolsToPush[1] = NT_MEMBERS;
+                    numberOfSymbolsToPush = 2;
+                    break;
+
+                case 7: /* VALUE => [ ITEMS ] */
+                    if (!MakeSimpleCallback(parser, parser->startArrayHandler))
+                    {
+                        return JSON_Failure;
+                    }
+                    symbolsToPush[0] = TOKEN_RIGHT_SQUARE;
+                    symbolsToPush[1] = NT_ITEMS;
+                    numberOfSymbolsToPush = 2;
+                    break;
+
+                case 8: /* MEMBERS => MEMBER MORE_MEMBERS */
+                case 13: /* MEMBERS_AFTER_COMMA => MEMBER MORE_MEMBERS */
+                    symbolsToPush[0] = NT_MORE_MEMBERS;
+                    symbolsToPush[1] = NT_MEMBER;
+                    numberOfSymbolsToPush = 2;
+                    processTopSymbol = 1;
+                    break;
+
+                case 14: /* MEMBERS_AFTER_COMMA => e (only if AllowTrailingCommas is enabled) */
+                    if (parser->parserStatus & PARSER_ALLOW_TRAILING_COMMAS)
+                    {
+                        /* fallthrough */
+                    }
+                    else
+                    {
+                        SetErrorAtToken(parser, JSON_Error_UnexpectedToken);
+                        return JSON_Failure;
+                    }
+                case 9:  /* MEMBERS => e */
+                case 12: /* MORE_MEMBERS => e */
+                    PopObject(parser);
+                    if (!MakeSimpleCallback(parser, parser->endObjectHandler))
+                    {
+                        return JSON_Failure;
+                    }
+                    processTopSymbol = 1;
+                    break;
+
+                case 10: /* MEMBER => string : VALUE */
+                    if (!AddMemberNameToObject(parser) || /* will fail if member is duplicate */
+                        !MakeStringCallback(parser, parser->objectMemberHandler, 1/* handleDuplicateMemberResult */))
+                    {
+                        return JSON_Failure;
+                    }
+                    symbolsToPush[0] = NT_VALUE;
+                    symbolsToPush[1] = TOKEN_COLON;
+                    numberOfSymbolsToPush = 2;
+                    break;
+
+                case 11: /* MORE_MEMBERS => , MEMBERS_AFTER_COMMA */
+                    symbolsToPush[0] = NT_MEMBERS_AFTER_COMMA;
+                    numberOfSymbolsToPush = 1;
+                    break;
+
+                case 15: /* ITEMS => ITEM MORE_ITEMS */
+                case 20: /* ITEMS_AFTER_COMMA => ITEM MORE_ITEMS */
+                    symbolsToPush[0] = NT_MORE_ITEMS;
+                    symbolsToPush[1] = NT_ITEM;
+                    numberOfSymbolsToPush = 2;
+                    processTopSymbol = 1;
+                    break;
+
+                case 21: /* ITEMS_AFTER_COMMA => e (only if AllowTrailingCommas is enabled) */
+                    if (parser->parserStatus & PARSER_ALLOW_TRAILING_COMMAS)
+                    {
+                        /* fallthrough */
+                    }
+                    else
+                    {
+                        SetErrorAtToken(parser, JSON_Error_UnexpectedToken);
+                        return JSON_Failure;
+                    }
+                case 16: /* ITEMS => e */
+                case 19: /* MORE_ITEMS => e */
+                    if (!MakeSimpleCallback(parser, parser->endArrayHandler))
+                    {
+                        return JSON_Failure;
+                    }
+                    processTopSymbol = 1;
+                    break;
+
+                case 17: /* ITEM => VALUE */
+                    if (!MakeSimpleCallback(parser, parser->arrayItemHandler))
+                    {
+                        return JSON_Failure;
+                    }
+                    symbolsToPush[0] = NT_VALUE;
+                    numberOfSymbolsToPush = 1;
+                    processTopSymbol = 1;
+                    break;
+
+                case 18: /* MORE_ITEMS => , ITEMS_AFTER_COMMA */
+                    symbolsToPush[0] = NT_ITEMS_AFTER_COMMA;
+                    numberOfSymbolsToPush = 1;
+                    break;
+
+                default: /* no production */
+                    SetErrorAtToken(parser, JSON_Error_UnexpectedToken);
+                    return JSON_Failure;
+                }
+            }
+            if (!ReplaceTopSymbol(parser, symbolsToPush, numberOfSymbolsToPush))
+            {
+                return JSON_Failure;
+            }
+        } while (processTopSymbol);
+    }
 
     /* Reset the lexer to prepare for the next token. */
     parser->lexerState = LEXER_IDLE;
@@ -1248,6 +1258,11 @@ reprocess:
                 SetErrorAtCodepoint(parser, JSON_Error_BOMNotAllowed);
                 return JSON_Failure;
             }
+        }
+        else if (c == '/' && (parser->parserStatus & PARSER_ALLOW_COMMENTS))
+        {
+            StartToken(parser, TOKEN_COMMENT);
+            parser->lexerState = LEXER_IN_COMMENT_AFTER_SLASH;
         }
         else if (c == 'N' && (parser->parserStatus & PARSER_ALLOW_SPECIAL_NUMBERS))
         {
@@ -1729,6 +1744,47 @@ reprocess:
                 return JSON_Failure;
             }
             goto reprocess;
+        }
+        break;
+
+    case LEXER_IN_COMMENT_AFTER_SLASH:
+        if (c == '/')
+        {
+            parser->lexerState = LEXER_IN_SINGLE_LINE_COMMENT;
+        }
+        else if (c == '*')
+        {
+            parser->lexerState = LEXER_IN_MULTI_LINE_COMMENT;
+        }
+        else
+        {
+            SetErrorAtToken(parser, JSON_Error_UnknownToken);
+            return JSON_Failure;
+        }
+        break;
+
+    case LEXER_IN_SINGLE_LINE_COMMENT:
+        if (c == CARRIAGE_RETURN_CODEPOINT || c == LINE_FEED_CODEPOINT || c == EOF_CODEPOINT)
+        {
+            tokenFinished = 1;
+        }
+        break;
+
+    case LEXER_IN_MULTI_LINE_COMMENT:
+        if (c == '*')
+        {
+            parser->lexerState = LEXER_IN_MULTI_LINE_COMMENT_AFTER_STAR;
+        }
+        break;
+
+    case LEXER_IN_MULTI_LINE_COMMENT_AFTER_STAR:
+        if (c == '/')
+        {
+            tokenFinished = 1;
+        }
+        else if (c != '*')
+        {
+            parser->lexerState = LEXER_IN_MULTI_LINE_COMMENT;
         }
         break;
     }
@@ -2899,6 +2955,28 @@ JSON_Status JSON_CALL JSON_SetAllowBOM(JSON_Parser parser, JSON_Boolean allowBOM
     else
     {
         parser->parserStatus &= ~PARSER_ALLOW_BOM;
+    }
+    return JSON_Success;
+}
+
+JSON_Boolean JSON_CALL JSON_GetAllowComments(JSON_Parser parser)
+{
+    return (parser && (parser->parserStatus & PARSER_ALLOW_COMMENTS)) ? JSON_True : JSON_False;
+}
+
+JSON_Status JSON_CALL JSON_SetAllowComments(JSON_Parser parser, JSON_Boolean allowComments)
+{
+    if (!parser || (parser->parserStatus & PARSER_STARTED))
+    {
+        return JSON_Failure;
+    }
+    if (allowComments)
+    {
+        parser->parserStatus |= PARSER_ALLOW_COMMENTS;
+    }
+    else
+    {
+        parser->parserStatus &= ~PARSER_ALLOW_COMMENTS;
     }
     return JSON_Success;
 }

@@ -134,6 +134,7 @@ typedef struct tag_ParserSettings
     JSON_Encoding outputEncoding;
     size_t        maxOutputStringLength;
     JSON_Boolean  allowBOM;
+    JSON_Boolean  allowComments;
     JSON_Boolean  allowTrailingCommas;
     JSON_Boolean  allowSpecialNumbers;
     JSON_Boolean  replaceInvalidEncodingSequences;
@@ -147,6 +148,7 @@ static void InitParserSettings(ParserSettings* pSettings)
     pSettings->outputEncoding = JSON_UTF8;
     pSettings->maxOutputStringLength = (size_t)-1;
     pSettings->allowBOM = JSON_False;
+    pSettings->allowComments = JSON_False;
     pSettings->allowTrailingCommas = JSON_False;
     pSettings->allowSpecialNumbers = JSON_False;
     pSettings->replaceInvalidEncodingSequences = JSON_False;
@@ -160,6 +162,7 @@ static void GetParserSettings(JSON_Parser parser, ParserSettings* pSettings)
     pSettings->outputEncoding = JSON_GetOutputEncoding(parser);
     pSettings->maxOutputStringLength = JSON_GetMaxOutputStringLength(parser);
     pSettings->allowBOM = JSON_GetAllowBOM(parser);
+    pSettings->allowComments = JSON_GetAllowComments(parser);
     pSettings->allowTrailingCommas = JSON_GetAllowTrailingCommas(parser);
     pSettings->allowSpecialNumbers = JSON_GetAllowSpecialNumbers(parser);
     pSettings->replaceInvalidEncodingSequences = JSON_GetReplaceInvalidEncodingSequences(parser);
@@ -173,6 +176,7 @@ static int ParserSettingsAreIdentical(const ParserSettings* pSettings1, const Pa
             pSettings1->outputEncoding == pSettings2->outputEncoding &&
             pSettings1->maxOutputStringLength == pSettings2->maxOutputStringLength &&
             pSettings1->allowBOM == pSettings2->allowBOM &&
+            pSettings1->allowComments == pSettings2->allowComments &&
             pSettings1->allowTrailingCommas == pSettings2->allowTrailingCommas &&
             pSettings1->allowSpecialNumbers == pSettings2->allowSpecialNumbers &&
             pSettings1->replaceInvalidEncodingSequences == pSettings2->replaceInvalidEncodingSequences &&
@@ -200,12 +204,14 @@ static int CheckParserSettings(JSON_Parser parser, const ParserSettings* pExpect
                (int)pExpectedSettings->maxOutputStringLength, (int)actualSettings.maxOutputStringLength
             );
         printf("  JSON_GetAllowBOM()                     %8d   %8d\n"
+               "  JSON_GetAllowComments()                %8d   %8d\n"
                "  JSON_GetAllowTrailingCommas()          %8d   %8d\n"
                "  JSON_GetAllowSpecialNumbers()          %8d   %8d\n"
                "  JSON_ReplaceInvalidEncodingSequences() %8d   %8d\n"
                "  JSON_GetTrackObjectMembers()           %8d   %8d\n"
                ,
                (int)pExpectedSettings->allowBOM, (int)actualSettings.allowBOM,
+               (int)pExpectedSettings->allowComments, (int)actualSettings.allowComments,
                (int)pExpectedSettings->allowTrailingCommas, (int)actualSettings.allowTrailingCommas,
                (int)pExpectedSettings->allowSpecialNumbers, (int)actualSettings.allowSpecialNumbers,
                (int)pExpectedSettings->replaceInvalidEncodingSequences, (int)actualSettings.replaceInvalidEncodingSequences,
@@ -428,6 +434,16 @@ static int CheckSetAllowBOM(JSON_Parser parser, JSON_Boolean allowBOM, JSON_Stat
     if (JSON_SetAllowBOM(parser, allowBOM) != expectedStatus)
     {
         printf("FAILURE: expected JSON_SetAllowBOM() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
+        return 0;
+    }
+    return 1;
+}
+
+static int CheckSetAllowComments(JSON_Parser parser, JSON_Boolean allowComments, JSON_Status expectedStatus)
+{
+    if (JSON_SetAllowComments(parser, allowComments) != expectedStatus)
+    {
+        printf("FAILURE: expected JSON_SetAllowComments() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
         return 0;
     }
     return 1;
@@ -733,6 +749,7 @@ static int TryToMisbehaveInCallback(JSON_Parser parser)
         !CheckSetInputEncoding(parser, JSON_UTF32LE, JSON_Failure) ||
         !CheckSetOutputEncoding(parser, JSON_UTF32LE, JSON_Failure) ||
         !CheckSetAllowBOM(parser, JSON_True, JSON_Failure) ||
+        !CheckSetAllowComments(parser, JSON_True, JSON_Failure) ||
         !CheckSetAllowTrailingCommas(parser, JSON_True, JSON_Failure) ||
         !CheckSetAllowSpecialNumbers(parser, JSON_True, JSON_Failure) ||
         !CheckSetReplaceInvalidEncodingSequences(parser, JSON_True, JSON_Failure) ||
@@ -1016,6 +1033,13 @@ static JSON_Parser AllowBOMParserFactory()
     return parser;
 }
 
+static JSON_Parser AllowCommentsParserFactory()
+{
+    JSON_Parser parser = DefaultParserFactory();
+    JSON_SetAllowComments(parser, JSON_True);
+    return parser;
+}
+
 static JSON_Parser AllowTrailingCommasParserFactory()
 {
     JSON_Parser parser = DefaultParserFactory();
@@ -1171,6 +1195,7 @@ static void TestSetParserSettings()
     settings.inputEncoding = JSON_UTF16LE;
     settings.outputEncoding = JSON_UTF16LE;
     settings.allowBOM = JSON_True;
+    settings.allowComments = JSON_True;
     settings.allowTrailingCommas = JSON_True;
     settings.allowSpecialNumbers = JSON_True;
     settings.replaceInvalidEncodingSequences = JSON_True;
@@ -1181,6 +1206,7 @@ static void TestSetParserSettings()
         CheckSetOutputEncoding(parser, settings.outputEncoding, JSON_Success) &&
         CheckSetMaxOutputStringLength(parser, settings.maxOutputStringLength, JSON_Success) &&
         CheckSetAllowBOM(parser, settings.allowBOM, JSON_Success) &&
+        CheckSetAllowComments(parser, settings.allowComments, JSON_Success) &&
         CheckSetAllowTrailingCommas(parser, settings.allowTrailingCommas, JSON_Success) &&
         CheckSetAllowSpecialNumbers(parser, settings.allowSpecialNumbers, JSON_Success) &&
         CheckSetReplaceInvalidEncodingSequences(parser, settings.replaceInvalidEncodingSequences, JSON_Success) &&
@@ -1277,6 +1303,7 @@ static void TestResetParser()
         CheckSetOutputEncoding(parser, JSON_UTF16LE, JSON_Success) &&
         CheckSetMaxOutputStringLength(parser, 32, JSON_Success) &&
         CheckSetAllowBOM(parser, JSON_True, JSON_Success) &&
+        CheckSetAllowComments(parser, JSON_True, JSON_Success) &&
         CheckSetAllowTrailingCommas(parser, JSON_True, JSON_Success) &&
         CheckSetAllowSpecialNumbers(parser, JSON_True, JSON_Success) &&
         CheckSetReplaceInvalidEncodingSequences(parser, JSON_True, JSON_Success) &&
@@ -2378,6 +2405,33 @@ PARSE_FAILURE_TEST("array item missing (3)", DefaultParserFactory, "[1,]", FINAL
 PARSE_SUCCESS_TEST("allow trailing comma after last array item (1)", AllowTrailingCommasParserFactory, "[1,]", FINAL, UTF8, "[:0,0,0;item:1,0,1;#(1):1,0,1;]:3,0,3;")
 PARSE_SUCCESS_TEST("allow trailing comma after last array item (2)", AllowTrailingCommasParserFactory, "[1,2,]", FINAL, UTF8, "[:0,0,0;item:1,0,1;#(1):1,0,1;item:3,0,3;#(2):3,0,3;]:5,0,5;")
 PARSE_FAILURE_TEST("array items require comma separator", DefaultParserFactory, "[1 2]", FINAL, UnexpectedToken, 3, 0, 3, UTF8)
+
+/* comments */
+
+PARSE_FAILURE_TEST("single-line comment not allowed (1)", DefaultParserFactory, "0 // comment", FINAL, UnknownToken, 2, 0, 2, UTF8)
+PARSE_FAILURE_TEST("single-line comment not allowed (2)", DefaultParserFactory, "// comment\r\n0", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("multi-line comment not allowed (1)", DefaultParserFactory, "0 /* comment */", FINAL, UnknownToken, 2, 0, 2, UTF8)
+PARSE_FAILURE_TEST("multi-line comment not allowed (2)", DefaultParserFactory, "/* comment */0", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("multi-line comment not allowed (3)", DefaultParserFactory, "/* comment \r\n * / * /*/0", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("multi-line comment not allowed (4)", DefaultParserFactory, "/* comment \r\n * / * /*/\r\n0", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_SUCCESS_TEST("single-line comment (1)", AllowCommentsParserFactory, "0 //", FINAL, UTF8, "#(0):0,0,0;")
+PARSE_SUCCESS_TEST("single-line comment (2)", AllowCommentsParserFactory, "0 // comment", FINAL, UTF8, "#(0):0,0,0;")
+PARSE_SUCCESS_TEST("single-line comment (3)", AllowCommentsParserFactory, "// comment\r\n0", FINAL, UTF8, "#(0):12,1,0;")
+PARSE_SUCCESS_TEST("single-line comment with extra slashes", AllowCommentsParserFactory, "0 ////////////", FINAL, UTF8, "#(0):0,0,0;")
+PARSE_SUCCESS_TEST("multi-line comment (1)", AllowCommentsParserFactory, "0 /**/", FINAL, UTF8, "#(0):0,0,0;")
+PARSE_SUCCESS_TEST("multi-line comment (2)", AllowCommentsParserFactory, "0 /* comment */", FINAL, UTF8, "#(0):0,0,0;")
+PARSE_SUCCESS_TEST("multi-line comment (3)", AllowCommentsParserFactory, "/* comment */0", FINAL, UTF8, "#(0):13,0,13;")
+PARSE_SUCCESS_TEST("multi-line comment (4)", AllowCommentsParserFactory, "/* comment \r\n * / * /*/0", FINAL, UTF8, "#(0):23,1,10;")
+PARSE_SUCCESS_TEST("multi-line comment (5)", AllowCommentsParserFactory, "/* comment \r\n * / * /*/\r\n0", FINAL, UTF8, "#(0):25,2,0;")
+PARSE_SUCCESS_TEST("multi-line comment with extra stars", AllowCommentsParserFactory, "0 /************/", FINAL, UTF8, "#(0):0,0,0;")
+PARSE_FAILURE_TEST("unclosed multi-line comment (1)", AllowCommentsParserFactory, "/*", FINAL, IncompleteToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("unclosed multi-line comment (2)", AllowCommentsParserFactory, "/* comment", FINAL, IncompleteToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("just a comment (1)", AllowCommentsParserFactory, "//", FINAL, ExpectedMoreTokens, 2, 0, 2, UTF8)
+PARSE_FAILURE_TEST("just a comment (2)", AllowCommentsParserFactory, "/**/", FINAL, ExpectedMoreTokens, 4, 0, 4, UTF8)
+PARSE_SUCCESS_TEST("comment between tokens (1)", AllowCommentsParserFactory, "[//\n]", FINAL, UTF8, "[:0,0,0;]:4,1,0;")
+PARSE_SUCCESS_TEST("comment between tokens (2)", AllowCommentsParserFactory, "[/**/]", FINAL, UTF8, "[:0,0,0;]:5,0,5;")
+PARSE_FAILURE_TEST("lone forward slash (1)", AllowCommentsParserFactory, "/", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("lone forward slash (2)", AllowCommentsParserFactory, "/ ", FINAL, UnknownToken, 0, 0, 0, UTF8)
 
 /* random tokens */
 

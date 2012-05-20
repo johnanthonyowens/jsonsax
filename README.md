@@ -65,28 +65,15 @@ encoding sequences in the input stream with the Unicode replacement character
 recommendations described in section 3.9 of version 5.2.0 of [the Unicode
 Standard](http://www.unicode.org/versions/Unicode5.2.0/).
 
-The JSONSAX library is licensed under the MIT License.
+The parser also supports several optional extensions to the RFC 4627, each
+of which can be enabled on a parser-by-parser basis. These include:
+
+- Allowing the JSON text to begin with a Unicode byte-order-mark (BOM).
+- Allowing the JSON text to contain Javascript-style comments.
+- Allowing trailing commas in object member lists and array item lists.
+- Allowing the "special" number literals NaN, Infinity, and -Infinity.
+
+The JSONSAX library is licensed under the MIT License. The full license is
+contained in the accompanying LICENSE file.
 
 Full documentation of the JSONSAX API is provided in the jsonsax.h header.
-
-License
--------
-
-Copyright (c) 2012 John-Anthony Owens
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of
-this software and associated documentation files (the "Software"), to deal in
-the Software without restriction, including without limitation the rights to
-use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
-the Software, and to permit persons to whom the Software is furnished to do so,
-subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
-FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
-COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
-CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
