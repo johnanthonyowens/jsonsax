@@ -33,13 +33,13 @@
  * as embedded systems. It has no external dependencies other than the
  * standard ANSI C runtime library.
  *
- * Callback-based parsers are significantly more difficult to use than
- * those that simply build and returns DOM representations of the input,
- * but they are useful in situations where the client wants to build a custom
- * DOM representation of the input without incurring the overhead of a
- * generic "intermediate" DOM representation built by the parser, or where the
- * client wants to perform processing that doesn't require creating any kind
- * of DOM at all.
+ * Callback-based parsers are significantly more difficult to use than those
+ * that simply build and return DOM representations of the input, but they are
+ * useful in situations where the client wants to build a custom DOM
+ * representation of the input without incurring the overhead of a generic
+ * "intermediate" DOM representation built by the parser, or where the client
+ * wants to perform processing that doesn't require creating any kind of DOM
+ * at all.
  *
  * Because the JSONSAX parser is stream-oriented, clients have absolute
  * flexibility to provide input asynchronously as it is available to them,
