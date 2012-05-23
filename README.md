@@ -65,14 +65,14 @@ encoding sequences in the input stream with the Unicode replacement character
 recommendations described in section 3.9 of version 5.2.0 of [the Unicode
 Standard](http://www.unicode.org/versions/Unicode5.2.0/).
 
-The parser also supports several optional extensions to the RFC 4627, each
+The parser also supports several optional extensions to RFC 4627, each
 of which can be enabled on a parser-by-parser basis. These include:
 
 - Allowing the JSON text to begin with a Unicode byte-order-mark (BOM).
 - Allowing the JSON text to contain Javascript-style comments.
 - Allowing trailing commas in object member lists and array item lists.
 - Allowing the "special" number literals NaN, Infinity, and -Infinity.
-- Allowing Javascript-style hex numbers.
+- Allowing Javascript-style hexadecimal numbers.
 
 The JSONSAX library is licensed under the MIT License. The full license is
 contained in the accompanying LICENSE file.
