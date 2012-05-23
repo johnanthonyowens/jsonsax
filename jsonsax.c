@@ -93,15 +93,17 @@ typedef enum tag_ParserStatus
     PARSER_RESET                               = 0,
     PARSER_STARTED                             = 1 << 0,
     PARSER_FINISHED                            = 1 << 1,
-    PARSER_IN_CALLBACK                         = 1 << 2,
-    PARSER_AFTER_CARRIAGE_RETURN               = 1 << 3,
-    PARSER_ALLOW_BOM                           = 1 << 4,
-    PARSER_ALLOW_COMMENTS                      = 1 << 5,
-    PARSER_ALLOW_TRAILING_COMMAS               = 1 << 6,
-    PARSER_ALLOW_SPECIAL_NUMBERS               = 1 << 7,
-    PARSER_ALLOW_HEX_NUMBERS                   = 1 << 8,
-    PARSER_REPLACE_INVALID_ENCODING_SEQUENCES  = 1 << 9,
-    PARSER_TRACK_OBJECT_MEMBERS                = 1 << 10
+    PARSER_IN_MEMORY_HANDLER                   = 1 << 2,
+    PARSER_IN_PARSE_HANDLER                    = 1 << 3,
+    PARSER_AFTER_CARRIAGE_RETURN               = 1 << 4,
+    PARSER_ALLOW_BOM                           = 1 << 5,
+    PARSER_ALLOW_COMMENTS                      = 1 << 6,
+    PARSER_ALLOW_TRAILING_COMMAS               = 1 << 7,
+    PARSER_ALLOW_SPECIAL_NUMBERS               = 1 << 8,
+    PARSER_ALLOW_HEX_NUMBERS                   = 1 << 9,
+    PARSER_REPLACE_INVALID_ENCODING_SEQUENCES  = 1 << 10,
+    PARSER_TRACK_OBJECT_MEMBERS                = 1 << 11,
+    PARSER_IN_HANDLER                          = PARSER_IN_MEMORY_HANDLER | PARSER_IN_PARSE_HANDLER
 } ParserStatus;
 
 /* Mutually-exclusive lexer states. */
@@ -271,26 +273,26 @@ static void JSON_CALL DefaultFreeHandler(JSON_Parser parser, void* ptr)
 static void* JSON_CALL CallMalloc(JSON_Parser parser, size_t size)
 {
     void* p;
-    parser->parserStatus |= PARSER_IN_CALLBACK;
+    parser->parserStatus |= PARSER_IN_MEMORY_HANDLER;
     p = parser->memorySuite.malloc(parser, size);
-    parser->parserStatus &= ~PARSER_IN_CALLBACK;
+    parser->parserStatus &= ~PARSER_IN_MEMORY_HANDLER;
     return p;
 }
 
 static void* JSON_CALL CallRealloc(JSON_Parser parser, void* ptr, size_t size)
 {
     void* p;
-    parser->parserStatus |= PARSER_IN_CALLBACK;
+    parser->parserStatus |= PARSER_IN_MEMORY_HANDLER;
     p = parser->memorySuite.realloc(parser, ptr, size);
-    parser->parserStatus &= ~PARSER_IN_CALLBACK;
+    parser->parserStatus &= ~PARSER_IN_MEMORY_HANDLER;
     return p;
 }
 
 static void JSON_CALL CallFree(JSON_Parser parser, void* ptr)
 {
-    parser->parserStatus |= PARSER_IN_CALLBACK;
+    parser->parserStatus |= PARSER_IN_MEMORY_HANDLER;
     parser->memorySuite.free(parser, ptr);
-    parser->parserStatus &= ~PARSER_IN_CALLBACK;
+    parser->parserStatus &= ~PARSER_IN_MEMORY_HANDLER;
 }
 
 /* Parser functions. */
@@ -895,14 +897,14 @@ static double InterpretNumber(JSON_Parser parser)
     return value;
 }
 
-static JSON_Status MakeSimpleCallback(JSON_Parser parser, JSON_NullHandler handler)
+static JSON_Status CallSimpleHandler(JSON_Parser parser, JSON_NullHandler handler)
 {
     if (handler)
     {
         JSON_HandlerResult result;
-        parser->parserStatus |= PARSER_IN_CALLBACK;
+        parser->parserStatus |= PARSER_IN_PARSE_HANDLER;
         result = handler(parser, &parser->tokenLocation);
-        parser->parserStatus &= ~PARSER_IN_CALLBACK;
+        parser->parserStatus &= ~PARSER_IN_PARSE_HANDLER;
         if (result != JSON_ContinueParsing)
         {
             SetErrorAtToken(parser, JSON_Error_AbortedByHandler);
@@ -912,14 +914,14 @@ static JSON_Status MakeSimpleCallback(JSON_Parser parser, JSON_NullHandler handl
     return JSON_Success;
 }
 
-static JSON_Status MakeBooleanCallback(JSON_Parser parser, JSON_BooleanHandler handler)
+static JSON_Status CallBooleanHandler(JSON_Parser parser, JSON_BooleanHandler handler)
 {
     if (handler)
     {
         JSON_HandlerResult result;
-        parser->parserStatus |= PARSER_IN_CALLBACK;
+        parser->parserStatus |= PARSER_IN_PARSE_HANDLER;
         result = handler(parser, &parser->tokenLocation, parser->token == TOKEN_TRUE ? JSON_True : JSON_False);
-        parser->parserStatus &= ~PARSER_IN_CALLBACK;
+        parser->parserStatus &= ~PARSER_IN_PARSE_HANDLER;
         if (result != JSON_ContinueParsing)
         {
             SetErrorAtToken(parser, JSON_Error_AbortedByHandler);
@@ -929,13 +931,13 @@ static JSON_Status MakeBooleanCallback(JSON_Parser parser, JSON_BooleanHandler h
     return JSON_Success;
 }
 
-static JSON_Status MakeStringCallback(JSON_Parser parser, JSON_StringHandler handler, int handleDuplicateMemberResult)
+static JSON_Status CallStringHandler(JSON_Parser parser, JSON_StringHandler handler, int handleDuplicateMemberResult)
 {
     if (handler)
     {
         /* Strings should be null-terminated in the appropriate output encoding
-           before being passed to parse callbacks. Note that the length passed
-           to the callback does not include the null terminator, so we need to
+           before being passed to parse handlers. Note that the length passed
+           to the handler does not include the null terminator, so we need to
            save the length before we null-terminate the string. */
         JSON_HandlerResult result;
         size_t lengthNotIncludingNullTerminator = parser->outputBufferUsed;
@@ -943,9 +945,9 @@ static JSON_Status MakeStringCallback(JSON_Parser parser, JSON_StringHandler han
         {
             return JSON_Failure;
         }
-        parser->parserStatus |= PARSER_IN_CALLBACK;
+        parser->parserStatus |= PARSER_IN_PARSE_HANDLER;
         result = handler(parser, &parser->tokenLocation, (const char*)parser->pOutputBuffer, lengthNotIncludingNullTerminator, parser->outputAttributes);
-        parser->parserStatus &= ~PARSER_IN_CALLBACK;
+        parser->parserStatus &= ~PARSER_IN_PARSE_HANDLER;
         if (result != JSON_ContinueParsing)
         {
             SetErrorAtToken(parser, (handleDuplicateMemberResult && result == JSON_TreatAsDuplicateObjectMember)
@@ -957,16 +959,16 @@ static JSON_Status MakeStringCallback(JSON_Parser parser, JSON_StringHandler han
     return JSON_Success;
 }
 
-static JSON_Status MakeNumberCallback(JSON_Parser parser, JSON_RawNumberHandler rawHandler, JSON_NumberHandler handler)
+static JSON_Status CallNumberHandler(JSON_Parser parser, JSON_RawNumberHandler rawHandler, JSON_NumberHandler handler)
 {
     if (rawHandler || handler)
     {
         /* Numbers should be null-terminated with a single null terminator byte
-           before being converted to a double and/or passed to callbacks. */
+           before being converted to a double and/or passed to handlers. */
         JSON_HandlerResult result;
         size_t lengthNotIncludingNullTerminator = parser->outputBufferUsed;
         NullTerminateNumberOutput(parser);
-        parser->parserStatus |= PARSER_IN_CALLBACK;
+        parser->parserStatus |= PARSER_IN_PARSE_HANDLER;
         if (rawHandler)
         {
             result = rawHandler(parser, &parser->tokenLocation, (const char*)parser->pOutputBuffer, lengthNotIncludingNullTerminator);
@@ -975,7 +977,7 @@ static JSON_Status MakeNumberCallback(JSON_Parser parser, JSON_RawNumberHandler 
         {
             result = handler(parser, &parser->tokenLocation, InterpretNumber(parser));
         }
-        parser->parserStatus &= ~PARSER_IN_CALLBACK;
+        parser->parserStatus &= ~PARSER_IN_PARSE_HANDLER;
         if (result != JSON_ContinueParsing)
         {
             SetErrorAtToken(parser, JSON_Error_AbortedByHandler);
@@ -985,15 +987,15 @@ static JSON_Status MakeNumberCallback(JSON_Parser parser, JSON_RawNumberHandler 
     return JSON_Success;
 }
 
-static JSON_Status MakeSpecialNumberCallback(JSON_Parser parser, JSON_SpecialNumberHandler handler)
+static JSON_Status CallSpecialNumberHandler(JSON_Parser parser, JSON_SpecialNumberHandler handler)
 {
     if (handler)
     {
         JSON_HandlerResult result;
-        parser->parserStatus |= PARSER_IN_CALLBACK;
+        parser->parserStatus |= PARSER_IN_PARSE_HANDLER;
         result = handler(parser, &parser->tokenLocation, parser->token == TOKEN_NAN ? JSON_NaN :
                          (parser->token == TOKEN_INFINITY ? JSON_Infinity : JSON_NegativeInfinity));
-        parser->parserStatus &= ~PARSER_IN_CALLBACK;
+        parser->parserStatus &= ~PARSER_IN_PARSE_HANDLER;
         if (result != JSON_ContinueParsing)
         {
             SetErrorAtToken(parser, JSON_Error_AbortedByHandler);
@@ -1095,7 +1097,7 @@ static JSON_Status ReplaceTopSymbol(JSON_Parser parser, const Symbol* pSymbolsTo
    21. ITEMS_AFTER_COMMA => e (only if AllowTrailingCommas is enabled)
 
    We implement a simple LL(1) parser based on this grammar, with parse
-   callbacks invoked when certain non-terminals are replaced.
+   handlers invoked when certain non-terminals are replaced.
 
    The order and number of the rows and columns in the productions table must
    match the token and non-terminal enum values in the Symbol enum.
@@ -1152,7 +1154,7 @@ static JSON_Status ProcessToken(JSON_Parser parser)
                 switch (productions[parser->token][BOTTOM_4_BITS(topSymbol)])
                 {
                 case 1: /* VALUE => null */
-                    if (!MakeSimpleCallback(parser, parser->nullHandler))
+                    if (!CallSimpleHandler(parser, parser->nullHandler))
                     {
                         return JSON_Failure;
                     }
@@ -1160,14 +1162,14 @@ static JSON_Status ProcessToken(JSON_Parser parser)
 
                 case 2: /* VALUE => true */
                 case 3: /* VALUE => false */
-                    if (!MakeBooleanCallback(parser, parser->booleanHandler))
+                    if (!CallBooleanHandler(parser, parser->booleanHandler))
                     {
                         return JSON_Failure;
                     }
                     break;
 
                 case 4: /* VALUE => string */
-                    if (!MakeStringCallback(parser, parser->stringHandler, 0/* handleDuplicateMemberResult */))
+                    if (!CallStringHandler(parser, parser->stringHandler, 0/* handleDuplicateMemberResult */))
                     {
                         return JSON_Failure;
                     }
@@ -1176,14 +1178,14 @@ static JSON_Status ProcessToken(JSON_Parser parser)
                 case 5: /* VALUE => number */
                     if (parser->token == TOKEN_NUMBER)
                     {
-                        if (!MakeNumberCallback(parser, parser->rawNumberHandler, parser->numberHandler))
+                        if (!CallNumberHandler(parser, parser->rawNumberHandler, parser->numberHandler))
                         {
                             return JSON_Failure;
                         }
                     }
                     else
                     {
-                        if (!MakeSpecialNumberCallback(parser, parser->specialNumberHandler))
+                        if (!CallSpecialNumberHandler(parser, parser->specialNumberHandler))
                         {
                             return JSON_Failure;
                         }
@@ -1191,7 +1193,7 @@ static JSON_Status ProcessToken(JSON_Parser parser)
                     break;
 
                 case 6: /* VALUE => { MEMBERS } */
-                    if (!MakeSimpleCallback(parser, parser->startObjectHandler) ||
+                    if (!CallSimpleHandler(parser, parser->startObjectHandler) ||
                         !PushObject(parser))
                     {
                         return JSON_Failure;
@@ -1202,7 +1204,7 @@ static JSON_Status ProcessToken(JSON_Parser parser)
                     break;
 
                 case 7: /* VALUE => [ ITEMS ] */
-                    if (!MakeSimpleCallback(parser, parser->startArrayHandler))
+                    if (!CallSimpleHandler(parser, parser->startArrayHandler))
                     {
                         return JSON_Failure;
                     }
@@ -1232,7 +1234,7 @@ static JSON_Status ProcessToken(JSON_Parser parser)
                 case 9:  /* MEMBERS => e */
                 case 12: /* MORE_MEMBERS => e */
                     PopObject(parser);
-                    if (!MakeSimpleCallback(parser, parser->endObjectHandler))
+                    if (!CallSimpleHandler(parser, parser->endObjectHandler))
                     {
                         return JSON_Failure;
                     }
@@ -1241,7 +1243,7 @@ static JSON_Status ProcessToken(JSON_Parser parser)
 
                 case 10: /* MEMBER => string : VALUE */
                     if (!AddMemberNameToObject(parser) || /* will fail if member is duplicate */
-                        !MakeStringCallback(parser, parser->objectMemberHandler, 1/* handleDuplicateMemberResult */))
+                        !CallStringHandler(parser, parser->objectMemberHandler, 1/* handleDuplicateMemberResult */))
                     {
                         return JSON_Failure;
                     }
@@ -1275,7 +1277,7 @@ static JSON_Status ProcessToken(JSON_Parser parser)
                     }
                 case 16: /* ITEMS => e */
                 case 19: /* MORE_ITEMS => e */
-                    if (!MakeSimpleCallback(parser, parser->endArrayHandler))
+                    if (!CallSimpleHandler(parser, parser->endArrayHandler))
                     {
                         return JSON_Failure;
                     }
@@ -1283,7 +1285,7 @@ static JSON_Status ProcessToken(JSON_Parser parser)
                     break;
 
                 case 17: /* ITEM => VALUE */
-                    if (!MakeSimpleCallback(parser, parser->arrayItemHandler))
+                    if (!CallSimpleHandler(parser, parser->arrayItemHandler))
                     {
                         return JSON_Failure;
                     }
@@ -2814,7 +2816,7 @@ JSON_Parser JSON_CALL JSON_CreateParser(const JSON_MemorySuite* pMemorySuite)
 
 JSON_Status JSON_CALL JSON_FreeParser(JSON_Parser parser)
 {
-    if (!parser || (parser->parserStatus & PARSER_IN_CALLBACK))
+    if (!parser || (parser->parserStatus & PARSER_IN_HANDLER))
     {
         return JSON_Failure;
     }
@@ -2830,14 +2832,14 @@ JSON_Status JSON_CALL JSON_FreeParser(JSON_Parser parser)
     {
         PopObject(parser);
     }
-    parser->parserStatus |= PARSER_IN_CALLBACK;
+    parser->parserStatus |= PARSER_IN_MEMORY_HANDLER;
     parser->memorySuite.free(NULL, parser);
     return JSON_Success;
 }
 
 JSON_Status JSON_CALL JSON_ResetParser(JSON_Parser parser)
 {
-    if (!parser || (parser->parserStatus & PARSER_IN_CALLBACK))
+    if (!parser || (parser->parserStatus & PARSER_IN_HANDLER))
     {
         return JSON_Failure;
     }
@@ -3317,7 +3319,7 @@ JSON_Status JSON_CALL JSON_SetTrackObjectMembers(JSON_Parser parser, JSON_Boolea
 JSON_Status JSON_CALL JSON_Parse(JSON_Parser parser, const char* pBytes, size_t length, JSON_Boolean isFinal)
 {
     JSON_Status status = JSON_Failure;
-    if (parser && !(parser->parserStatus & (PARSER_FINISHED | PARSER_IN_CALLBACK)))
+    if (parser && !(parser->parserStatus & (PARSER_FINISHED | PARSER_IN_HANDLER)))
     {
         int finishedParsing = 0;
         parser->parserStatus |= PARSER_STARTED;
