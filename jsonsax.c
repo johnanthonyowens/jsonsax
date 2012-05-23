@@ -964,12 +964,12 @@ static JSON_Status MakeNumberCallback(JSON_Parser parser, JSON_RawNumberHandler 
         /* Numbers should be null-terminated with a single null terminator byte
            before being converted to a double and/or passed to callbacks. */
         JSON_HandlerResult result;
-        const char* pRawNumber = (const char*)parser->pOutputBuffer;
+        size_t lengthNotIncludingNullTerminator = parser->outputBufferUsed;
         NullTerminateNumberOutput(parser);
         parser->parserStatus |= PARSER_IN_CALLBACK;
         if (rawHandler)
         {
-            result = rawHandler(parser, &parser->tokenLocation, pRawNumber);
+            result = rawHandler(parser, &parser->tokenLocation, (const char*)parser->pOutputBuffer, lengthNotIncludingNullTerminator);
         }
         else
         {

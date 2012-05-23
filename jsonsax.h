@@ -476,6 +476,10 @@ JSON_API(JSON_Status) JSON_SetNumberHandler(JSON_Parser parser, JSON_NumberHandl
  * and 'E'; if the option to allow hex numbers is enabled, the text may
  * also contain the characters 'x', 'X', 'a' - 'f', and 'A' - 'F'.
  *
+ * The length parameter specifies the number of bytes (which is also
+ * the number of characters) in the buffer, not including the encoded null
+ * terminator.
+ *
  * Note that if this handler is set, the non-raw number handler will not be
  * called.
  *
@@ -485,7 +489,7 @@ JSON_API(JSON_Status) JSON_SetNumberHandler(JSON_Parser parser, JSON_NumberHandl
  *
  * The handler can be changed at any time, even inside a handler.
  */
-typedef JSON_HandlerResult (JSON_CALL * JSON_RawNumberHandler)(JSON_Parser parser, const JSON_Location* pLocation, const char* pValue);
+typedef JSON_HandlerResult (JSON_CALL * JSON_RawNumberHandler)(JSON_Parser parser, const JSON_Location* pLocation, const char* pValue, size_t length);
 JSON_API(JSON_RawNumberHandler) JSON_GetRawNumberHandler(JSON_Parser parser);
 JSON_API(JSON_Status) JSON_SetRawNumberHandler(JSON_Parser parser, JSON_RawNumberHandler handler);
 

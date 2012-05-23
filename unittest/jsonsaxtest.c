@@ -836,13 +836,17 @@ static JSON_HandlerResult JSON_CALL NumberHandler(JSON_Parser parser, const JSON
     return JSON_ContinueParsing;
 }
 
-static JSON_HandlerResult JSON_CALL RawNumberHandler(JSON_Parser parser, const JSON_Location* pLocation, const char* pValue)
+static JSON_HandlerResult JSON_CALL RawNumberHandler(JSON_Parser parser, const JSON_Location* pLocation, const char* pValue, size_t length)
 {
     if (s_failParseCallback)
     {
         return JSON_AbortParsing;
     }
     if (s_misbehaveInCallback && TryToMisbehaveInCallback(parser))
+    {
+        return JSON_AbortParsing;
+    }
+    if (strlen(pValue) != length)
     {
         return JSON_AbortParsing;
     }
