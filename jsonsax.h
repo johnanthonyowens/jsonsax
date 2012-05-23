@@ -321,10 +321,10 @@ JSON_API(JSON_Status) JSON_FreeParser(JSON_Parser parser);
  */
 JSON_API(JSON_Status) JSON_ResetParser(JSON_Parser parser);
 
-/* Get the parse error, if any, encountered by a parser instance.
+/* Get the type of error, if any, encountered by a parser instance.
  *
  * If the parser encountered an error while parsing input, this function
- * will return the type of the error. Otherwise, this function returns
+ * returns the type of the error. Otherwise, this function returns
  * JSON_Error_None.
  */
 JSON_API(JSON_Error) JSON_GetError(JSON_Parser parser);
@@ -333,38 +333,11 @@ JSON_API(JSON_Error) JSON_GetError(JSON_Parser parser);
  * encountered an error.
  *
  * If the parser encountered an error while parsing input, this function
- * will set the members of the structure pointed to by pLocation to the
- * location in the input stream at which the error occurred. Otherwise,
- * it will set the members to 0.
+ * sets the members of the structure pointed to by pLocation to the location
+ * in the input stream at which the error occurred and returns success.
+ * Otherwise, it leaves the members unchanged and returns failure.
  */
-JSON_API(void) JSON_GetErrorLocation(JSON_Parser parser, JSON_Location* pLocation);
-
-/* Get the index of the byte in the input stream at which a parser instance
- * encountered an error.
- *
- * If the parser encountered an error while parsing input, this function
- * will return the zero-based index of the byte in the input stream that
- * corresponds to the error. Otherwise, it will return 0.
- */
-JSON_API(size_t) JSON_GetErrorLocationByte(JSON_Parser parser);
-
-/* Get the line number in the input stream at which a parser instance
- * encountered an error.
- *
- * If the parser encountered an error while parsing input, this function
- * will return the zero-based line number that corresponds to the error.
- * Otherwise, it will return 0.
- */
-JSON_API(size_t) JSON_GetErrorLocationLine(JSON_Parser parser);
-
-/* Get the column number in the input stream at which a parser instance
- * encountered an error.
- *
- * If the parser encountered an error while parsing input, this function
- * will return the zero-based column number that corresponds to the error.
- * Otherwise, it will return 0.
- */
-JSON_API(size_t) JSON_GetErrorLocationColumn(JSON_Parser parser);
+JSON_API(JSON_Status) JSON_GetErrorLocation(JSON_Parser parser, JSON_Location* pLocation);
 
 /* Get a constant, null-terminated, ASCII string describing an error code. */
 JSON_API(const char*) JSON_ErrorString(JSON_Error error);
@@ -632,8 +605,8 @@ JSON_API(JSON_Boolean) JSON_FinishedParsing(JSON_Parser parser);
  * detected the encoding, calls to JSON_GetInputEncoding() will return the
  * detected value.
  *
- * Note that calls to JSON_SetInputEncoding() will return failure if the
- * parser has started parsing.
+ * Note that JSON_SetInputEncoding() returns failure if the parser has
+ * already started parsing.
  */
 JSON_API(JSON_Encoding) JSON_GetInputEncoding(JSON_Parser parser);
 JSON_API(JSON_Status) JSON_SetInputEncoding(JSON_Parser parser, JSON_Encoding encoding);
@@ -647,8 +620,8 @@ JSON_API(JSON_Status) JSON_SetInputEncoding(JSON_Parser parser, JSON_Encoding en
  *
  * The output encoding cannot be set to JSON_UnknownEncoding.
  *
- * Note that calls to JSON_SetOutputEncoding() will return failure if the
- * parser has started parsing.
+ * Note that JSON_SetOutputEncoding() returns failure if the parser has
+ * already started parsing.
  */
 JSON_API(JSON_Encoding) JSON_GetOutputEncoding(JSON_Parser parser);
 JSON_API(JSON_Status) JSON_SetOutputEncoding(JSON_Parser parser, JSON_Encoding encoding);
@@ -663,8 +636,8 @@ JSON_API(JSON_Status) JSON_SetOutputEncoding(JSON_Parser parser, JSON_Encoding e
  *
  * The default value of this setting is SIZE_MAX.
  *
- * Note that calls to JSON_SetMaxOutputStringLength() will return failure if
- * the parser has started parsing.
+ * Note that JSON_SetMaxOutputStringLength() returns failure if the parser has
+ * already started parsing.
  */
 JSON_API(size_t) JSON_GetMaxOutputStringLength(JSON_Parser parser);
 JSON_API(JSON_Status) JSON_SetMaxOutputStringLength(JSON_Parser parser, size_t maxLength);
@@ -678,7 +651,7 @@ JSON_API(JSON_Status) JSON_SetMaxOutputStringLength(JSON_Parser parser, size_t m
  *
  * The default value of this setting is JSON_False.
  *
- * Note that calls to JSON_SetAllowBOM() will return failure if the parser has
+ * Note that JSON_SetAllowBOM() returns failure if the parser has already
  * started parsing.
  */
 JSON_API(JSON_Boolean) JSON_GetAllowBOM(JSON_Parser parser);
@@ -695,8 +668,8 @@ JSON_API(JSON_Status) JSON_SetAllowBOM(JSON_Parser parser, JSON_Boolean allowBOM
  *
  * The default value of this setting is JSON_False.
  *
- * Note that calls to JSON_SetAllowComments() will return failure if the
- * parser has started parsing.
+ * Note that JSON_SetAllowComments() returns failure if the parser has
+ * already started parsing.
  */
 JSON_API(JSON_Boolean) JSON_GetAllowComments(JSON_Parser parser);
 JSON_API(JSON_Status) JSON_SetAllowComments(JSON_Parser parser, JSON_Boolean allowComments);
@@ -710,8 +683,8 @@ JSON_API(JSON_Status) JSON_SetAllowComments(JSON_Parser parser, JSON_Boolean all
  *
  * The default value of this setting is JSON_False.
  *
- * Note that calls to JSON_SetAllowTrailingCommas() will return failure if the
- * parser has started parsing.
+ * Note that JSON_SetAllowTrailingCommas() returns failure if the parser has
+ * already started parsing.
  */
 JSON_API(JSON_Boolean) JSON_GetAllowTrailingCommas(JSON_Parser parser);
 JSON_API(JSON_Status) JSON_SetAllowTrailingCommas(JSON_Parser parser, JSON_Boolean allowTrailingCommas);
@@ -725,8 +698,8 @@ JSON_API(JSON_Status) JSON_SetAllowTrailingCommas(JSON_Parser parser, JSON_Boole
  *
  * The default value of this setting is JSON_False.
  *
- * Note that calls to JSON_SetAllowSpecialNumbers() will return failure if the
- * parser has started parsing.
+ * Note that JSON_SetAllowSpecialNumbers() returns failure if the parser has
+ * already started parsing.
  */
 JSON_API(JSON_Boolean) JSON_GetAllowSpecialNumbers(JSON_Parser parser);
 JSON_API(JSON_Status) JSON_SetAllowSpecialNumbers(JSON_Parser parser, JSON_Boolean allowSpecialNumbers);
@@ -748,8 +721,8 @@ JSON_API(JSON_Status) JSON_SetAllowSpecialNumbers(JSON_Parser parser, JSON_Boole
  *
  * The default value of this setting is JSON_False.
  *
- * Note that calls to JSON_SetAllowHexNumbers() will return failure if the
- * parser has started parsing.
+ * Note that JSON_SetAllowHexNumbers() returns failure if the parser has
+ * already started parsing.
  */
 JSON_API(JSON_Boolean) JSON_GetAllowHexNumbers(JSON_Parser parser);
 JSON_API(JSON_Status) JSON_SetAllowHexNumbers(JSON_Parser parser, JSON_Boolean allowHexNumbers);
@@ -760,8 +733,8 @@ JSON_API(JSON_Status) JSON_SetAllowHexNumbers(JSON_Parser parser, JSON_Boolean a
  *
  * The default value of this setting is JSON_False.
  *
- * Note that calls to JSON_SetReplaceInvalidEncodingSequences() will return
- * failure if the parser has started parsing.
+ * Note that JSON_SetReplaceInvalidEncodingSequences() returns failure if the
+ * parser has already started parsing.
  */
 JSON_API(JSON_Boolean) JSON_GetReplaceInvalidEncodingSequences(JSON_Parser parser);
 JSON_API(JSON_Status) JSON_SetReplaceInvalidEncodingSequences(JSON_Parser parser, JSON_Boolean replaceInvalidEncodingSequences);
@@ -782,8 +755,8 @@ JSON_API(JSON_Status) JSON_SetReplaceInvalidEncodingSequences(JSON_Parser parser
  *
  * The default value of this setting is JSON_False.
  *
- * Note that calls to JSON_SetTrackObjectMembers() will return failure if the
- * parser has started parsing.
+ * Note that JSON_SetTrackObjectMembers() returns failure if the parser has
+ * already started parsing.
  */
 JSON_API(JSON_Boolean) JSON_GetTrackObjectMembers(JSON_Parser parser);
 JSON_API(JSON_Status) JSON_SetTrackObjectMembers(JSON_Parser parser, JSON_Boolean trackObjectMembers);

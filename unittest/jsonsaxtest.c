@@ -38,9 +38,7 @@ static size_t s_bytesAllocated = 0;
 typedef struct tag_ParserState
 {
     JSON_Error    error;
-    size_t        errorLocationByte;
-    size_t        errorLocationLine;
-    size_t        errorLocationColumn;
+    JSON_Location errorLocation;
     JSON_Boolean  startedParsing;
     JSON_Boolean  finishedParsing;
     JSON_Encoding inputEncoding;
@@ -49,9 +47,9 @@ typedef struct tag_ParserState
 static void InitParserState(ParserState* pState)
 {
     pState->error = JSON_Error_None;
-    pState->errorLocationByte = 0;
-    pState->errorLocationLine = 0;
-    pState->errorLocationColumn = 0;
+    pState->errorLocation.byte = 0;
+    pState->errorLocation.line = 0;
+    pState->errorLocation.column = 0;
     pState->startedParsing = JSON_False;
     pState->finishedParsing = JSON_False;
     pState->inputEncoding = JSON_UnknownEncoding;
@@ -60,9 +58,12 @@ static void InitParserState(ParserState* pState)
 static void GetParserState(JSON_Parser parser, ParserState* pState)
 {
     pState->error = JSON_GetError(parser);
-    pState->errorLocationByte = JSON_GetErrorLocationByte(parser);
-    pState->errorLocationLine = JSON_GetErrorLocationLine(parser);
-    pState->errorLocationColumn = JSON_GetErrorLocationColumn(parser);
+    if (JSON_GetErrorLocation(parser, &pState->errorLocation) != JSON_Success)
+    {
+        pState->errorLocation.byte = 0;
+        pState->errorLocation.line = 0;
+        pState->errorLocation.column = 0;
+    }
     pState->startedParsing = JSON_StartedParsing(parser);
     pState->finishedParsing = JSON_FinishedParsing(parser);
     pState->inputEncoding = JSON_GetInputEncoding(parser);
@@ -71,9 +72,9 @@ static void GetParserState(JSON_Parser parser, ParserState* pState)
 static int ParserStatesAreIdentical(const ParserState* pState1, const ParserState* pState2)
 {
     return (pState1->error == pState2->error &&
-            pState1->errorLocationByte == pState2->errorLocationByte &&
-            pState1->errorLocationLine == pState2->errorLocationLine &&
-            pState1->errorLocationColumn == pState2->errorLocationColumn &&
+            pState1->errorLocation.byte == pState2->errorLocation.byte &&
+            pState1->errorLocation.line == pState2->errorLocation.line &&
+            pState1->errorLocation.column == pState2->errorLocation.column &&
             pState1->startedParsing == pState2->startedParsing &&
             pState1->finishedParsing == pState2->finishedParsing &&
             pState1->inputEncoding == pState2->inputEncoding);
@@ -83,46 +84,28 @@ static int CheckParserState(JSON_Parser parser, const ParserState* pExpectedStat
 {
     int isValid;
     ParserState actualState;
-    JSON_Location errorLocation;
     GetParserState(parser, &actualState);
-    JSON_GetErrorLocation(parser, &errorLocation);
     isValid = ParserStatesAreIdentical(pExpectedState, &actualState);
     if (!isValid)
     {
         printf("FAILURE: parser state does not match\n"
-               "  STATE                         EXPECTED     ACTUAL\n"
-               "  JSON_GetError()               %8d   %8d\n"
-               "  JSON_GetErrorLocationByte()   %8d   %8d\n"
-               "  JSON_GetErrorLocationLine()   %8d   %8d\n"
-               "  JSON_GetErrorLocationColumn() %8d   %8d\n"
-               "  JSON_StartedParsing()         %8d   %8d\n"
-               "  JSON_FinishedParsing()        %8d   %8d\n"
-               "  JSON_GetInputEncoding()       %8d   %8d\n"
+               "  STATE                          EXPECTED     ACTUAL\n"
+               "  JSON_GetError()                %8d   %8d\n"
+               "  JSON_GetErrorLocation().byte   %8d   %8d\n"
+               "  JSON_GetErrorLocation().line   %8d   %8d\n"
+               "  JSON_GetErrorLocation().column %8d   %8d\n"
+               "  JSON_StartedParsing()          %8d   %8d\n"
+               "  JSON_FinishedParsing()         %8d   %8d\n"
+               "  JSON_GetInputEncoding()        %8d   %8d\n"
                ,
                (int)pExpectedState->error, (int)actualState.error,
-               (int)pExpectedState->errorLocationByte, (int)actualState.errorLocationByte,
-               (int)pExpectedState->errorLocationLine, (int)actualState.errorLocationLine,
-               (int)pExpectedState->errorLocationColumn, (int)actualState.errorLocationColumn,
+               (int)pExpectedState->errorLocation.byte, (int)actualState.errorLocation.byte,
+               (int)pExpectedState->errorLocation.line, (int)actualState.errorLocation.line,
+               (int)pExpectedState->errorLocation.column, (int)actualState.errorLocation.column,
                (int)pExpectedState->startedParsing, (int)actualState.startedParsing,
                (int)pExpectedState->finishedParsing, (int)actualState.finishedParsing,
                (int)pExpectedState->inputEncoding, (int)actualState.inputEncoding
             );
-    }
-    if (errorLocation.byte != actualState.errorLocationByte ||
-        errorLocation.line != actualState.errorLocationLine ||
-        errorLocation.column != actualState.errorLocationColumn)
-    {
-        printf("FAILURE: parser error location API results do not match\n"
-               "         batch API  single API\n"
-               "  byte   %9d   %9d\n"
-               "  line   %9d   %9d\n"
-               "  column %9d   %9d\n"
-               ,
-               (int)errorLocation.byte, (int)actualState.errorLocationByte,
-               (int)errorLocation.line, (int)actualState.errorLocationLine,
-               (int)errorLocation.column, (int)actualState.errorLocationColumn
-            );
-        isValid = 0;
     }
     return isValid;
 }
@@ -998,9 +981,9 @@ static void RunParseTest(const ParseTest* pTest)
     printf("Test %s ... ", pTest->pName);
     InitParserState(&state);
     state.error = pTest->error;
-    state.errorLocationByte = pTest->errorLocationByte;
-    state.errorLocationLine = pTest->errorLocationLine;
-    state.errorLocationColumn = pTest->errorLocationColumn;
+    state.errorLocation.byte = pTest->errorLocationByte;
+    state.errorLocation.line = pTest->errorLocationLine;
+    state.errorLocation.column = pTest->errorLocationColumn;
     state.startedParsing = JSON_True;
     state.finishedParsing = (pTest->isFinal || pTest->error != JSON_Error_None) ? JSON_True : JSON_False;
     state.inputEncoding = pTest->inputEncoding;
@@ -1437,9 +1420,9 @@ static void TestAbortInCallbacks()
     printf("Test aborting in callbacks ... ");
     InitParserState(&state);
     state.error = JSON_Error_AbortedByHandler;
-    state.errorLocationByte = 1;
-    state.errorLocationLine = 0;
-    state.errorLocationColumn = 1;
+    state.errorLocation.byte = 1;
+    state.errorLocation.line = 0;
+    state.errorLocation.column = 1;
     state.startedParsing = JSON_True;
     state.finishedParsing = JSON_True;
     state.inputEncoding = JSON_UTF8;
@@ -1523,9 +1506,6 @@ static void TestStringMallocFailure()
     printf("Test string malloc failure ... ");
     InitParserState(&state);
     state.error = JSON_Error_OutOfMemory;
-    state.errorLocationByte = 0;
-    state.errorLocationLine = 0;
-    state.errorLocationColumn = 0;
     state.startedParsing = JSON_True;
     state.finishedParsing = JSON_True;
     state.inputEncoding = JSON_UTF8;
@@ -1540,8 +1520,7 @@ static void TestStringMallocFailure()
                 break;
             }
         }
-        state.errorLocationByte = JSON_GetErrorLocationByte(parser);
-        state.errorLocationColumn = JSON_GetErrorLocationColumn(parser);
+        JSON_GetErrorLocation(parser, &state.errorLocation);
         if (CheckParserState(parser, &state))
         {
             succeeded = 1;
@@ -1567,9 +1546,6 @@ static void TestStringReallocFailure()
     printf("Test string realloc failure ... ");
     InitParserState(&state);
     state.error = JSON_Error_OutOfMemory;
-    state.errorLocationByte = 0;
-    state.errorLocationLine = 0;
-    state.errorLocationColumn = 0;
     state.startedParsing = JSON_True;
     state.finishedParsing = JSON_True;
     state.inputEncoding = JSON_UTF8;
@@ -1584,8 +1560,7 @@ static void TestStringReallocFailure()
                 break;
             }
         }
-        state.errorLocationByte = JSON_GetErrorLocationByte(parser);
-        state.errorLocationColumn = JSON_GetErrorLocationColumn(parser);
+        JSON_GetErrorLocation(parser, &state.errorLocation);
         if (CheckParserState(parser, &state))
         {
             succeeded = 1;
@@ -1611,9 +1586,6 @@ static void TestStackMallocFailure()
     printf("Test stack malloc failure ... ");
     InitParserState(&state);
     state.error = JSON_Error_OutOfMemory;
-    state.errorLocationByte = 0;
-    state.errorLocationLine = 0;
-    state.errorLocationColumn = 0;
     state.startedParsing = JSON_True;
     state.finishedParsing = JSON_True;
     state.inputEncoding = JSON_UTF8;
@@ -1627,8 +1599,7 @@ static void TestStackMallocFailure()
                 break;
             }
         }
-        state.errorLocationByte = JSON_GetErrorLocationByte(parser);
-        state.errorLocationColumn = JSON_GetErrorLocationColumn(parser);
+        JSON_GetErrorLocation(parser, &state.errorLocation);
         if (CheckParserState(parser, &state))
         {
             succeeded = 1;
@@ -1654,9 +1625,6 @@ static void TestStackReallocFailure()
     printf("Test stack realloc failure ... ");
     InitParserState(&state);
     state.error = JSON_Error_OutOfMemory;
-    state.errorLocationByte = 0;
-    state.errorLocationLine = 0;
-    state.errorLocationColumn = 0;
     state.startedParsing = JSON_True;
     state.finishedParsing = JSON_True;
     state.inputEncoding = JSON_UTF8;
@@ -1670,8 +1638,7 @@ static void TestStackReallocFailure()
                 break;
             }
         }
-        state.errorLocationByte = JSON_GetErrorLocationByte(parser);
-        state.errorLocationColumn = JSON_GetErrorLocationColumn(parser);
+        JSON_GetErrorLocation(parser, &state.errorLocation);
         if (CheckParserState(parser, &state))
         {
             succeeded = 1;
@@ -1697,9 +1664,6 @@ static void TestDuplicateMemberTrackingMallocFailure()
     printf("Test duplicate member tracking malloc failure ... ");
     InitParserState(&state);
     state.error = JSON_Error_OutOfMemory;
-    state.errorLocationByte = 0;
-    state.errorLocationLine = 0;
-    state.errorLocationColumn = 0;
     state.startedParsing = JSON_True;
     state.finishedParsing = JSON_True;
     state.inputEncoding = JSON_UTF8;

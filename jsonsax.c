@@ -2852,36 +2852,14 @@ JSON_Error JSON_CALL JSON_GetError(JSON_Parser parser)
     return parser ? (JSON_Error)parser->error : JSON_Error_None;
 }
 
-void JSON_CALL JSON_GetErrorLocation(JSON_Parser parser, JSON_Location* pLocation)
+JSON_Status JSON_CALL JSON_GetErrorLocation(JSON_Parser parser, JSON_Location* pLocation)
 {
-    if (pLocation)
+    if (!pLocation || !parser || parser->error == JSON_Error_None)
     {
-        if (!parser || (parser->error == JSON_Error_None))
-        {
-            pLocation->byte = 0;
-            pLocation->line = 0;
-            pLocation->column = 0;
-        }
-        else
-        {
-            *pLocation = parser->errorLocation;
-        }
+        return JSON_Failure;
     }
-}
-
-size_t JSON_CALL JSON_GetErrorLocationByte(JSON_Parser parser)
-{
-    return parser ? parser->errorLocation.byte : 0;
-}
-
-size_t JSON_CALL JSON_GetErrorLocationLine(JSON_Parser parser)
-{
-    return parser ? parser->errorLocation.line : 0;
-}
-
-size_t JSON_CALL JSON_GetErrorLocationColumn(JSON_Parser parser)
-{
-    return parser ? parser->errorLocation.column : 0;
+    *pLocation = parser->errorLocation;
+    return JSON_Success;
 }
 
 /* This array must match the order and number of the JSON_Error enum. */
