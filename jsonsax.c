@@ -33,13 +33,16 @@
 #define MAX_NUMBER_CHARACTERS        63
 #define DEFAULT_OUTPUT_BUFFER_LENGTH (MAX_NUMBER_CHARACTERS + 1)
 #define DEFAULT_SYMBOL_STACK_SIZE    32
+#define IEEE_DOUBLE_MANTISSA_BITS    53
 
-/* 32-bit unsigned integer type (compiler-dependent). */
+/* 32- and 64-bit unsigned integer types (compiler-dependent). */
 #if defined(_MSC_VER)
 typedef unsigned __int32 JSON_UInt32;
+typedef unsigned __int64 JSON_UInt64;
 #else
 #include <stdint.h>
 typedef uint32_t JSON_UInt32;
+typedef uint64_t JSON_UInt64;
 #endif
 
 /* Especially-relevant Unicode codepoints. */
@@ -60,13 +63,15 @@ typedef uint32_t JSON_UInt32;
 #define EOF_CODEPOINT                   0xFFFFFFFF
 
 /* Bit-masking macros. */
-#define BOTTOM_BIT(b)    ((b) & 0x1)
-#define BOTTOM_2_BITS(b) ((b) & 0x3)
-#define BOTTOM_3_BITS(b) ((b) & 0x7)
-#define BOTTOM_4_BITS(b) ((b) & 0xF)
-#define BOTTOM_5_BITS(b) ((b) & 0x1F)
-#define BOTTOM_6_BITS(b) ((b) & 0x3F)
-#define BOTTOM_7_BITS(b) ((b) & 0x7F)
+#define BOTTOM_BIT(x)       ((x) & 0x1)
+#define BOTTOM_2_BITS(x)    ((x) & 0x3)
+#define BOTTOM_3_BITS(x)    ((x) & 0x7)
+#define BOTTOM_4_BITS(x)    ((x) & 0xF)
+#define BOTTOM_5_BITS(x)    ((x) & 0x1F)
+#define BOTTOM_6_BITS(x)    ((x) & 0x3F)
+#define BOTTOM_7_BITS(x)    ((x) & 0x7F)
+#define BOTTOM_N_BITS(x, n) ((x) & (((1 << (n)) - 1)))
+#define IS_BIT_SET(x, n)    ((x) & (1 << (n)))
 
 /* UTF-8 byte-related macros. */
 #define IS_UTF8_SINGLE_BYTE(b)       (((b) & 0x80) == 0)
@@ -94,8 +99,9 @@ typedef enum tag_ParserStatus
     PARSER_ALLOW_COMMENTS                      = 1 << 5,
     PARSER_ALLOW_TRAILING_COMMAS               = 1 << 6,
     PARSER_ALLOW_SPECIAL_NUMBERS               = 1 << 7,
-    PARSER_REPLACE_INVALID_ENCODING_SEQUENCES  = 1 << 8,
-    PARSER_TRACK_OBJECT_MEMBERS                = 1 << 9
+    PARSER_ALLOW_HEX_NUMBERS                   = 1 << 8,
+    PARSER_REPLACE_INVALID_ENCODING_SEQUENCES  = 1 << 9,
+    PARSER_TRACK_OBJECT_MEMBERS                = 1 << 10
 } ParserStatus;
 
 /* Mutually-exclusive lexer states. */
@@ -115,18 +121,20 @@ typedef enum tag_LexerState
     LEXER_IN_STRING_HEX_ESCAPE_BYTE_8                       = 11,
     LEXER_IN_STRING_TRAILING_SURROGATE_HEX_ESCAPE_BACKSLASH = 12,
     LEXER_IN_STRING_TRAILING_SURROGATE_HEX_ESCAPE_U         = 13,
-    LEXER_IN_NUMBER_SIGNIFICAND_AFTER_MINUS                 = 14,
-    LEXER_IN_NUMBER_SIGNIFICAND_AFTER_LEADING_ZERO          = 15,
-    LEXER_IN_NUMBER_SIGNIFICAND_INTEGER_DIGITS              = 16,
-    LEXER_IN_NUMBER_SIGNIFICAND_AFTER_DOT                   = 17,
-    LEXER_IN_NUMBER_SIGNIFICAND_FRACTIONAL_DIGITS           = 18,
-    LEXER_IN_NUMBER_AFTER_E                                 = 19,
-    LEXER_IN_NUMBER_AFTER_EXPONENT_SIGN                     = 20,
-    LEXER_IN_NUMBER_EXPONENT_DIGITS                         = 21,
-    LEXER_IN_COMMENT_AFTER_SLASH                            = 22,
-    LEXER_IN_SINGLE_LINE_COMMENT                            = 23,
-    LEXER_IN_MULTI_LINE_COMMENT                             = 24,
-    LEXER_IN_MULTI_LINE_COMMENT_AFTER_STAR                  = 25
+    LEXER_IN_NUMBER_AFTER_MINUS                             = 14,
+    LEXER_IN_NUMBER_AFTER_LEADING_ZERO                      = 15,
+    LEXER_IN_NUMBER_AFTER_X                                 = 16,
+    LEXER_IN_NUMBER_HEX_DIGITS                              = 17,
+    LEXER_IN_NUMBER_DECIMAL_DIGITS                          = 18,
+    LEXER_IN_NUMBER_AFTER_DOT                               = 19,
+    LEXER_IN_NUMBER_FRACTIONAL_DIGITS                       = 20,
+    LEXER_IN_NUMBER_AFTER_E                                 = 21,
+    LEXER_IN_NUMBER_AFTER_EXPONENT_SIGN                     = 22,
+    LEXER_IN_NUMBER_EXPONENT_DIGITS                         = 23,
+    LEXER_IN_COMMENT_AFTER_SLASH                            = 24,
+    LEXER_IN_SINGLE_LINE_COMMENT                            = 25,
+    LEXER_IN_MULTI_LINE_COMMENT                             = 26,
+    LEXER_IN_MULTI_LINE_COMMENT_AFTER_STAR                  = 27
 } LexerState;
 
 /* Mutually-exclusive decoder states. The values are defined so that the
@@ -224,7 +232,7 @@ struct JSON_ParserData
     unsigned char             token;             /* real type is Symbol */
     unsigned char             decoderState;      /* real type is DecoderState */
     unsigned char             error;             /* real type is JSON_Error */
-    unsigned char             outputAttributes;  /* real type is JSON_StringAttributes */
+    unsigned char             outputAttributes;
     JSON_UInt32               lexerBits;
     JSON_UInt32               decoderBits;
     JSON_Location             codepointLocation;
@@ -426,7 +434,7 @@ static void ResetParserData(JSON_Parser parser, int isInitialized)
     parser->errorLocation.line = 0;
     parser->errorLocation.column = 0;
     parser->error = JSON_Error_None;
-    parser->outputAttributes = JSON_SimpleString;
+    parser->outputAttributes = 0;
     if (!isInitialized)
     {
         parser->pOutputBuffer = parser->defaultOutputBuffer;
@@ -687,25 +695,203 @@ static JSON_Status FlushParser(JSON_Parser parser)
     return JSON_Success;
 }
 
+/* This function assumes that the specified character is a valid
+   hex digit character (0-9, a-f, A-F). */
+int InterpretHexDigit(char c)
+{
+    if (c >= 'a')
+    {
+        return c - 'a' + 10;
+    }
+    else if (c >= 'A')
+    {
+        return c - 'A' + 10;
+    }
+    else
+    {
+        return c - '0';
+    }
+}
+
+/* This function makes the following assumptions about its input:
+
+     1. The length argument is greater than or equal to 1.
+     2. All characters in pDigits are hex digit characters.
+     3. The first character in pDigits is not '0'.
+*/
+static const int significantBitsInHexDigit[15] = { 1, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4 };
+static double InterpretSignificantHexDigits(const char* pDigits, int length)
+{
+    double value;
+    JSON_UInt64 mantissa;
+    int exponent = 0;
+    int i;
+    int digit;
+    int remainingMantissaWidth;
+
+    /* Parse the first hex digit. */
+    digit = InterpretHexDigit(pDigits[0]);
+    mantissa = digit;
+    remainingMantissaWidth = IEEE_DOUBLE_MANTISSA_BITS - significantBitsInHexDigit[digit - 1];
+
+    /* Parse any remaining hex digits. */
+    for (i = 1; i < length; i++)
+    {
+        digit = InterpretHexDigit(pDigits[i]);
+        mantissa = (mantissa << 4) | digit;
+        remainingMantissaWidth -= 4;
+
+        /* Check whether we ran out of mantissa bits. */
+        if (remainingMantissaWidth < 0)
+        {
+            /* The mantissa has overflowed its bits. Shift it back to
+               the right so that it's full but not overflowed. */
+            int overflowWidth = -remainingMantissaWidth;
+            int overflowBits = BOTTOM_N_BITS(digit, overflowWidth);
+            mantissa >>= overflowWidth;
+
+            /* Treat the current hex digit as having been consumed. */
+            i++;
+
+            /* The exponent should be the total number of bits that we
+               couldn't fit into the mantissa. The overflow we just
+               encountered accounts for between 1 and 4 bits, and each
+               hex digit we haven't parsed yet accounts for 4 more. */
+            exponent = overflowWidth + ((length - i) * 4);
+
+            /* Now that the mantissa's bits are full, the rest of the
+               bits are used to determine whether the mantissa should be
+               rounded up or not. Logically, we can treat the extra bits
+               as being preceded by a decimal point, so that we only need
+               to determine if the fraction they represent is less than,
+               greater than, or equal to 1/2. If the fraction is exactly
+               equal to 1/2, it rounds down if the mantissa is even, and
+               up if the mantissa is odd, in accordance with IEEE 754's
+               "round-towards-even" policy. */
+
+            /* Check the first extra bit. */
+            if (!IS_BIT_SET(overflowBits, overflowWidth - 1))
+            {
+                /* The first extra bit is 0, so the fraction is less than
+                   1/2 and should be rounded down. */
+            }
+            else
+            {
+                /* The first extra bit is 1, so the fraction is greater than
+                   or equal to 1/2, and may be rounded up or down. */
+                int roundUp = 0;
+                if (mantissa & 1)
+                {
+                    /* The mantissa is odd, so even if the fraction is
+                       exactly equal to 1/2, it should be rounded up. */
+                    roundUp = 1;
+                }
+                else
+                {
+                    /* The mantissa is even, so the fraction should be
+                       rounded down if and only if all the remaining
+                       bits are 0, making the fraction exactly equal
+                       to 1/2; otherwise it should be rounded up. */
+                    if (BOTTOM_N_BITS(overflowBits, overflowWidth - 1))
+                    {
+                        /* The bits we already truncated contained
+                           at least one 1, so the fraction is greater
+                           than 1/2 and should be rounded up. */
+                        roundUp = 1;
+                    }
+                    else
+                    {
+                        /* Scan the rest of the string for non-zero
+                           digits, any of which would indicate that
+                           the fraction is greater than 1/2 and should
+                           be rounded up. */
+                        for (; i < length; i++)
+                        {
+                            if (pDigits[i] != '0')
+                            {
+                                roundUp = 1;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                /* If the fraction represented by the extra bits rounds
+                   up, the mantissa must increase by one. */
+                if (roundUp)
+                {
+                    mantissa++;
+                    if (mantissa >> IEEE_DOUBLE_MANTISSA_BITS)
+                    {
+                        /* Rounding up caused the mantissa to overflow. */
+                        mantissa >>= 1;
+                        exponent++;
+                    }
+                }
+            }
+            break;
+        }
+    }
+
+    /* Combine the mantissa and exponent. */
+    value = (double)mantissa;
+    if (exponent)
+    {
+        value = ldexp(value, exponent);
+    }
+    return value;
+}
+
+static double InterpretHexDigits(const char* pDigits, int length)
+{
+    int i;
+    for (i = 0; i < length; i++)
+    {
+        if (pDigits[i] != '0')
+        {
+            return InterpretSignificantHexDigits(pDigits + i, length - i);
+        }
+    }
+    /* The digits were all 0. */
+    return 0.0;
+}
+
 static double InterpretNumber(JSON_Parser parser)
 {
-    /* The C standard does not provide a locale-independent floating-point
-       number parser, so we have to change the decimal point in our string to
-       the locale-specific character before calling strtod(). We assume here
-       that the decimal point is always a single character in every locale.
-       To ensure correctness, we cannot cache the character, since we must
-       account for the valid albeit extraordinarily unlikely scenario wherein
-       the client changes the locale between calls to JSON_Parse() or (even
-       more unlikely) changes the locale from inside a handler. */
     double value;
-    if (parser->outputAttributes)
+    /* We can tell whether the number is hex simply by examining the second
+       character. This is safe because even the shortest valid number has
+       a null terminator in the second character slot. */
+    if (parser->pOutputBuffer[1] == 'x' || parser->pOutputBuffer[1] == 'X')
     {
-        /* The 1-based index of the decimal point character is stored in
-           outputAttributes. */
-        char localeDecimalPoint = *(localeconv()->decimal_point);
-        parser->pOutputBuffer[parser->outputAttributes - 1] = localeDecimalPoint;
+        /* The number is in hex format. Unfortunately, although strtod()
+           will parse hex numbers on most platforms, Microsoft's C runtime
+           implementation is a notable exception. Therefore, we have to
+           do the parsing ourselves. */
+        value = InterpretHexDigits((const char*)parser->pOutputBuffer + 2,
+                                   (int)parser->outputBufferUsed - 3);
     }
-    value = strtod((const char*)parser->pOutputBuffer, NULL);
+    else
+    {
+        /* The C standard does not provide a locale-independent floating-point
+           number parser, so we have to change the decimal point in our string
+           to the locale-specific character before calling strtod(). We assume
+           here that the decimal point is always a single character in every
+           locale. To ensure correctness, we cannot cache the character, since
+           we must account for the valid albeit extraordinarily unlikely
+           scenario wherein the client changes the locale between calls to
+           JSON_Parse() or (even more unlikely) changes the locale from inside
+           a handler. */
+        if (parser->outputAttributes)
+        {
+            /* Note that because the first character of a JSON number cannot
+               be a decimal point, index 0 indicates that the number does not
+               contain a decimal point at all. */
+            char localeDecimalPoint = *(localeconv()->decimal_point);
+            parser->pOutputBuffer[parser->outputAttributes] = localeDecimalPoint;
+        }
+        value = strtod((const char*)parser->pOutputBuffer, NULL);
+    }
     return value;
 }
 
@@ -1127,7 +1313,7 @@ static JSON_Status ProcessToken(JSON_Parser parser)
     parser->lexerState = LEXER_IDLE;
     parser->lexerBits = 0;
     parser->token = TOKEN_NULL;
-    parser->outputAttributes = JSON_SimpleString;
+    parser->outputAttributes = 0;
     parser->outputBufferUsed = 0;
     return JSON_Success;
 }
@@ -1228,19 +1414,19 @@ reprocess:
         {
             StartToken(parser, TOKEN_NUMBER);
             codepointToOutput = '-';
-            parser->lexerState = LEXER_IN_NUMBER_SIGNIFICAND_AFTER_MINUS;
+            parser->lexerState = LEXER_IN_NUMBER_AFTER_MINUS;
         }
         else if (c == '0')
         {
             StartToken(parser, TOKEN_NUMBER);
             codepointToOutput = '0';
-            parser->lexerState = LEXER_IN_NUMBER_SIGNIFICAND_AFTER_LEADING_ZERO;
+            parser->lexerState = LEXER_IN_NUMBER_AFTER_LEADING_ZERO;
         }
         else if (c >= '1' && c <= '9')
         {
             StartToken(parser, TOKEN_NUMBER);
             codepointToOutput = c;
-            parser->lexerState = LEXER_IN_NUMBER_SIGNIFICAND_INTEGER_DIGITS;
+            parser->lexerState = LEXER_IN_NUMBER_DECIMAL_DIGITS;
         }
         else if (c == ' ' || c == TAB_CODEPOINT || c == LINE_FEED_CODEPOINT ||
                  c == CARRIAGE_RETURN_CODEPOINT || c == EOF_CODEPOINT)
@@ -1555,7 +1741,7 @@ reprocess:
         }
         break;
 
-    case LEXER_IN_NUMBER_SIGNIFICAND_AFTER_MINUS:
+    case LEXER_IN_NUMBER_AFTER_MINUS:
         if (c == EOF_CODEPOINT)
         {
             /* FlushLexer() will trigger the appropriate error. */
@@ -1571,12 +1757,12 @@ reprocess:
             if (c == '0')
             {
                 codepointToOutput = '0';
-                parser->lexerState = LEXER_IN_NUMBER_SIGNIFICAND_AFTER_LEADING_ZERO;
+                parser->lexerState = LEXER_IN_NUMBER_AFTER_LEADING_ZERO;
             }
             else if (c >= '1' && c <= '9')
             {
                 codepointToOutput = c;
-                parser->lexerState = LEXER_IN_NUMBER_SIGNIFICAND_INTEGER_DIGITS;
+                parser->lexerState = LEXER_IN_NUMBER_DECIMAL_DIGITS;
             }
             else
             {
@@ -1588,15 +1774,14 @@ reprocess:
         }
         break;
 
-    case LEXER_IN_NUMBER_SIGNIFICAND_AFTER_LEADING_ZERO:
+    case LEXER_IN_NUMBER_AFTER_LEADING_ZERO:
         if (c == '.')
         {
             /* We save the index of the decimal point character in the token
-               in outputAttributes. The index is 1-based and 0 indicates that
-               the token did not contain a decimal point. */
+               in outputAttributes. */
             codepointToOutput = '.';
-            parser->outputAttributes = (unsigned char)(parser->outputBufferUsed + 1);
-            parser->lexerState = LEXER_IN_NUMBER_SIGNIFICAND_AFTER_DOT;
+            parser->outputAttributes = (unsigned char)parser->outputBufferUsed;
+            parser->lexerState = LEXER_IN_NUMBER_AFTER_DOT;
         }
         else if (c == 'e' || c == 'E')
         {
@@ -1607,6 +1792,12 @@ reprocess:
         {
             SetErrorAtToken(parser, JSON_Error_InvalidNumber);
             return JSON_Failure;
+        }
+        else if ((c == 'x' || c == 'X') && (parser->pOutputBuffer[0] != '-') &&
+                 (parser->parserStatus & PARSER_ALLOW_HEX_NUMBERS))
+        {
+            codepointToOutput = c;
+            parser->lexerState = LEXER_IN_NUMBER_AFTER_X;
         }
         else
         {
@@ -1619,7 +1810,40 @@ reprocess:
         }
         break;
 
-    case LEXER_IN_NUMBER_SIGNIFICAND_INTEGER_DIGITS:
+    case LEXER_IN_NUMBER_AFTER_X:
+        if (c == EOF_CODEPOINT)
+        {
+            /* FlushLexer() will trigger the appropriate error. */
+        }
+        else if ((c >= '0' && c <= '9') || (c >= 'A' && c <= 'F') || (c >= 'a' && c <= 'f'))
+        {
+            codepointToOutput = c;
+            parser->lexerState = LEXER_IN_NUMBER_HEX_DIGITS;
+        }
+        else
+        {
+            SetErrorAtToken(parser, JSON_Error_InvalidNumber);
+            return JSON_Failure;
+        }
+        break;
+
+    case LEXER_IN_NUMBER_HEX_DIGITS:
+        if ((c >= '0' && c <= '9') || (c >= 'A' && c <= 'F') || (c >= 'a' && c <= 'f'))
+        {
+            codepointToOutput = c;
+        }
+        else
+        {
+            /* The number is finished. */
+            if (!ProcessToken(parser))
+            {
+                return JSON_Failure;
+            }
+            goto reprocess;
+        }
+        break;
+
+    case LEXER_IN_NUMBER_DECIMAL_DIGITS:
         if (c >= '0' && c <= '9')
         {
             codepointToOutput = c;
@@ -1627,11 +1851,10 @@ reprocess:
         else if (c == '.')
         {
             /* We save the index of the decimal point character in the token
-               in outputAttributes. The index is 1-based and 0 indicates that
-               the token did not contain a decimal point. */
+               in outputAttributes. */
             codepointToOutput = '.';
-            parser->outputAttributes = (unsigned char)(parser->outputBufferUsed + 1);
-            parser->lexerState = LEXER_IN_NUMBER_SIGNIFICAND_AFTER_DOT;
+            parser->outputAttributes = (unsigned char)parser->outputBufferUsed;
+            parser->lexerState = LEXER_IN_NUMBER_AFTER_DOT;
         }
         else if (c == 'e' || c == 'E')
         {
@@ -1649,7 +1872,7 @@ reprocess:
         }
         break;
 
-    case LEXER_IN_NUMBER_SIGNIFICAND_AFTER_DOT:
+    case LEXER_IN_NUMBER_AFTER_DOT:
         if (c == EOF_CODEPOINT)
         {
             /* FlushLexer() will trigger the appropriate error. */
@@ -1657,7 +1880,7 @@ reprocess:
         else if (c >= '0' && c <= '9')
         {
             codepointToOutput = c;
-            parser->lexerState = LEXER_IN_NUMBER_SIGNIFICAND_FRACTIONAL_DIGITS;
+            parser->lexerState = LEXER_IN_NUMBER_FRACTIONAL_DIGITS;
         }
         else
         {
@@ -1666,7 +1889,7 @@ reprocess:
         }
         break;
 
-    case LEXER_IN_NUMBER_SIGNIFICAND_FRACTIONAL_DIGITS:
+    case LEXER_IN_NUMBER_FRACTIONAL_DIGITS:
         if (c >= '0' && c <= '9')
         {
             codepointToOutput = c;
@@ -3021,6 +3244,28 @@ JSON_Status JSON_CALL JSON_SetAllowSpecialNumbers(JSON_Parser parser, JSON_Boole
     else
     {
         parser->parserStatus &= ~PARSER_ALLOW_SPECIAL_NUMBERS;
+    }
+    return JSON_Success;
+}
+
+JSON_Boolean JSON_CALL JSON_GetAllowHexNumbers(JSON_Parser parser)
+{
+    return (parser && (parser->parserStatus & PARSER_ALLOW_HEX_NUMBERS)) ? JSON_True : JSON_False;
+}
+
+JSON_Status JSON_CALL JSON_SetAllowHexNumbers(JSON_Parser parser, JSON_Boolean allowHexNumbers)
+{
+    if (!parser || (parser->parserStatus & PARSER_STARTED))
+    {
+        return JSON_Failure;
+    }
+    if (allowHexNumbers)
+    {
+        parser->parserStatus |= PARSER_ALLOW_HEX_NUMBERS;
+    }
+    else
+    {
+        parser->parserStatus &= ~PARSER_ALLOW_HEX_NUMBERS;
     }
     return JSON_Success;
 }

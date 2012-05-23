@@ -94,6 +94,7 @@
  * - Allowing the JSON text to contain Javascript-style comments.
  * - Allowing trailing commas in object member lists and array item lists.
  * - Allowing the "special" number literals NaN, Infinity, and -Infinity.
+ * - Allowing Javascript-style hex numbers.
  *
  * The JSONSAX library is licensed under the MIT License. The full license is
  * contained in the accompanying LICENSE file.
@@ -472,7 +473,8 @@ JSON_API(JSON_Status) JSON_SetNumberHandler(JSON_Parser parser, JSON_NumberHandl
  * encoded as ASCII, regardless of the parser instance's input and output
  * encoding settings. The text is guaranteed to contain only characters
  * allowed in JSON number values, that is: '0' - '9', '+', '-', '.', 'e',
- * and 'E'.
+ * and 'E'; if the option to allow hex numbers is enabled, the text may
+ * also contain the characters 'x', 'X', 'a' - 'f', and 'A' - 'F'.
  *
  * Note that if this handler is set, the non-raw number handler will not be
  * called.
@@ -724,6 +726,29 @@ JSON_API(JSON_Status) JSON_SetAllowTrailingCommas(JSON_Parser parser, JSON_Boole
  */
 JSON_API(JSON_Boolean) JSON_GetAllowSpecialNumbers(JSON_Parser parser);
 JSON_API(JSON_Status) JSON_SetAllowSpecialNumbers(JSON_Parser parser, JSON_Boolean allowSpecialNumbers);
+
+/* Get and set whether a parser instance allows hexadecimal notation to be
+ * used for specifying number values.
+ *
+ * RFC 4627 does not allow hexadecimal numbers, but some clients may find it
+ * convenient to allow them, in order to represent binary bit patterns more
+ * easily.
+ *
+ * The parser recognizes hexadecimal numbers that conform to the syntax of
+ * HexIntegerLiteral, as described in section 7.8.3 of ECMA-262. That is, a
+ * valid hexadecimal number must comprise the prefix '0x' or '0X', followed
+ * by a sequence of one or more of the following characters: '0' - '9',
+ * 'a' - 'f', and 'A' - 'F'.
+ *
+ * Hexadecimal numbers cannot be prefixed by a minus sign.
+ *
+ * The default value of this setting is JSON_False.
+ *
+ * Note that calls to JSON_SetAllowHexNumbers() will return failure if the
+ * parser has started parsing.
+ */
+JSON_API(JSON_Boolean) JSON_GetAllowHexNumbers(JSON_Parser parser);
+JSON_API(JSON_Status) JSON_SetAllowHexNumbers(JSON_Parser parser, JSON_Boolean allowHexNumbers);
 
 /* Get and set whether a parser instance replaces invalid encoding sequences
  * it encounters in the input stream with the Unicode replacement character

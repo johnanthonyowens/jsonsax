@@ -72,6 +72,7 @@ of which can be enabled on a parser-by-parser basis. These include:
 - Allowing the JSON text to contain Javascript-style comments.
 - Allowing trailing commas in object member lists and array item lists.
 - Allowing the "special" number literals NaN, Infinity, and -Infinity.
+- Allowing Javascript-style hex numbers.
 
 The JSONSAX library is licensed under the MIT License. The full license is
 contained in the accompanying LICENSE file.

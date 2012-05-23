@@ -137,6 +137,7 @@ typedef struct tag_ParserSettings
     JSON_Boolean  allowComments;
     JSON_Boolean  allowTrailingCommas;
     JSON_Boolean  allowSpecialNumbers;
+    JSON_Boolean  allowHexNumbers;
     JSON_Boolean  replaceInvalidEncodingSequences;
     JSON_Boolean  trackObjectMembers;
 } ParserSettings;
@@ -151,6 +152,7 @@ static void InitParserSettings(ParserSettings* pSettings)
     pSettings->allowComments = JSON_False;
     pSettings->allowTrailingCommas = JSON_False;
     pSettings->allowSpecialNumbers = JSON_False;
+    pSettings->allowHexNumbers = JSON_False;
     pSettings->replaceInvalidEncodingSequences = JSON_False;
     pSettings->trackObjectMembers = JSON_False;
 }
@@ -165,6 +167,7 @@ static void GetParserSettings(JSON_Parser parser, ParserSettings* pSettings)
     pSettings->allowComments = JSON_GetAllowComments(parser);
     pSettings->allowTrailingCommas = JSON_GetAllowTrailingCommas(parser);
     pSettings->allowSpecialNumbers = JSON_GetAllowSpecialNumbers(parser);
+    pSettings->allowHexNumbers = JSON_GetAllowHexNumbers(parser);
     pSettings->replaceInvalidEncodingSequences = JSON_GetReplaceInvalidEncodingSequences(parser);
     pSettings->trackObjectMembers = JSON_GetTrackObjectMembers(parser);
 }
@@ -179,6 +182,7 @@ static int ParserSettingsAreIdentical(const ParserSettings* pSettings1, const Pa
             pSettings1->allowComments == pSettings2->allowComments &&
             pSettings1->allowTrailingCommas == pSettings2->allowTrailingCommas &&
             pSettings1->allowSpecialNumbers == pSettings2->allowSpecialNumbers &&
+            pSettings1->allowHexNumbers == pSettings2->allowHexNumbers &&
             pSettings1->replaceInvalidEncodingSequences == pSettings2->replaceInvalidEncodingSequences &&
             pSettings1->trackObjectMembers == pSettings2->trackObjectMembers);
 }
@@ -207,6 +211,7 @@ static int CheckParserSettings(JSON_Parser parser, const ParserSettings* pExpect
                "  JSON_GetAllowComments()                %8d   %8d\n"
                "  JSON_GetAllowTrailingCommas()          %8d   %8d\n"
                "  JSON_GetAllowSpecialNumbers()          %8d   %8d\n"
+               "  JSON_GetAllowHexNumbers()              %8d   %8d\n"
                "  JSON_ReplaceInvalidEncodingSequences() %8d   %8d\n"
                "  JSON_GetTrackObjectMembers()           %8d   %8d\n"
                ,
@@ -214,6 +219,7 @@ static int CheckParserSettings(JSON_Parser parser, const ParserSettings* pExpect
                (int)pExpectedSettings->allowComments, (int)actualSettings.allowComments,
                (int)pExpectedSettings->allowTrailingCommas, (int)actualSettings.allowTrailingCommas,
                (int)pExpectedSettings->allowSpecialNumbers, (int)actualSettings.allowSpecialNumbers,
+               (int)pExpectedSettings->allowHexNumbers, (int)actualSettings.allowHexNumbers,
                (int)pExpectedSettings->replaceInvalidEncodingSequences, (int)actualSettings.replaceInvalidEncodingSequences,
                (int)pExpectedSettings->trackObjectMembers, (int)actualSettings.trackObjectMembers
             );
@@ -464,6 +470,16 @@ static int CheckSetAllowSpecialNumbers(JSON_Parser parser, JSON_Boolean allowSpe
     if (JSON_SetAllowSpecialNumbers(parser, allowSpecialNumbers) != expectedStatus)
     {
         printf("FAILURE: expected JSON_SetAllowSpecialNumbers() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
+        return 0;
+    }
+    return 1;
+}
+
+static int CheckSetAllowHexNumbers(JSON_Parser parser, JSON_Boolean allowHexNumbers, JSON_Status expectedStatus)
+{
+    if (JSON_SetAllowHexNumbers(parser, allowHexNumbers) != expectedStatus)
+    {
+        printf("FAILURE: expected JSON_SetAllowHexNumbers() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
         return 0;
     }
     return 1;
@@ -752,6 +768,7 @@ static int TryToMisbehaveInCallback(JSON_Parser parser)
         !CheckSetAllowComments(parser, JSON_True, JSON_Failure) ||
         !CheckSetAllowTrailingCommas(parser, JSON_True, JSON_Failure) ||
         !CheckSetAllowSpecialNumbers(parser, JSON_True, JSON_Failure) ||
+        !CheckSetAllowHexNumbers(parser, JSON_True, JSON_Failure) ||
         !CheckSetReplaceInvalidEncodingSequences(parser, JSON_True, JSON_Failure) ||
         !CheckSetTrackObjectMembers(parser, JSON_True, JSON_Failure) ||
         !CheckParse(parser, " ", 1, JSON_False, JSON_Failure))
@@ -1054,6 +1071,13 @@ static JSON_Parser AllowSpecialNumbersParserFactory()
     return parser;
 }
 
+static JSON_Parser AllowHexNumbersParserFactory()
+{
+    JSON_Parser parser = DefaultParserFactory();
+    JSON_SetAllowHexNumbers(parser, JSON_True);
+    return parser;
+}
+
 static JSON_Parser ReplaceInvalidEncodingSequencesParserFactory()
 {
     JSON_Parser parser = DefaultParserFactory();
@@ -1198,6 +1222,7 @@ static void TestSetParserSettings()
     settings.allowComments = JSON_True;
     settings.allowTrailingCommas = JSON_True;
     settings.allowSpecialNumbers = JSON_True;
+    settings.allowHexNumbers = JSON_True;
     settings.replaceInvalidEncodingSequences = JSON_True;
     settings.trackObjectMembers = JSON_True;
     if (CheckCreateParser(NULL, JSON_Success, &parser) &&
@@ -1209,6 +1234,7 @@ static void TestSetParserSettings()
         CheckSetAllowComments(parser, settings.allowComments, JSON_Success) &&
         CheckSetAllowTrailingCommas(parser, settings.allowTrailingCommas, JSON_Success) &&
         CheckSetAllowSpecialNumbers(parser, settings.allowSpecialNumbers, JSON_Success) &&
+        CheckSetAllowHexNumbers(parser, settings.allowHexNumbers, JSON_Success) &&
         CheckSetReplaceInvalidEncodingSequences(parser, settings.replaceInvalidEncodingSequences, JSON_Success) &&
         CheckSetTrackObjectMembers(parser, settings.trackObjectMembers, JSON_Success) &&
         CheckParserSettings(parser, &settings))
@@ -1306,6 +1332,7 @@ static void TestResetParser()
         CheckSetAllowComments(parser, JSON_True, JSON_Success) &&
         CheckSetAllowTrailingCommas(parser, JSON_True, JSON_Success) &&
         CheckSetAllowSpecialNumbers(parser, JSON_True, JSON_Success) &&
+        CheckSetAllowHexNumbers(parser, JSON_True, JSON_Success) &&
         CheckSetReplaceInvalidEncodingSequences(parser, JSON_True, JSON_Success) &&
         CheckSetTrackObjectMembers(parser, JSON_True, JSON_Success) &&
         CheckSetNullHandler(parser, &NullHandler, JSON_Success) &&
@@ -1775,6 +1802,8 @@ typedef struct tag_IEEE754Test
 
 static const IEEE754Test s_IEEE754Tests[] =
 {
+    /* decimal */
+
     IEEE754_TEST("0", 0.0)
     IEEE754_TEST("0.0", 0.0)
     IEEE754_TEST("-0", -0.0)
@@ -1789,6 +1818,45 @@ static const IEEE754Test s_IEEE754Tests[] =
     IEEE754_TEST("12345e2", 12345.0e2)
     IEEE754_TEST("12345e+2", 12345.0e2)
     IEEE754_TEST("0.5e-2", 0.005)
+
+    /* hex */
+
+    IEEE754_TEST("0x0", 0.0)
+    IEEE754_TEST("0x1", 1.0)
+    IEEE754_TEST("0x00000000000000000000000000000000000001", 1.0)
+    IEEE754_TEST("0x00000000000000000000000000000000000000", 0.0)
+    IEEE754_TEST("0xdeadBEEF", 3735928559.0)
+    IEEE754_TEST("0xFFFFFFFF", 4294967295.0)
+
+    IEEE754_TEST("0x20000000000000", 9007199254740992.0)    /* 10...00 | 0 */
+    IEEE754_TEST("0x20000000000001", 9007199254740992.0)    /* 10...00 | 1 */
+    IEEE754_TEST("0x20000000000002", 9007199254740994.0)    /* 10...01 | 0 */
+    IEEE754_TEST("0x20000000000003", 9007199254740996.0)    /* 10...01 | 1 */
+
+    IEEE754_TEST("0x40000000000000", 18014398509481984.0)   /* 10...00 | 00 */
+    IEEE754_TEST("0x40000000000001", 18014398509481984.0)   /* 10...00 | 01 */
+    IEEE754_TEST("0x40000000000002", 18014398509481984.0)   /* 10...00 | 10 */
+    IEEE754_TEST("0x40000000000003", 18014398509481988.0)   /* 10...00 | 11 */
+    IEEE754_TEST("0x40000000000004", 18014398509481988.0)   /* 10...01 | 00 */
+    IEEE754_TEST("0x40000000000005", 18014398509481988.0)   /* 10...01 | 01 */
+    IEEE754_TEST("0x40000000000006", 18014398509481992.0)   /* 10...01 | 10 */
+    IEEE754_TEST("0x40000000000007", 18014398509481992.0)   /* 10...01 | 11 */
+
+    IEEE754_TEST("0x800000000000000", 576460752303423490.0) /* 10...00 | 0000000 */
+    IEEE754_TEST("0x80000000000000F", 576460752303423490.0) /* 10...00 | 0001111 */
+    IEEE754_TEST("0x800000000000040", 576460752303423490.0) /* 10...00 | 1000000 */
+    IEEE754_TEST("0x800000000000041", 576460752303423620.0) /* 10...00 | 1000001 */
+
+    IEEE754_TEST("0x800000000000080", 576460752303423620.0) /* 10...01 | 0000000 */
+    IEEE754_TEST("0x80000000000008F", 576460752303423620.0) /* 10...01 | 0001111 */
+    IEEE754_TEST("0x8000000000000C0", 576460752303423740.0) /* 10...01 | 1000000 */
+    IEEE754_TEST("0x8000000000000C1", 576460752303423740.0) /* 10...01 | 1000001 */
+
+    IEEE754_TEST("0x1fffffffffffff", 9007199254740991.0)    /* 11...11 |      */
+    IEEE754_TEST("0x3fffffffffffff", 18014398509481984.0)   /* 11...11 | 1    */
+    IEEE754_TEST("0x7fffffffffffff", 36028797018963968.0)   /* 11...11 | 11   */
+    IEEE754_TEST("0xffffffffffffff", 72057594037927936.0)   /* 11...11 | 111  */
+    IEEE754_TEST("0x1ffffffffffffff", 144115188075855870.0) /* 11...11 | 1111 */
 };
 
 static JSON_HandlerResult JSON_CALL CheckIEEE754InterpretationNumberHandler(JSON_Parser parser, const JSON_Location* pLocation, double value)
@@ -1810,6 +1878,7 @@ static void RunIEEE754Test(const IEEE754Test* pTest)
     printf("Test IEEE 754 interpretation of %s ... ", pTest->pInput);
     if (CheckCreateParserWithCustomMemorySuite(&MallocHandler, &ReallocHandler, &FreeHandler, JSON_Success, &parser) &&
         CheckSetNumberHandler(parser, &CheckIEEE754InterpretationNumberHandler, JSON_Success) &&
+        CheckSetAllowHexNumbers(parser, JSON_True, JSON_Success) &&
         CheckSetUserData(parser, (void*)pTest, JSON_Success))
     {
         if (JSON_Parse(parser, pTest->pInput, pTest->length, JSON_True) == JSON_Success)
@@ -2247,6 +2316,28 @@ PARSE_FAILURE_TEST("number truncated after exponent + sign", DefaultParserFactor
 PARSE_FAILURE_TEST("number requires digit after exponent - sign", DefaultParserFactory, "7e-x", FINAL, InvalidNumber, 0, 0, 0, UTF8)
 PARSE_FAILURE_TEST("number truncated after exponent - sign", DefaultParserFactory, "7e-", FINAL, IncompleteToken, 0, 0, 0, UTF8)
 PARSE_FAILURE_TEST("too long number", DefaultParserFactory, "-123456789012345678901234567890.12345678901234567890e12345678900", FINAL, TooLongNumber, 0, 0, 0, UTF8)
+
+/* hex numbers */
+
+PARSE_FAILURE_TEST("hex number not allowed (1)", DefaultParserFactory, "0x0", FINAL, UnknownToken, 1, 0, 1, UTF8)
+PARSE_FAILURE_TEST("hex number not allowed (2)", DefaultParserFactory, "0X1", FINAL, UnknownToken, 1, 0, 1, UTF8)
+PARSE_FAILURE_TEST("hex number not allowed (3)", DefaultParserFactory, "-0X1", FINAL, UnknownToken, 2, 0, 2, UTF8)
+
+PARSE_FAILURE_TEST("negative hex number not allowed", AllowHexNumbersParserFactory, "-0X1", FINAL, UnknownToken, 2, 0, 2, UTF8)
+
+PARSE_SUCCESS_TEST("hex number (1)", AllowHexNumbersParserFactory, "0x0", FINAL, UTF8, "#(0x0):0,0,0;")
+PARSE_SUCCESS_TEST("hex number (2)", AllowHexNumbersParserFactory, "0x1", FINAL, UTF8, "#(0x1):0,0,0;")
+PARSE_SUCCESS_TEST("hex number (3)", AllowHexNumbersParserFactory, "0x0000", FINAL, UTF8, "#(0x0000):0,0,0;")
+PARSE_SUCCESS_TEST("hex number (4)", AllowHexNumbersParserFactory, "0x123456789abcdefABCDEF", FINAL, UTF8, "#(0x123456789abcdefABCDEF):0,0,0;")
+
+PARSE_SUCCESS_TEST("maximum length hex number", AllowHexNumbersParserFactory, "0x123456789a123456789a123456789a123456789a123456789a123456789a0", FINAL, UTF8, "#(0x123456789a123456789a123456789a123456789a123456789a123456789a0):0,0,0;")
+
+PARSE_FAILURE_TEST("hex number truncated after x", AllowHexNumbersParserFactory, "0x", FINAL, IncompleteToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("hex number requires  digit after x", AllowHexNumbersParserFactory, "0xx", FINAL, InvalidNumber, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("hex number truncated after X", AllowHexNumbersParserFactory, "0X", FINAL, IncompleteToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("hex number requires  digit after X", AllowHexNumbersParserFactory, "0Xx", FINAL, InvalidNumber, 0, 0, 0, UTF8)
+
+PARSE_FAILURE_TEST("too long hex number", AllowHexNumbersParserFactory, "0x123456789a123456789a123456789a123456789a123456789a123456789a00", FINAL, TooLongNumber, 0, 0, 0, UTF8)
 
 /* strings */
 
