@@ -364,34 +364,43 @@ JSON_API(JSON_Status) JSON_SetUserData(JSON_Parser parser, void* userData);
  */
 JSON_API(JSON_Status) JSON_GetTokenLocation(JSON_Parser parser, JSON_Location* pLocation);
 
-/* Get and set the handler that is called when a parser instance parses the
- * JSON value "null".
+/* Parse handlers are callbacks that the client provides in order to
+ * be notified about the structure of the JSON document as it is being
+ * parsed. The following notes apply equally to all parse handlers:
  *
- * If the handler returns JSON_AbortParsing, the parser will abort the parse,
- * set its error to JSON_Error_AbortedByHandler, and return JSON_Failure from
- * the pending call to JSON_Parse().
+ *   1. Parse handlers are optional. In fact, a parser with no parse
+ *      handlers at all can be used to simply validate that the input
+ *      is valid JSON.
  *
- * The handler can be changed at any time, even inside a handler.
+ *   2. Parse handlers can be set, unset, or changed at any time, even
+ *      from inside a parse handler.
+ *
+ *   3. If a parse handler returns JSON_AbortParsing, the parser will
+ *      abort the parse, set its error to JSON_Error_AbortedByHandler,
+ *      set its error location to the start of the token that triggered
+ *      the handler, and return JSON_Failure from the outer call to
+ *      JSON_Parse().
+ *
+ *   4. A parse handler can get the location in the input stream of the
+ *      token that triggered the handler by calling JSON_GetTokenLocation().
+ */
+
+/* Get and set the handler that is called when a parser instance encounters
+ * the JSON null literal.
  */
 typedef JSON_HandlerResult (JSON_CALL * JSON_NullHandler)(JSON_Parser parser);
 JSON_API(JSON_NullHandler) JSON_GetNullHandler(JSON_Parser parser);
 JSON_API(JSON_Status) JSON_SetNullHandler(JSON_Parser parser, JSON_NullHandler handler);
 
-/* Get and set the handler that is called when a parser instance parses a
- * JSON boolean value.
- *
- * If the handler returns JSON_AbortParsing, the parser will abort the parse,
- * set its error to JSON_Error_AbortedByHandler, and return JSON_Failure from
- * the pending call to JSON_Parse().
- *
- * The handler can be changed at any time, even inside a handler.
+/* Get and set the handler that is called when a parser instance encounters
+ * a JSON boolean value (true or false).
  */
 typedef JSON_HandlerResult (JSON_CALL * JSON_BooleanHandler)(JSON_Parser parser, JSON_Boolean value);
 JSON_API(JSON_BooleanHandler) JSON_GetBooleanHandler(JSON_Parser parser);
 JSON_API(JSON_Status) JSON_SetBooleanHandler(JSON_Parser parser, JSON_BooleanHandler handler);
 
-/* Get and set the handler that is called when a parser instance parses a
- * JSON string value.
+/* Get and set the handler that is called when a parser instance encounters
+ * a JSON string value.
  *
  * The pBytes parameter points to a buffer containing the string value,
  * encoded according to the parser instance's output encoding setting. The
@@ -411,37 +420,25 @@ JSON_API(JSON_Status) JSON_SetBooleanHandler(JSON_Parser parser, JSON_BooleanHan
  * does not imply that the string does not contain any U+FFFD characters,
  * since such characters may have been present in the original input, and
  * not inserted by a replacement operation.
- *
- * If the handler returns JSON_AbortParsing, the parser will abort the parse,
- * set its error to JSON_Error_AbortedByHandler, and return JSON_Failure from
- * the pending call to JSON_Parse().
- *
- * The handler can be changed at any time, even inside a handler.
  */
 typedef JSON_HandlerResult (JSON_CALL * JSON_StringHandler)(JSON_Parser parser, const char* pBytes, size_t length, JSON_StringAttributes attributes);
 JSON_API(JSON_StringHandler) JSON_GetStringHandler(JSON_Parser parser);
 JSON_API(JSON_Status) JSON_SetStringHandler(JSON_Parser parser, JSON_StringHandler handler);
 
-/* Get and set the handler that is called when a parser instance parses a
- * JSON number value and has interpreted it as an IEEE 754 double-precision
+/* Get and set the handler that is called when a parser instance encounters
+ * a JSON number value and has interpreted it as an IEEE 754 double-precision
  * floating-point value.
  *
  * Clients that want to interpret number values differently should set the
  * parser instance's raw number handler instead. See SetRawNumberHandler()
  * for details.
- *
- * If the handler returns JSON_AbortParsing, the parser will abort the parse,
- * set its error to JSON_Error_AbortedByHandler, and return JSON_Failure from
- * the pending call to JSON_Parse().
- *
- * The handler can be changed at any time, even inside a handler.
  */
 typedef JSON_HandlerResult (JSON_CALL * JSON_NumberHandler)(JSON_Parser parser, double value);
 JSON_API(JSON_NumberHandler) JSON_GetNumberHandler(JSON_Parser parser);
 JSON_API(JSON_Status) JSON_SetNumberHandler(JSON_Parser parser, JSON_NumberHandler handler);
 
-/* Get and set the handler that is called when a parser instance parses a
- * JSON number value, before that value's text is converted to an IEEE 754
+/* Get and set the handler that is called when a parser instance encounters
+ * a JSON number value, before that value's text is converted to an IEEE 754
  * double-precision floating point value.
  *
  * This handler allows clients to interpret number values without being
@@ -465,58 +462,34 @@ JSON_API(JSON_Status) JSON_SetNumberHandler(JSON_Parser parser, JSON_NumberHandl
  *
  * Note that if this handler is set, the non-raw number handler will not be
  * called.
- *
- * If the handler returns JSON_AbortParsing, the parser will abort the parse,
- * set its error to JSON_Error_AbortedByHandler, and return JSON_Failure from
- * the pending call to JSON_Parse().
- *
- * The handler can be changed at any time, even inside a handler.
  */
 typedef JSON_HandlerResult (JSON_CALL * JSON_RawNumberHandler)(JSON_Parser parser, const char* pValue, size_t length);
 JSON_API(JSON_RawNumberHandler) JSON_GetRawNumberHandler(JSON_Parser parser);
 JSON_API(JSON_Status) JSON_SetRawNumberHandler(JSON_Parser parser, JSON_RawNumberHandler handler);
 
-/* Get and set the handler that is called when a parser instance parses one
- * of the "special" number literals NaN, Infinity, and -Inifinity.
- *
- * If the handler returns JSON_AbortParsing, the parser will abort the parse,
- * set its error to JSON_Error_AbortedByHandler, and return JSON_Failure from
- * the pending call to JSON_Parse().
- *
- * The handler can be changed at any time, even inside a handler.
+/* Get and set the handler that is called when a parser instance encounters
+ * one of the "special" number literals NaN, Infinity, and -Inifinity.
  */
 typedef JSON_HandlerResult (JSON_CALL * JSON_SpecialNumberHandler)(JSON_Parser parser, JSON_SpecialNumber value);
 JSON_API(JSON_SpecialNumberHandler) JSON_GetSpecialNumberHandler(JSON_Parser parser);
 JSON_API(JSON_Status) JSON_SetSpecialNumberHandler(JSON_Parser parser, JSON_SpecialNumberHandler handler);
 
-/* Get and set the handler that is called when a parser instance parses the
- * left curly brace that begins an object.
- *
- * If the handler returns JSON_AbortParsing, the parser will abort the parse,
- * set its error to JSON_Error_AbortedByHandler, and return JSON_Failure from
- * the pending call to JSON_Parse().
- *
- * The handler can be changed at any time, even inside a handler.
+/* Get and set the handler that is called when a parser instance encounters
+ * the left curly brace that starts an object.
  */
 typedef JSON_HandlerResult (JSON_CALL * JSON_StartObjectHandler)(JSON_Parser parser);
 JSON_API(JSON_StartObjectHandler) JSON_GetStartObjectHandler(JSON_Parser parser);
 JSON_API(JSON_Status) JSON_SetStartObjectHandler(JSON_Parser parser, JSON_StartObjectHandler handler);
 
-/* Get and set the handler that is called when a parser instance parses the
- * right curly brace that ends an object.
- *
- * If the handler returns JSON_AbortParsing, the parser will abort the parse,
- * set its error to JSON_Error_AbortedByHandler, and return JSON_Failure from
- * the pending call to JSON_Parse().
- *
- * The handler can be changed at any time, even inside a handler.
+/* Get and set the handler that is called when a parser instance encounters
+ * the right curly brace that ends an object.
  */
 typedef JSON_HandlerResult (JSON_CALL * JSON_EndObjectHandler)(JSON_Parser parser);
 JSON_API(JSON_EndObjectHandler) JSON_GetEndObjectHandler(JSON_Parser parser);
 JSON_API(JSON_Status) JSON_SetEndObjectHandler(JSON_Parser parser, JSON_EndObjectHandler handler);
 
-/* Get and set the handler that is called when a parser instance starts
- * parsing an object member.
+/* Get and set the handler that is called when a parser instance encounters
+ * an object member name.
  *
  * The pBytes parameter points to a buffer containing the member name,
  * encoded according to the parser instance's output encoding setting. The
@@ -542,51 +515,27 @@ JSON_API(JSON_Status) JSON_SetEndObjectHandler(JSON_Parser parser, JSON_EndObjec
  * This allows clients to implement duplicate member checking without
  * incurring the additional memory overhead associated with enabling the
  * TrackObjectMembers setting.
- *
- * If the handler returns JSON_AbortParsing, the parser will abort the parse,
- * set its error to JSON_Error_AbortedByHandler, and return JSON_Failure from
- * the pending call to JSON_Parse().
- *
- * The handler can be changed at any time, even inside a handler.
  */
 typedef JSON_HandlerResult (JSON_CALL * JSON_ObjectMemberHandler)(JSON_Parser parser, const char* pBytes, size_t length, JSON_StringAttributes attributes);
 JSON_API(JSON_ObjectMemberHandler) JSON_GetObjectMemberHandler(JSON_Parser parser);
 JSON_API(JSON_Status) JSON_SetObjectMemberHandler(JSON_Parser parser, JSON_ObjectMemberHandler handler);
 
-/* Get and set the handler that is called when a parser instance parses the
- * left square brace that begins an array.
- *
- * If the handler returns JSON_AbortParsing, the parser will abort the parse,
- * set its error to JSON_Error_AbortedByHandler, and return JSON_Failure from
- * the pending call to JSON_Parse().
- *
- * The handler can be changed at any time, even inside a handler.
+/* Get and set the handler that is called when a parser instance encounters
+ * the left square brace that starts an array.
  */
 typedef JSON_HandlerResult (JSON_CALL * JSON_StartArrayHandler)(JSON_Parser parser);
 JSON_API(JSON_StartArrayHandler) JSON_GetStartArrayHandler(JSON_Parser parser);
 JSON_API(JSON_Status) JSON_SetStartArrayHandler(JSON_Parser parser, JSON_StartArrayHandler handler);
 
-/* Get and set the handler that is called when a parser instance parses the
- * right square brace that ends an array.
- *
- * If the handler returns JSON_AbortParsing, the parser will abort the parse,
- * set its error to JSON_Error_AbortedByHandler, and return JSON_Failure from
- * the pending call to JSON_Parse().
- *
- * The handler can be changed at any time, even inside a handler.
+/* Get and set the handler that is called when a parser instance encounters
+ * the right square brace that ends an array.
  */
 typedef JSON_HandlerResult (JSON_CALL * JSON_EndArrayHandler)(JSON_Parser parser);
 JSON_API(JSON_EndArrayHandler) JSON_GetEndArrayHandler(JSON_Parser parser);
 JSON_API(JSON_Status) JSON_SetEndArrayHandler(JSON_Parser parser, JSON_EndArrayHandler handler);
 
-/* Get and set the handler that is called when a parser instance starts
- * parsing an array item.
- *
- * If the handler returns JSON_AbortParsing, the parser will abort the parse,
- * set its error to JSON_Error_AbortedByHandler, and return JSON_Failure from
- * the pending call to JSON_Parse().
- *
- * The handler can be changed at any time, even inside a handler.
+/* Get and set the handler that is called when a parser instance encounters
+ * an array item.
  */
 typedef JSON_HandlerResult (JSON_CALL * JSON_ArrayItemHandler)(JSON_Parser parser);
 JSON_API(JSON_ArrayItemHandler) JSON_GetArrayItemHandler(JSON_Parser parser);
