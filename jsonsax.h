@@ -354,6 +354,16 @@ JSON_API(const char*) JSON_ErrorString(JSON_Error error);
 JSON_API(void*) JSON_GetUserData(JSON_Parser parser);
 JSON_API(JSON_Status) JSON_SetUserData(JSON_Parser parser, void* userData);
 
+/* Get the location in the input stream of the token that is currently
+ * being handled by one of a parser instance's parse handlers.
+ *
+ * If the parser is inside a parse handler, this function sets the members
+ * of the structure pointed to by pLocation to the location in the input
+ * stream of the token that triggered the handler and returns success.
+ * Otherwise, it leaves the members unchanged and returns failure.
+ */
+JSON_API(JSON_Status) JSON_GetTokenLocation(JSON_Parser parser, JSON_Location* pLocation);
+
 /* Get and set the handler that is called when a parser instance parses the
  * JSON value "null".
  *
@@ -363,7 +373,7 @@ JSON_API(JSON_Status) JSON_SetUserData(JSON_Parser parser, void* userData);
  *
  * The handler can be changed at any time, even inside a handler.
  */
-typedef JSON_HandlerResult (JSON_CALL * JSON_NullHandler)(JSON_Parser parser, const JSON_Location* pLocation);
+typedef JSON_HandlerResult (JSON_CALL * JSON_NullHandler)(JSON_Parser parser);
 JSON_API(JSON_NullHandler) JSON_GetNullHandler(JSON_Parser parser);
 JSON_API(JSON_Status) JSON_SetNullHandler(JSON_Parser parser, JSON_NullHandler handler);
 
@@ -376,7 +386,7 @@ JSON_API(JSON_Status) JSON_SetNullHandler(JSON_Parser parser, JSON_NullHandler h
  *
  * The handler can be changed at any time, even inside a handler.
  */
-typedef JSON_HandlerResult (JSON_CALL * JSON_BooleanHandler)(JSON_Parser parser, const JSON_Location* pLocation, JSON_Boolean value);
+typedef JSON_HandlerResult (JSON_CALL * JSON_BooleanHandler)(JSON_Parser parser, JSON_Boolean value);
 JSON_API(JSON_BooleanHandler) JSON_GetBooleanHandler(JSON_Parser parser);
 JSON_API(JSON_Status) JSON_SetBooleanHandler(JSON_Parser parser, JSON_BooleanHandler handler);
 
@@ -408,7 +418,7 @@ JSON_API(JSON_Status) JSON_SetBooleanHandler(JSON_Parser parser, JSON_BooleanHan
  *
  * The handler can be changed at any time, even inside a handler.
  */
-typedef JSON_HandlerResult (JSON_CALL * JSON_StringHandler)(JSON_Parser parser, const JSON_Location* pLocation, const char* pBytes, size_t length, JSON_StringAttributes attributes);
+typedef JSON_HandlerResult (JSON_CALL * JSON_StringHandler)(JSON_Parser parser, const char* pBytes, size_t length, JSON_StringAttributes attributes);
 JSON_API(JSON_StringHandler) JSON_GetStringHandler(JSON_Parser parser);
 JSON_API(JSON_Status) JSON_SetStringHandler(JSON_Parser parser, JSON_StringHandler handler);
 
@@ -426,7 +436,7 @@ JSON_API(JSON_Status) JSON_SetStringHandler(JSON_Parser parser, JSON_StringHandl
  *
  * The handler can be changed at any time, even inside a handler.
  */
-typedef JSON_HandlerResult (JSON_CALL * JSON_NumberHandler)(JSON_Parser parser, const JSON_Location* pLocation, double value);
+typedef JSON_HandlerResult (JSON_CALL * JSON_NumberHandler)(JSON_Parser parser, double value);
 JSON_API(JSON_NumberHandler) JSON_GetNumberHandler(JSON_Parser parser);
 JSON_API(JSON_Status) JSON_SetNumberHandler(JSON_Parser parser, JSON_NumberHandler handler);
 
@@ -462,7 +472,7 @@ JSON_API(JSON_Status) JSON_SetNumberHandler(JSON_Parser parser, JSON_NumberHandl
  *
  * The handler can be changed at any time, even inside a handler.
  */
-typedef JSON_HandlerResult (JSON_CALL * JSON_RawNumberHandler)(JSON_Parser parser, const JSON_Location* pLocation, const char* pValue, size_t length);
+typedef JSON_HandlerResult (JSON_CALL * JSON_RawNumberHandler)(JSON_Parser parser, const char* pValue, size_t length);
 JSON_API(JSON_RawNumberHandler) JSON_GetRawNumberHandler(JSON_Parser parser);
 JSON_API(JSON_Status) JSON_SetRawNumberHandler(JSON_Parser parser, JSON_RawNumberHandler handler);
 
@@ -475,7 +485,7 @@ JSON_API(JSON_Status) JSON_SetRawNumberHandler(JSON_Parser parser, JSON_RawNumbe
  *
  * The handler can be changed at any time, even inside a handler.
  */
-typedef JSON_HandlerResult (JSON_CALL * JSON_SpecialNumberHandler)(JSON_Parser parser, const JSON_Location* pLocation, JSON_SpecialNumber value);
+typedef JSON_HandlerResult (JSON_CALL * JSON_SpecialNumberHandler)(JSON_Parser parser, JSON_SpecialNumber value);
 JSON_API(JSON_SpecialNumberHandler) JSON_GetSpecialNumberHandler(JSON_Parser parser);
 JSON_API(JSON_Status) JSON_SetSpecialNumberHandler(JSON_Parser parser, JSON_SpecialNumberHandler handler);
 
@@ -488,7 +498,7 @@ JSON_API(JSON_Status) JSON_SetSpecialNumberHandler(JSON_Parser parser, JSON_Spec
  *
  * The handler can be changed at any time, even inside a handler.
  */
-typedef JSON_HandlerResult (JSON_CALL * JSON_StartObjectHandler)(JSON_Parser parser, const JSON_Location* pLocation);
+typedef JSON_HandlerResult (JSON_CALL * JSON_StartObjectHandler)(JSON_Parser parser);
 JSON_API(JSON_StartObjectHandler) JSON_GetStartObjectHandler(JSON_Parser parser);
 JSON_API(JSON_Status) JSON_SetStartObjectHandler(JSON_Parser parser, JSON_StartObjectHandler handler);
 
@@ -501,7 +511,7 @@ JSON_API(JSON_Status) JSON_SetStartObjectHandler(JSON_Parser parser, JSON_StartO
  *
  * The handler can be changed at any time, even inside a handler.
  */
-typedef JSON_HandlerResult (JSON_CALL * JSON_EndObjectHandler)(JSON_Parser parser, const JSON_Location* pLocation);
+typedef JSON_HandlerResult (JSON_CALL * JSON_EndObjectHandler)(JSON_Parser parser);
 JSON_API(JSON_EndObjectHandler) JSON_GetEndObjectHandler(JSON_Parser parser);
 JSON_API(JSON_Status) JSON_SetEndObjectHandler(JSON_Parser parser, JSON_EndObjectHandler handler);
 
@@ -539,7 +549,7 @@ JSON_API(JSON_Status) JSON_SetEndObjectHandler(JSON_Parser parser, JSON_EndObjec
  *
  * The handler can be changed at any time, even inside a handler.
  */
-typedef JSON_HandlerResult (JSON_CALL * JSON_ObjectMemberHandler)(JSON_Parser parser, const JSON_Location* pLocation, const char* pBytes, size_t length, JSON_StringAttributes attributes);
+typedef JSON_HandlerResult (JSON_CALL * JSON_ObjectMemberHandler)(JSON_Parser parser, const char* pBytes, size_t length, JSON_StringAttributes attributes);
 JSON_API(JSON_ObjectMemberHandler) JSON_GetObjectMemberHandler(JSON_Parser parser);
 JSON_API(JSON_Status) JSON_SetObjectMemberHandler(JSON_Parser parser, JSON_ObjectMemberHandler handler);
 
@@ -552,7 +562,7 @@ JSON_API(JSON_Status) JSON_SetObjectMemberHandler(JSON_Parser parser, JSON_Objec
  *
  * The handler can be changed at any time, even inside a handler.
  */
-typedef JSON_HandlerResult (JSON_CALL * JSON_StartArrayHandler)(JSON_Parser parser, const JSON_Location* pLocation);
+typedef JSON_HandlerResult (JSON_CALL * JSON_StartArrayHandler)(JSON_Parser parser);
 JSON_API(JSON_StartArrayHandler) JSON_GetStartArrayHandler(JSON_Parser parser);
 JSON_API(JSON_Status) JSON_SetStartArrayHandler(JSON_Parser parser, JSON_StartArrayHandler handler);
 
@@ -565,7 +575,7 @@ JSON_API(JSON_Status) JSON_SetStartArrayHandler(JSON_Parser parser, JSON_StartAr
  *
  * The handler can be changed at any time, even inside a handler.
  */
-typedef JSON_HandlerResult (JSON_CALL * JSON_EndArrayHandler)(JSON_Parser parser, const JSON_Location* pLocation);
+typedef JSON_HandlerResult (JSON_CALL * JSON_EndArrayHandler)(JSON_Parser parser);
 JSON_API(JSON_EndArrayHandler) JSON_GetEndArrayHandler(JSON_Parser parser);
 JSON_API(JSON_Status) JSON_SetEndArrayHandler(JSON_Parser parser, JSON_EndArrayHandler handler);
 
@@ -578,7 +588,7 @@ JSON_API(JSON_Status) JSON_SetEndArrayHandler(JSON_Parser parser, JSON_EndArrayH
  *
  * The handler can be changed at any time, even inside a handler.
  */
-typedef JSON_HandlerResult (JSON_CALL * JSON_ArrayItemHandler)(JSON_Parser parser, const JSON_Location* pLocation);
+typedef JSON_HandlerResult (JSON_CALL * JSON_ArrayItemHandler)(JSON_Parser parser);
 JSON_API(JSON_ArrayItemHandler) JSON_GetArrayItemHandler(JSON_Parser parser);
 JSON_API(JSON_Status) JSON_SetArrayItemHandler(JSON_Parser parser, JSON_ArrayItemHandler handler);
 

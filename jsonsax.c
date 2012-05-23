@@ -903,7 +903,7 @@ static JSON_Status CallSimpleHandler(JSON_Parser parser, JSON_NullHandler handle
     {
         JSON_HandlerResult result;
         parser->parserStatus |= PARSER_IN_PARSE_HANDLER;
-        result = handler(parser, &parser->tokenLocation);
+        result = handler(parser);
         parser->parserStatus &= ~PARSER_IN_PARSE_HANDLER;
         if (result != JSON_ContinueParsing)
         {
@@ -920,7 +920,7 @@ static JSON_Status CallBooleanHandler(JSON_Parser parser, JSON_BooleanHandler ha
     {
         JSON_HandlerResult result;
         parser->parserStatus |= PARSER_IN_PARSE_HANDLER;
-        result = handler(parser, &parser->tokenLocation, parser->token == TOKEN_TRUE ? JSON_True : JSON_False);
+        result = handler(parser, parser->token == TOKEN_TRUE ? JSON_True : JSON_False);
         parser->parserStatus &= ~PARSER_IN_PARSE_HANDLER;
         if (result != JSON_ContinueParsing)
         {
@@ -946,7 +946,7 @@ static JSON_Status CallStringHandler(JSON_Parser parser, JSON_StringHandler hand
             return JSON_Failure;
         }
         parser->parserStatus |= PARSER_IN_PARSE_HANDLER;
-        result = handler(parser, &parser->tokenLocation, (const char*)parser->pOutputBuffer, lengthNotIncludingNullTerminator, parser->outputAttributes);
+        result = handler(parser, (const char*)parser->pOutputBuffer, lengthNotIncludingNullTerminator, parser->outputAttributes);
         parser->parserStatus &= ~PARSER_IN_PARSE_HANDLER;
         if (result != JSON_ContinueParsing)
         {
@@ -971,11 +971,11 @@ static JSON_Status CallNumberHandler(JSON_Parser parser, JSON_RawNumberHandler r
         parser->parserStatus |= PARSER_IN_PARSE_HANDLER;
         if (rawHandler)
         {
-            result = rawHandler(parser, &parser->tokenLocation, (const char*)parser->pOutputBuffer, lengthNotIncludingNullTerminator);
+            result = rawHandler(parser, (const char*)parser->pOutputBuffer, lengthNotIncludingNullTerminator);
         }
         else
         {
-            result = handler(parser, &parser->tokenLocation, InterpretNumber(parser));
+            result = handler(parser, InterpretNumber(parser));
         }
         parser->parserStatus &= ~PARSER_IN_PARSE_HANDLER;
         if (result != JSON_ContinueParsing)
@@ -993,7 +993,7 @@ static JSON_Status CallSpecialNumberHandler(JSON_Parser parser, JSON_SpecialNumb
     {
         JSON_HandlerResult result;
         parser->parserStatus |= PARSER_IN_PARSE_HANDLER;
-        result = handler(parser, &parser->tokenLocation, parser->token == TOKEN_NAN ? JSON_NaN :
+        result = handler(parser, parser->token == TOKEN_NAN ? JSON_NaN :
                          (parser->token == TOKEN_INFINITY ? JSON_Infinity : JSON_NegativeInfinity));
         parser->parserStatus &= ~PARSER_IN_PARSE_HANDLER;
         if (result != JSON_ContinueParsing)
@@ -2902,6 +2902,16 @@ JSON_Status JSON_CALL JSON_SetUserData(JSON_Parser parser, void* userData)
         return JSON_Failure;
     }
     parser->userData = userData;
+    return JSON_Success;
+}
+
+JSON_Status JSON_CALL JSON_GetTokenLocation(JSON_Parser parser, JSON_Location* pLocation)
+{
+    if (!parser || !pLocation || !(parser->parserStatus & PARSER_IN_PARSE_HANDLER))
+    {
+        return JSON_Failure;
+    }
+    *pLocation = parser->tokenLocation;
     return JSON_Success;
 }
 

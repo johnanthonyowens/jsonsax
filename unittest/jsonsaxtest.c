@@ -378,6 +378,26 @@ static int CheckFreeParser(JSON_Parser parser, JSON_Status expectedStatus)
     return 1;
 }
 
+static int CheckGetErrorLocation(JSON_Parser parser, JSON_Location* pLocation, JSON_Status expectedStatus)
+{
+    if (JSON_GetErrorLocation(parser, pLocation) != expectedStatus)
+    {
+        printf("FAILURE: expected JSON_GetErrorLocation() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
+        return 0;
+    }
+    return 1;
+}
+
+static int CheckGetTokenLocation(JSON_Parser parser, JSON_Location* pLocation, JSON_Status expectedStatus)
+{
+    if (JSON_GetTokenLocation(parser, pLocation) != expectedStatus)
+    {
+        printf("FAILURE: expected JSON_GetTokenLocation() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
+        return 0;
+    }
+    return 1;
+}
+
 static int CheckSetUserData(JSON_Parser parser, void* userData, JSON_Status expectedStatus)
 {
     if (JSON_SetUserData(parser, userData) != expectedStatus)
@@ -745,6 +765,7 @@ static int TryToMisbehaveInCallback(JSON_Parser parser)
 {
     if (!CheckFreeParser(parser, JSON_Failure) ||
         !CheckResetParser(parser, JSON_Failure) ||
+        !CheckGetTokenLocation(parser, NULL, JSON_Failure) ||
         !CheckSetInputEncoding(parser, JSON_UTF32LE, JSON_Failure) ||
         !CheckSetOutputEncoding(parser, JSON_UTF32LE, JSON_Failure) ||
         !CheckSetAllowBOM(parser, JSON_True, JSON_Failure) ||
@@ -761,8 +782,9 @@ static int TryToMisbehaveInCallback(JSON_Parser parser)
     return 0;
 }
 
-static JSON_HandlerResult JSON_CALL NullHandler(JSON_Parser parser, const JSON_Location* pLocation)
+static JSON_HandlerResult JSON_CALL NullHandler(JSON_Parser parser)
 {
+    JSON_Location location;
     if (s_failParseCallback)
     {
         return JSON_AbortParsing;
@@ -771,12 +793,17 @@ static JSON_HandlerResult JSON_CALL NullHandler(JSON_Parser parser, const JSON_L
     {
         return JSON_AbortParsing;
     }
-    OutputFormatted("null:%d,%d,%d;", (int)pLocation->byte, (int)pLocation->line, (int)pLocation->column);
+    if (JSON_GetTokenLocation(parser, &location) != JSON_Success)
+    {
+        return JSON_AbortParsing;
+    }
+    OutputFormatted("null:%d,%d,%d;", (int)location.byte, (int)location.line, (int)location.column);
     return JSON_ContinueParsing;
 }
 
-static JSON_HandlerResult JSON_CALL BooleanHandler(JSON_Parser parser, const JSON_Location* pLocation, JSON_Boolean value)
+static JSON_HandlerResult JSON_CALL BooleanHandler(JSON_Parser parser, JSON_Boolean value)
 {
+    JSON_Location location;
     if (s_failParseCallback)
     {
         return JSON_AbortParsing;
@@ -785,29 +812,39 @@ static JSON_HandlerResult JSON_CALL BooleanHandler(JSON_Parser parser, const JSO
     {
         return JSON_AbortParsing;
     }
-    OutputFormatted("%s:%d,%d,%d;", (value == JSON_True) ? "true" : "false", (int)pLocation->byte, (int)pLocation->line, (int)pLocation->column);
+    if (JSON_GetTokenLocation(parser, &location) != JSON_Success)
+    {
+        return JSON_AbortParsing;
+    }
+    OutputFormatted("%s:%d,%d,%d;", (value == JSON_True) ? "true" : "false", (int)location.byte, (int)location.line, (int)location.column);
     return JSON_ContinueParsing;
 }
 
-static JSON_HandlerResult JSON_CALL StringHandler(JSON_Parser parser, const JSON_Location* pLocation, const char* pBytes, size_t length, JSON_StringAttributes attributes)
+static JSON_HandlerResult JSON_CALL StringHandler(JSON_Parser parser, const char* pBytes, size_t length, JSON_StringAttributes attributes)
 {
+    JSON_Location location;
     if (s_failParseCallback)
     {
         return JSON_AbortParsing;
     }
     if (s_misbehaveInCallback && TryToMisbehaveInCallback(parser))
+    {
+        return JSON_AbortParsing;
+    }
+    if (JSON_GetTokenLocation(parser, &location) != JSON_Success)
     {
         return JSON_AbortParsing;
     }
     OutputFormatted("string(0x%X, ", attributes);
     OutputBytes(pBytes, length);
-    OutputFormatted("):%d,%d,%d;", (int)pLocation->byte, (int)pLocation->line, (int)pLocation->column);
+    OutputFormatted("):%d,%d,%d;", (int)location.byte, (int)location.line, (int)location.column);
     return JSON_ContinueParsing;
 }
 
-static JSON_HandlerResult JSON_CALL NumberHandler(JSON_Parser parser, const JSON_Location* pLocation, double value)
+static JSON_HandlerResult JSON_CALL NumberHandler(JSON_Parser parser, double value)
 {
-    (void)pLocation; (void)value; /* unused */
+    JSON_Location location;
+    (void)value; /* unused */
     if (s_failParseCallback)
     {
         return JSON_AbortParsing;
@@ -816,11 +853,16 @@ static JSON_HandlerResult JSON_CALL NumberHandler(JSON_Parser parser, const JSON
     {
         return JSON_AbortParsing;
     }
+    if (JSON_GetTokenLocation(parser, &location) != JSON_Success)
+    {
+        return JSON_AbortParsing;
+    }
     return JSON_ContinueParsing;
 }
 
-static JSON_HandlerResult JSON_CALL RawNumberHandler(JSON_Parser parser, const JSON_Location* pLocation, const char* pValue, size_t length)
+static JSON_HandlerResult JSON_CALL RawNumberHandler(JSON_Parser parser, const char* pValue, size_t length)
 {
+    JSON_Location location;
     if (s_failParseCallback)
     {
         return JSON_AbortParsing;
@@ -833,18 +875,27 @@ static JSON_HandlerResult JSON_CALL RawNumberHandler(JSON_Parser parser, const J
     {
         return JSON_AbortParsing;
     }
-    OutputFormatted("#(%s):%d,%d,%d;", pValue, (int)pLocation->byte, (int)pLocation->line, (int)pLocation->column);
+    if (JSON_GetTokenLocation(parser, &location) != JSON_Success)
+    {
+        return JSON_AbortParsing;
+    }
+    OutputFormatted("#(%s):%d,%d,%d;", pValue, (int)location.byte, (int)location.line, (int)location.column);
     return JSON_ContinueParsing;
 }
 
-static JSON_HandlerResult JSON_CALL SpecialNumberHandler(JSON_Parser parser, const JSON_Location* pLocation, JSON_SpecialNumber value)
+static JSON_HandlerResult JSON_CALL SpecialNumberHandler(JSON_Parser parser, JSON_SpecialNumber value)
 {
+    JSON_Location location;
     const char* pValue;
     if (s_failParseCallback)
     {
         return JSON_AbortParsing;
     }
     if (s_misbehaveInCallback && TryToMisbehaveInCallback(parser))
+    {
+        return JSON_AbortParsing;
+    }
+    if (JSON_GetTokenLocation(parser, &location) != JSON_Success)
     {
         return JSON_AbortParsing;
     }
@@ -863,12 +914,13 @@ static JSON_HandlerResult JSON_CALL SpecialNumberHandler(JSON_Parser parser, con
         pValue = "UNKNOWN";
         break;
     }
-    OutputFormatted("%s:%d,%d,%d;", pValue, (int)pLocation->byte, (int)pLocation->line, (int)pLocation->column);
+    OutputFormatted("%s:%d,%d,%d;", pValue, (int)location.byte, (int)location.line, (int)location.column);
     return JSON_ContinueParsing;
 }
 
-static JSON_HandlerResult JSON_CALL StartObjectHandler(JSON_Parser parser, const JSON_Location* pLocation)
+static JSON_HandlerResult JSON_CALL StartObjectHandler(JSON_Parser parser)
 {
+    JSON_Location location;
     if (s_failParseCallback)
     {
         return JSON_AbortParsing;
@@ -877,12 +929,17 @@ static JSON_HandlerResult JSON_CALL StartObjectHandler(JSON_Parser parser, const
     {
         return JSON_AbortParsing;
     }
-    OutputFormatted("{:%d,%d,%d;", (int)pLocation->byte, (int)pLocation->line, (int)pLocation->column);
+    if (JSON_GetTokenLocation(parser, &location) != JSON_Success)
+    {
+        return JSON_AbortParsing;
+    }
+    OutputFormatted("{:%d,%d,%d;", (int)location.byte, (int)location.line, (int)location.column);
     return JSON_ContinueParsing;
 }
 
-static JSON_HandlerResult JSON_CALL EndObjectHandler(JSON_Parser parser, const JSON_Location* pLocation)
+static JSON_HandlerResult JSON_CALL EndObjectHandler(JSON_Parser parser)
 {
+    JSON_Location location;
     if (s_failParseCallback)
     {
         return JSON_AbortParsing;
@@ -891,12 +948,17 @@ static JSON_HandlerResult JSON_CALL EndObjectHandler(JSON_Parser parser, const J
     {
         return JSON_AbortParsing;
     }
-    OutputFormatted("}:%d,%d,%d;", (int)pLocation->byte, (int)pLocation->line, (int)pLocation->column);
+    if (JSON_GetTokenLocation(parser, &location) != JSON_Success)
+    {
+        return JSON_AbortParsing;
+    }
+    OutputFormatted("}:%d,%d,%d;", (int)location.byte, (int)location.line, (int)location.column);
     return JSON_ContinueParsing;
 }
 
-static JSON_HandlerResult JSON_CALL ObjectMemberHandler(JSON_Parser parser, const JSON_Location* pLocation, const char* pBytes, size_t length, JSON_StringAttributes attributes)
+static JSON_HandlerResult JSON_CALL ObjectMemberHandler(JSON_Parser parser, const char* pBytes, size_t length, JSON_StringAttributes attributes)
 {
+    JSON_Location location;
     if (s_failParseCallback)
     {
         return JSON_AbortParsing;
@@ -909,14 +971,19 @@ static JSON_HandlerResult JSON_CALL ObjectMemberHandler(JSON_Parser parser, cons
     {
         return JSON_TreatAsDuplicateObjectMember;
     }
+    if (JSON_GetTokenLocation(parser, &location) != JSON_Success)
+    {
+        return JSON_AbortParsing;
+    }
     OutputFormatted("member(0x%X, ", attributes);
     OutputBytes(pBytes, length);
-    OutputFormatted("):%d,%d,%d;", (int)pLocation->byte, (int)pLocation->line, (int)pLocation->column);
+    OutputFormatted("):%d,%d,%d;", (int)location.byte, (int)location.line, (int)location.column);
     return JSON_ContinueParsing;
 }
 
-static JSON_HandlerResult JSON_CALL StartArrayHandler(JSON_Parser parser, const JSON_Location* pLocation)
+static JSON_HandlerResult JSON_CALL StartArrayHandler(JSON_Parser parser)
 {
+    JSON_Location location;
     if (s_failParseCallback)
     {
         return JSON_AbortParsing;
@@ -925,12 +992,17 @@ static JSON_HandlerResult JSON_CALL StartArrayHandler(JSON_Parser parser, const 
     {
         return JSON_AbortParsing;
     }
-    OutputFormatted("[:%d,%d,%d;", (int)pLocation->byte, (int)pLocation->line, (int)pLocation->column);
+    if (JSON_GetTokenLocation(parser, &location) != JSON_Success)
+    {
+        return JSON_AbortParsing;
+    }
+    OutputFormatted("[:%d,%d,%d;", (int)location.byte, (int)location.line, (int)location.column);
     return JSON_ContinueParsing;
 }
 
-static JSON_HandlerResult JSON_CALL EndArrayHandler(JSON_Parser parser, const JSON_Location* pLocation)
+static JSON_HandlerResult JSON_CALL EndArrayHandler(JSON_Parser parser)
 {
+    JSON_Location location;
     if (s_failParseCallback)
     {
         return JSON_AbortParsing;
@@ -939,12 +1011,17 @@ static JSON_HandlerResult JSON_CALL EndArrayHandler(JSON_Parser parser, const JS
     {
         return JSON_AbortParsing;
     }
-    OutputFormatted("]:%d,%d,%d;", (int)pLocation->byte, (int)pLocation->line, (int)pLocation->column);
+    if (JSON_GetTokenLocation(parser, &location) != JSON_Success)
+    {
+        return JSON_AbortParsing;
+    }
+    OutputFormatted("]:%d,%d,%d;", (int)location.byte, (int)location.line, (int)location.column);
     return JSON_ContinueParsing;
 }
 
-static JSON_HandlerResult JSON_CALL ArrayItemHandler(JSON_Parser parser, const JSON_Location* pLocation)
+static JSON_HandlerResult JSON_CALL ArrayItemHandler(JSON_Parser parser)
 {
+    JSON_Location location;
     if (s_failParseCallback)
     {
         return JSON_AbortParsing;
@@ -953,7 +1030,11 @@ static JSON_HandlerResult JSON_CALL ArrayItemHandler(JSON_Parser parser, const J
     {
         return JSON_AbortParsing;
     }
-    OutputFormatted("item:%d,%d,%d;", (int)pLocation->byte, (int)pLocation->line, (int)pLocation->column);
+    if (JSON_GetTokenLocation(parser, &location) != JSON_Success)
+    {
+        return JSON_AbortParsing;
+    }
+    OutputFormatted("item:%d,%d,%d;", (int)location.byte, (int)location.line, (int)location.column);
     return JSON_ContinueParsing;
 }
 
@@ -1694,6 +1775,7 @@ static void TestMissingParser()
     ParserState state;
     ParserSettings settings;
     ParserHandlers handlers;
+    JSON_Location errorLocation;
     printf("Test NULL parser instance ... ");
     InitParserState(&state);
     InitParserSettings(&settings);
@@ -1704,6 +1786,7 @@ static void TestMissingParser()
         CheckFreeParser(NULL, JSON_Failure) &&
         CheckResetParser(NULL, JSON_Failure) &&
         CheckSetUserData(NULL, (void*)1, JSON_Failure) &&
+        CheckGetErrorLocation(NULL, &errorLocation, JSON_Failure) &&
         CheckSetInputEncoding(NULL, JSON_UTF16LE, JSON_Failure) &&
         CheckSetOutputEncoding(NULL, JSON_UTF16LE, JSON_Failure) &&
         CheckSetMaxOutputStringLength(NULL, 128, JSON_Failure) &&
@@ -1727,6 +1810,75 @@ static void TestMissingParser()
     {
         s_failureCount++;
     }
+}
+
+static void TestGetErrorLocationNullLocation()
+{
+    JSON_Parser parser = NULL;
+    printf("Test get error location with NULL location ... ");
+    if (CheckCreateParserWithCustomMemorySuite(&MallocHandler, &ReallocHandler, &FreeHandler, JSON_Success, &parser) &&
+        CheckParse(parser, "!", 1, JSON_True, JSON_Failure) &&
+        CheckGetErrorLocation(parser, NULL, JSON_Failure))
+    {
+        printf("OK\n");
+    }
+    else
+    {
+        s_failureCount++;
+    }
+    JSON_FreeParser(parser);
+}
+
+static void TestGetErrorLocationNoError()
+{
+    JSON_Parser parser = NULL;
+    JSON_Location location = { 100, 200, 300 };
+    printf("Test get error location when no error occurred ... ");
+    if (CheckCreateParserWithCustomMemorySuite(&MallocHandler, &ReallocHandler, &FreeHandler, JSON_Success, &parser) &&
+        CheckParse(parser, "7", 1, JSON_True, JSON_Success) &&
+        CheckGetErrorLocation(parser, &location, JSON_Failure))
+    {
+        if (location.byte != 100 || location.line != 200 || location.column != 300)
+        {
+            printf("FAILURE: JSON_GetErrorLocation() modified the location when it shouldn't have\n");
+            s_failureCount++;
+        }
+        else
+        {
+            printf("OK\n");
+        }
+    }
+    else
+    {
+        s_failureCount++;
+    }
+    JSON_FreeParser(parser);
+}
+
+static void TestGetTokenLocationOutsideHandler()
+{
+    JSON_Parser parser = NULL;
+    JSON_Location location = { 100, 200, 300 };
+    printf("Test get token location when not in a parse handler  ... ");
+    if (CheckCreateParserWithCustomMemorySuite(&MallocHandler, &ReallocHandler, &FreeHandler, JSON_Success, &parser) &&
+        CheckParse(parser, "7", 1, JSON_True, JSON_Success) &&
+        CheckGetTokenLocation(parser, &location, JSON_Failure))
+    {
+        if (location.byte != 100 || location.line != 200 || location.column != 300)
+        {
+            printf("FAILURE: JSON_GetTokenLocation() modified the location when it shouldn't have\n");
+            s_failureCount++;
+        }
+        else
+        {
+            printf("OK\n");
+        }
+    }
+    else
+    {
+        s_failureCount++;
+    }
+    JSON_FreeParser(parser);
 }
 
 static void TestErrorStrings()
@@ -1827,10 +1979,9 @@ static const IEEE754Test s_IEEE754Tests[] =
     IEEE754_TEST("0x1ffffffffffffff", 144115188075855870.0) /* 11...11 | 1111 */
 };
 
-static JSON_HandlerResult JSON_CALL CheckIEEE754InterpretationNumberHandler(JSON_Parser parser, const JSON_Location* pLocation, double value)
+static JSON_HandlerResult JSON_CALL CheckIEEE754InterpretationNumberHandler(JSON_Parser parser, double value)
 {
     const IEEE754Test* pTest = (const IEEE754Test*)JSON_GetUserData(parser);
-    (void)pLocation; /* unused */
     if (value != pTest->expectedValue)
     {
         printf("FAILURE: expected value to be %f instead of %f\n", pTest->expectedValue, value);
@@ -2547,6 +2698,9 @@ int main(int argc, char* argv[])
     TestParserCreationWithCustomMemorySuite();
     TestParserCreationMallocFailure();
     TestMissingParser();
+    TestGetErrorLocationNullLocation();
+    TestGetErrorLocationNoError();
+    TestGetTokenLocationOutsideHandler();
     TestSetParserSettings();
     TestSetInvalidParserSettings();
     TestSetParserHandlers();
