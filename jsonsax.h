@@ -255,6 +255,9 @@ typedef struct tag_JSON_Location
 
     /* The zero-based column number of the character in the input stream. */
     size_t column;
+
+    /* The zero-based depth in the JSON document structure at the location. */
+    size_t depth;
 } JSON_Location;
 
 /* Parser instance. */

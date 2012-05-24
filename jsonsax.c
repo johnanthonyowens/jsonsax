@@ -30,10 +30,11 @@
 #include "jsonsax.h"
 
 /* Parser constants. */
-#define MAX_NUMBER_CHARACTERS        63
-#define DEFAULT_OUTPUT_BUFFER_LENGTH (MAX_NUMBER_CHARACTERS + 1)
-#define DEFAULT_SYMBOL_STACK_SIZE    32
-#define IEEE_DOUBLE_MANTISSA_BITS    53
+#define MAX_NUMBER_CHARACTERS         63
+#define DEFAULT_OUTPUT_BUFFER_LENGTH  (MAX_NUMBER_CHARACTERS + 1)
+#define DEFAULT_SYMBOL_STACK_SIZE     32
+#define IEEE_DOUBLE_MANTISSA_BITS     53
+#define ERROR_LOCATION_IS_TOKEN_START 0xFF
 
 /* 32- and 64-bit unsigned integer types (compiler-dependent). */
 #if defined(_MSC_VER)
@@ -234,12 +235,17 @@ struct JSON_ParserData
     unsigned char             token;             /* real type is Symbol */
     unsigned char             decoderState;      /* real type is DecoderState */
     unsigned char             error;             /* real type is JSON_Error */
+    unsigned char             errorOffset;
     unsigned char             outputAttributes;
     JSON_UInt32               lexerBits;
     JSON_UInt32               decoderBits;
-    JSON_Location             codepointLocation;
-    JSON_Location             tokenLocation;
-    JSON_Location             errorLocation;
+    size_t                    codepointLocationByte;
+    size_t                    codepointLocationLine;
+    size_t                    codepointLocationColumn;
+    size_t                    tokenLocationByte;
+    size_t                    tokenLocationLine;
+    size_t                    tokenLocationColumn;
+    size_t                    depth;
     unsigned char*            pOutputBuffer;     /* initially set to defaultOutputBuffer */
     size_t                    outputBufferLength;
     size_t                    outputBufferUsed;
@@ -297,12 +303,6 @@ static void JSON_CALL CallFree(JSON_Parser parser, void* ptr)
 
 /* Parser functions. */
 
-static void SetErrorAtCodepoint(JSON_Parser parser, JSON_Error error)
-{
-    parser->errorLocation = parser->codepointLocation;
-    parser->error = error;
-}
-
 /* This array must match the order and number of the JSON_Encoding enum. */
 static const size_t minEncodingSequenceLengths[] =
 {
@@ -314,7 +314,12 @@ static const size_t minEncodingSequenceLengths[] =
     /* JSON_UTF32BE */         4
 };
 
-static void SetErrorAtStringEscapeSequenceStart(JSON_Parser parser, JSON_Error error, size_t codepointsAgo)
+static void SetErrorAtCodepoint(JSON_Parser parser, JSON_Error error)
+{
+    parser->error = error;
+}
+
+static void SetErrorAtStringEscapeSequenceStart(JSON_Parser parser, JSON_Error error, unsigned char codepointsAgo)
 {
     /* Note that backtracking from the current codepoint requires us to make
        three assumptions, which are always valid in the context of a string
@@ -330,16 +335,14 @@ static void SetErrorAtStringEscapeSequenceStart(JSON_Parser parser, JSON_Error e
             line breaks, so we can assume that the line number stays the
             same and the column number can simply be decremented.
     */
-    parser->errorLocation.byte = parser->codepointLocation.byte - (minEncodingSequenceLengths[parser->inputEncoding] * codepointsAgo);
-    parser->errorLocation.line = parser->codepointLocation.line;
-    parser->errorLocation.column = parser->codepointLocation.column - codepointsAgo;
     parser->error = error;
+    parser->errorOffset = codepointsAgo;
 }
 
 static void SetErrorAtToken(JSON_Parser parser, JSON_Error error)
 {
-    parser->errorLocation = parser->tokenLocation;
     parser->error = error;
+    parser->errorOffset = ERROR_LOCATION_IS_TOKEN_START;
 }
 
 static JSON_Status PushObject(JSON_Parser parser)
@@ -426,16 +429,15 @@ static void ResetParserData(JSON_Parser parser, int isInitialized)
     parser->token = TOKEN_NULL;
     parser->decoderState = DECODER_PROCESSED_0_OF_1;
     parser->decoderBits = 0;
-    parser->codepointLocation.byte = 0;
-    parser->codepointLocation.line = 0;
-    parser->codepointLocation.column = 0;
-    parser->tokenLocation.byte = 0;
-    parser->tokenLocation.line = 0;
-    parser->tokenLocation.column = 0;
-    parser->errorLocation.byte = 0;
-    parser->errorLocation.line = 0;
-    parser->errorLocation.column = 0;
+    parser->codepointLocationByte = 0;
+    parser->codepointLocationLine = 0;
+    parser->codepointLocationColumn = 0;
+    parser->tokenLocationByte = 0;
+    parser->tokenLocationLine = 0;
+    parser->tokenLocationColumn = 0;
+    parser->depth = 0;
     parser->error = JSON_Error_None;
+    parser->errorOffset = 0;
     parser->outputAttributes = 0;
     if (!isInitialized)
     {
@@ -1198,6 +1200,7 @@ static JSON_Status ProcessToken(JSON_Parser parser)
                     {
                         return JSON_Failure;
                     }
+                    parser->depth++;
                     symbolsToPush[0] = TOKEN_RIGHT_CURLY;
                     symbolsToPush[1] = NT_MEMBERS;
                     numberOfSymbolsToPush = 2;
@@ -1208,6 +1211,7 @@ static JSON_Status ProcessToken(JSON_Parser parser)
                     {
                         return JSON_Failure;
                     }
+                    parser->depth++;
                     symbolsToPush[0] = TOKEN_RIGHT_SQUARE;
                     symbolsToPush[1] = NT_ITEMS;
                     numberOfSymbolsToPush = 2;
@@ -1233,6 +1237,7 @@ static JSON_Status ProcessToken(JSON_Parser parser)
                     }
                 case 9:  /* MEMBERS => e */
                 case 12: /* MORE_MEMBERS => e */
+                    parser->depth--;
                     PopObject(parser);
                     if (!CallSimpleHandler(parser, parser->endObjectHandler))
                     {
@@ -1277,6 +1282,7 @@ static JSON_Status ProcessToken(JSON_Parser parser)
                     }
                 case 16: /* ITEMS => e */
                 case 19: /* MORE_ITEMS => e */
+                    parser->depth--;
                     if (!CallSimpleHandler(parser, parser->endArrayHandler))
                     {
                         return JSON_Failure;
@@ -1333,7 +1339,9 @@ static const unsigned char expectedLiteralChars[] = { 'u', 'l', 'l', 0, 'r', 'u'
 static void StartToken(JSON_Parser parser, Symbol token)
 {
     parser->token = token;
-    parser->tokenLocation = parser->codepointLocation;
+    parser->tokenLocationByte = parser->codepointLocationByte;
+    parser->tokenLocationLine = parser->codepointLocationLine;
+    parser->tokenLocationColumn = parser->codepointLocationColumn;
 }
 
 static JSON_Status ProcessCodepoint(JSON_Parser parser, size_t encodedLength)
@@ -1349,7 +1357,7 @@ static JSON_Status ProcessCodepoint(JSON_Parser parser, size_t encodedLength)
     {
         if (c == LINE_FEED_CODEPOINT)
         {
-            parser->codepointLocation.line--;
+            parser->codepointLocationLine--;
         }
         parser->parserStatus &= ~PARSER_AFTER_CARRIAGE_RETURN;
     }
@@ -1435,7 +1443,7 @@ reprocess:
         {
             /* Ignore whitespace between tokens. */
         }
-        else if (c == BOM_CODEPOINT && parser->codepointLocation.byte == 0)
+        else if (c == BOM_CODEPOINT && parser->codepointLocationByte == 0)
         {
             if (parser->parserStatus & PARSER_ALLOW_BOM)
             {
@@ -1621,8 +1629,8 @@ reprocess:
                    character slots in the hex escape sequence. The error
                    location should be the beginning of the hex escape
                    sequence, between 2 and 5 bytes earlier. */
-                int codepointsAgo = 2 /* for "\u" */ + byteNumber;
-                SetErrorAtStringEscapeSequenceStart(parser, JSON_Error_InvalidEscapeSequence, (size_t)codepointsAgo);
+                unsigned char codepointsAgo = 2 /* for "\u" */ + (unsigned char)byteNumber;
+                SetErrorAtStringEscapeSequenceStart(parser, JSON_Error_InvalidEscapeSequence, codepointsAgo);
                 return JSON_Failure;
             }
             /* Store the hex digit's bits in the appropriate byte of lexerBits. */
@@ -2046,17 +2054,17 @@ reprocess:
     }
     if (c != EOF_CODEPOINT)
     {
-        parser->codepointLocation.byte += encodedLength;
+        parser->codepointLocationByte += encodedLength;
         if (c == CARRIAGE_RETURN_CODEPOINT || c == LINE_FEED_CODEPOINT)
         {
             /* The next character will begin a new line. */
-            parser->codepointLocation.line++;
-            parser->codepointLocation.column = 0;
+            parser->codepointLocationLine++;
+            parser->codepointLocationColumn = 0;
         }
         else
         {
             /* The next character will be on the same line. */
-            parser->codepointLocation.column++;
+            parser->codepointLocationColumn++;
         }
     }
 
@@ -2858,7 +2866,19 @@ JSON_Status JSON_CALL JSON_GetErrorLocation(JSON_Parser parser, JSON_Location* p
     {
         return JSON_Failure;
     }
-    *pLocation = parser->errorLocation;
+    if (parser->errorOffset == ERROR_LOCATION_IS_TOKEN_START)
+    {
+        pLocation->byte = parser->tokenLocationByte;
+        pLocation->line = parser->tokenLocationLine;
+        pLocation->column = parser->tokenLocationColumn;
+    }
+    else
+    {
+        pLocation->byte = parser->codepointLocationByte - (minEncodingSequenceLengths[parser->inputEncoding] * parser->errorOffset);
+        pLocation->line = parser->codepointLocationLine;
+        pLocation->column = parser->codepointLocationColumn - parser->errorOffset;
+    }
+    pLocation->depth = parser->depth;
     return JSON_Success;
 }
 
@@ -2911,7 +2931,10 @@ JSON_Status JSON_CALL JSON_GetTokenLocation(JSON_Parser parser, JSON_Location* p
     {
         return JSON_Failure;
     }
-    *pLocation = parser->tokenLocation;
+    pLocation->byte = parser->tokenLocationByte;
+    pLocation->line = parser->tokenLocationLine;
+    pLocation->column = parser->tokenLocationColumn;
+    pLocation->depth = parser->depth;
     return JSON_Success;
 }
 

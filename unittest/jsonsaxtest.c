@@ -50,6 +50,7 @@ static void InitParserState(ParserState* pState)
     pState->errorLocation.byte = 0;
     pState->errorLocation.line = 0;
     pState->errorLocation.column = 0;
+    pState->errorLocation.depth = 0;
     pState->startedParsing = JSON_False;
     pState->finishedParsing = JSON_False;
     pState->inputEncoding = JSON_UnknownEncoding;
@@ -63,6 +64,7 @@ static void GetParserState(JSON_Parser parser, ParserState* pState)
         pState->errorLocation.byte = 0;
         pState->errorLocation.line = 0;
         pState->errorLocation.column = 0;
+        pState->errorLocation.depth = 0;
     }
     pState->startedParsing = JSON_StartedParsing(parser);
     pState->finishedParsing = JSON_FinishedParsing(parser);
@@ -75,6 +77,7 @@ static int ParserStatesAreIdentical(const ParserState* pState1, const ParserStat
             pState1->errorLocation.byte == pState2->errorLocation.byte &&
             pState1->errorLocation.line == pState2->errorLocation.line &&
             pState1->errorLocation.column == pState2->errorLocation.column &&
+            pState1->errorLocation.depth == pState2->errorLocation.depth &&
             pState1->startedParsing == pState2->startedParsing &&
             pState1->finishedParsing == pState2->finishedParsing &&
             pState1->inputEncoding == pState2->inputEncoding);
@@ -94,6 +97,7 @@ static int CheckParserState(JSON_Parser parser, const ParserState* pExpectedStat
                "  JSON_GetErrorLocation().byte   %8d   %8d\n"
                "  JSON_GetErrorLocation().line   %8d   %8d\n"
                "  JSON_GetErrorLocation().column %8d   %8d\n"
+               "  JSON_GetErrorLocation().depth  %8d   %8d\n"
                "  JSON_StartedParsing()          %8d   %8d\n"
                "  JSON_FinishedParsing()         %8d   %8d\n"
                "  JSON_GetInputEncoding()        %8d   %8d\n"
@@ -102,6 +106,7 @@ static int CheckParserState(JSON_Parser parser, const ParserState* pExpectedStat
                (int)pExpectedState->errorLocation.byte, (int)actualState.errorLocation.byte,
                (int)pExpectedState->errorLocation.line, (int)actualState.errorLocation.line,
                (int)pExpectedState->errorLocation.column, (int)actualState.errorLocation.column,
+               (int)pExpectedState->errorLocation.depth, (int)actualState.errorLocation.depth,
                (int)pExpectedState->startedParsing, (int)actualState.startedParsing,
                (int)pExpectedState->finishedParsing, (int)actualState.finishedParsing,
                (int)pExpectedState->inputEncoding, (int)actualState.inputEncoding
@@ -713,25 +718,6 @@ static void JSON_CALL FreeHandler(JSON_Parser parser, void* ptr)
 static char s_outputBuffer[4096]; /* big enough for all unit tests */
 size_t s_outputLength = 0;
 
-static const char s_hexDigits[] = { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F' };
-static void OutputBytes(const char* pBytes, size_t length)
-{
-    size_t i;
-    for (i = 0; i < length; i++)
-    {
-        unsigned char b = (unsigned char)pBytes[i];
-        if (i)
-        {
-            s_outputBuffer[s_outputLength] = ' ';
-            s_outputLength++;
-        }
-        s_outputBuffer[s_outputLength] = s_hexDigits[b >> 4];
-        s_outputBuffer[s_outputLength + 1] = s_hexDigits[b & 0xF];
-        s_outputLength += 2;
-    }
-    s_outputBuffer[s_outputLength] = 0;
-}
-
 static void OutputFormatted(const char* pFormat, ...)
 {
     va_list args;
@@ -741,6 +727,64 @@ static void OutputFormatted(const char* pFormat, ...)
     va_end(args);
     s_outputLength += length;
     s_outputBuffer[s_outputLength] = 0;
+}
+
+static void OutputCharacter(char c)
+{
+    s_outputBuffer[s_outputLength] = c;
+    s_outputLength++;
+    s_outputBuffer[s_outputLength] = 0;
+}
+
+static void OutputSeparator()
+{
+    if (s_outputLength && s_outputBuffer[s_outputLength] != ' ')
+    {
+        OutputCharacter(' ');
+    }
+}
+
+static const char s_hexDigits[] = { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F' };
+static void OutputStringBytes(const char* pBytes, size_t length, JSON_StringAttributes attributes)
+{
+    size_t i;
+    if (attributes != JSON_SimpleString)
+    {
+        if (attributes & JSON_ContainsNullCharacter)
+        {
+            OutputCharacter('z');
+        }
+        if (attributes & JSON_ContainsControlCharacter)
+        {
+            OutputCharacter('c');
+        }
+        if (attributes & JSON_ContainsNonASCIICharacter)
+        {
+            OutputCharacter('a');
+        }
+        if (attributes & JSON_ContainsNonBMPCharacter)
+        {
+            OutputCharacter('b');
+        }
+        if (attributes & JSON_ContainsReplacedCharacter)
+        {
+            OutputCharacter('r');
+        }
+        if (length)
+        {
+            OutputCharacter(' ');
+        }
+    }
+    for (i = 0; i < length; i++)
+    {
+        unsigned char b = (unsigned char)pBytes[i];
+        if (i)
+        {
+            OutputCharacter(' ');
+        }
+        OutputCharacter(s_hexDigits[b >> 4]);
+        OutputCharacter(s_hexDigits[b & 0xF]);
+    }
 }
 
 static int CheckOutput(const char* pExpectedOutput)
@@ -797,7 +841,8 @@ static JSON_HandlerResult JSON_CALL NullHandler(JSON_Parser parser)
     {
         return JSON_AbortParsing;
     }
-    OutputFormatted("null:%d,%d,%d;", (int)location.byte, (int)location.line, (int)location.column);
+    OutputSeparator();
+    OutputFormatted("n:%d,%d,%d,%d", (int)location.byte, (int)location.line, (int)location.column, (int)location.depth);
     return JSON_ContinueParsing;
 }
 
@@ -816,7 +861,8 @@ static JSON_HandlerResult JSON_CALL BooleanHandler(JSON_Parser parser, JSON_Bool
     {
         return JSON_AbortParsing;
     }
-    OutputFormatted("%s:%d,%d,%d;", (value == JSON_True) ? "true" : "false", (int)location.byte, (int)location.line, (int)location.column);
+    OutputSeparator();
+    OutputFormatted("%s:%d,%d,%d,%d", (value == JSON_True) ? "t" : "f", (int)location.byte, (int)location.line, (int)location.column, (int)location.depth);
     return JSON_ContinueParsing;
 }
 
@@ -835,9 +881,10 @@ static JSON_HandlerResult JSON_CALL StringHandler(JSON_Parser parser, const char
     {
         return JSON_AbortParsing;
     }
-    OutputFormatted("string(0x%X, ", attributes);
-    OutputBytes(pBytes, length);
-    OutputFormatted("):%d,%d,%d;", (int)location.byte, (int)location.line, (int)location.column);
+    OutputSeparator();
+    OutputFormatted("s(");
+    OutputStringBytes(pBytes, length, attributes);
+    OutputFormatted("):%d,%d,%d,%d", (int)location.byte, (int)location.line, (int)location.column, (int)location.depth);
     return JSON_ContinueParsing;
 }
 
@@ -879,7 +926,8 @@ static JSON_HandlerResult JSON_CALL RawNumberHandler(JSON_Parser parser, const c
     {
         return JSON_AbortParsing;
     }
-    OutputFormatted("#(%s):%d,%d,%d;", pValue, (int)location.byte, (int)location.line, (int)location.column);
+    OutputSeparator();
+    OutputFormatted("#(%s):%d,%d,%d,%d", pValue, (int)location.byte, (int)location.line, (int)location.column, (int)location.depth);
     return JSON_ContinueParsing;
 }
 
@@ -914,7 +962,8 @@ static JSON_HandlerResult JSON_CALL SpecialNumberHandler(JSON_Parser parser, JSO
         pValue = "UNKNOWN";
         break;
     }
-    OutputFormatted("%s:%d,%d,%d;", pValue, (int)location.byte, (int)location.line, (int)location.column);
+    OutputSeparator();
+    OutputFormatted("#(%s):%d,%d,%d,%d", pValue, (int)location.byte, (int)location.line, (int)location.column, (int)location.depth);
     return JSON_ContinueParsing;
 }
 
@@ -933,7 +982,8 @@ static JSON_HandlerResult JSON_CALL StartObjectHandler(JSON_Parser parser)
     {
         return JSON_AbortParsing;
     }
-    OutputFormatted("{:%d,%d,%d;", (int)location.byte, (int)location.line, (int)location.column);
+    OutputSeparator();
+    OutputFormatted("{:%d,%d,%d,%d", (int)location.byte, (int)location.line, (int)location.column, (int)location.depth);
     return JSON_ContinueParsing;
 }
 
@@ -952,7 +1002,8 @@ static JSON_HandlerResult JSON_CALL EndObjectHandler(JSON_Parser parser)
     {
         return JSON_AbortParsing;
     }
-    OutputFormatted("}:%d,%d,%d;", (int)location.byte, (int)location.line, (int)location.column);
+    OutputSeparator();
+    OutputFormatted("}:%d,%d,%d,%d", (int)location.byte, (int)location.line, (int)location.column, (int)location.depth);
     return JSON_ContinueParsing;
 }
 
@@ -975,9 +1026,10 @@ static JSON_HandlerResult JSON_CALL ObjectMemberHandler(JSON_Parser parser, cons
     {
         return JSON_AbortParsing;
     }
-    OutputFormatted("member(0x%X, ", attributes);
-    OutputBytes(pBytes, length);
-    OutputFormatted("):%d,%d,%d;", (int)location.byte, (int)location.line, (int)location.column);
+    OutputSeparator();
+    OutputFormatted("m(");
+    OutputStringBytes(pBytes, length, attributes);
+    OutputFormatted("):%d,%d,%d,%d", (int)location.byte, (int)location.line, (int)location.column, (int)location.depth);
     return JSON_ContinueParsing;
 }
 
@@ -996,7 +1048,8 @@ static JSON_HandlerResult JSON_CALL StartArrayHandler(JSON_Parser parser)
     {
         return JSON_AbortParsing;
     }
-    OutputFormatted("[:%d,%d,%d;", (int)location.byte, (int)location.line, (int)location.column);
+    OutputSeparator();
+    OutputFormatted("[:%d,%d,%d,%d", (int)location.byte, (int)location.line, (int)location.column, (int)location.depth);
     return JSON_ContinueParsing;
 }
 
@@ -1015,7 +1068,8 @@ static JSON_HandlerResult JSON_CALL EndArrayHandler(JSON_Parser parser)
     {
         return JSON_AbortParsing;
     }
-    OutputFormatted("]:%d,%d,%d;", (int)location.byte, (int)location.line, (int)location.column);
+    OutputSeparator();
+    OutputFormatted("]:%d,%d,%d,%d", (int)location.byte, (int)location.line, (int)location.column, (int)location.depth);
     return JSON_ContinueParsing;
 }
 
@@ -1034,16 +1088,74 @@ static JSON_HandlerResult JSON_CALL ArrayItemHandler(JSON_Parser parser)
     {
         return JSON_AbortParsing;
     }
-    OutputFormatted("item:%d,%d,%d;", (int)location.byte, (int)location.line, (int)location.column);
+    OutputSeparator();
+    OutputFormatted("i:%d,%d,%d,%d", (int)location.byte, (int)location.line, (int)location.column, (int)location.depth);
     return JSON_ContinueParsing;
 }
 
-typedef JSON_Parser (*ParserFactory)();
+/* The length and content of this array MUST correspond exactly with the
+   JSON_Error_XXX enumeration values defined in jsonsax.h. */
+static const char* errorNames[] =
+{
+    "",
+    "OutOfMemory",
+    "AbortedByHandler",
+    "BOMNotAllowed",
+    "InvalidEncodingSequence",
+    "UnknownToken",
+    "UnexpectedToken",
+    "IncompleteToken",
+    "ExpectedMoreTokens",
+    "UnescapedControlCharacter",
+    "InvalidEscapeSequence",
+    "UnpairedSurrogateEscapeSequence",
+    "TooLongString",
+    "InvalidNumber",
+    "TooLongNumber",
+    "DuplicateObjectMember"
+};
+
+typedef enum tag_ParserParam
+{
+    DefaultSettings = 0,
+
+    /* Bottom 4 bits are input encoding. */
+    DefaultIn = 0 << 0,
+    UTF8In    = 1 << 0,
+    UTF16LEIn = 2 << 0,
+    UTF16BEIn = 3 << 0,
+    UTF32LEIn = 4 << 0,
+    UTF32BEIn = 5 << 0,
+
+    /* Next 4 bits are output encoding. */
+    DefaultOut = 0 << 4,
+    UTF8Out    = 1 << 4,
+    UTF16LEOut = 2 << 4,
+    UTF16BEOut = 3 << 4,
+    UTF32LEOut = 4 << 4,
+    UTF32BEOut = 5 << 4,
+
+    /* Next 2 bits are max string length. */
+    DefaultMaxStringLength = 0 << 8,
+    MaxStringLength0       = 1 << 8,
+    MaxStringLength1       = 2 << 8,
+    MaxStringLength2       = 3 << 8,
+
+    /* Rest of bits are settings. */
+    AllowBOM                        = 1 << 10,
+    AllowComments                   = 1 << 11,
+    AllowTrailingCommas             = 1 << 12,
+    AllowSpecialNumbers             = 1 << 13,
+    AllowHexNumbers                 = 1 << 14,
+    ReplaceInvalidEncodingSequences = 1 << 15,
+    TrackObjectMembers              = 1 << 16
+} ParserParam;
+typedef unsigned int ParserParams;
 
 typedef struct tag_ParseTest
 {
     const char*   pName;
-    ParserFactory createParser;
+    ParserParams  parserParams;
     const char*   pInput;
     size_t        length;
     JSON_Boolean  isFinal;
@@ -1051,6 +1163,7 @@ typedef struct tag_ParseTest
     size_t        errorLocationByte;
     size_t        errorLocationLine;
     size_t        errorLocationColumn;
+    size_t        errorLocationDepth;
     JSON_Encoding inputEncoding;
     const char*   pOutput;
 } ParseTest;
@@ -1058,24 +1171,83 @@ typedef struct tag_ParseTest
 static void RunParseTest(const ParseTest* pTest)
 {
     JSON_Parser parser = NULL;
+    ParserSettings settings;
     ParserState state;
     printf("Test %s ... ", pTest->pName);
+
+    InitParserSettings(&settings);
+    if ((pTest->parserParams & 0xF) != DefaultIn)
+    {
+        settings.inputEncoding = (JSON_Encoding)(pTest->parserParams & 0xF);
+    }
+    if ((pTest->parserParams & 0xF0) != DefaultOut)
+    {
+        settings.outputEncoding = (JSON_Encoding)((pTest->parserParams >> 4) & 0xF);
+    }
+    if ((pTest->parserParams & 0x300) != DefaultMaxStringLength)
+    {
+        settings.maxOutputStringLength = (size_t)((pTest->parserParams >> 8) & 0x3) - 1;
+    }
+    settings.allowBOM = (JSON_Boolean)((pTest->parserParams >> 10) & 0x1);
+    settings.allowComments = (JSON_Boolean)((pTest->parserParams >> 11) & 0x1);
+    settings.allowTrailingCommas = (JSON_Boolean)((pTest->parserParams >> 12) & 0x1);
+    settings.allowSpecialNumbers = (JSON_Boolean)((pTest->parserParams >> 13) & 0x1);
+    settings.allowHexNumbers = (JSON_Boolean)((pTest->parserParams >> 14) & 0x1);
+    settings.replaceInvalidEncodingSequences = (JSON_Boolean)((pTest->parserParams >> 15) & 0x1);
+    settings.trackObjectMembers = (JSON_Boolean)((pTest->parserParams >> 16) & 0x1);
+
     InitParserState(&state);
     state.error = pTest->error;
     state.errorLocation.byte = pTest->errorLocationByte;
     state.errorLocation.line = pTest->errorLocationLine;
     state.errorLocation.column = pTest->errorLocationColumn;
+    state.errorLocation.depth = pTest->errorLocationDepth;
     state.startedParsing = JSON_True;
     state.finishedParsing = (pTest->isFinal || pTest->error != JSON_Error_None) ? JSON_True : JSON_False;
     state.inputEncoding = pTest->inputEncoding;
-    parser = pTest->createParser();
     ResetOutput();
-    if (parser &&
-        CheckParse(parser, pTest->pInput, pTest->length, pTest->isFinal, (pTest->error == JSON_Error_None) ? JSON_Success : JSON_Failure) &&
-        CheckParserState(parser, &state) &&
-        (!pTest->pOutput || CheckOutput(pTest->pOutput)))
+
+    if (CheckCreateParserWithCustomMemorySuite(&MallocHandler, &ReallocHandler, &FreeHandler, JSON_Success, &parser) &&
+        CheckSetNullHandler(parser, &NullHandler, JSON_Success) &&
+        CheckSetBooleanHandler(parser, &BooleanHandler, JSON_Success) &&
+        CheckSetStringHandler(parser, &StringHandler, JSON_Success) &&
+        CheckSetNumberHandler(parser, &NumberHandler, JSON_Success) &&
+        CheckSetRawNumberHandler(parser, &RawNumberHandler, JSON_Success) &&
+        CheckSetSpecialNumberHandler(parser, &SpecialNumberHandler, JSON_Success) &&
+        CheckSetStartObjectHandler(parser, &StartObjectHandler, JSON_Success) &&
+        CheckSetEndObjectHandler(parser, &EndObjectHandler, JSON_Success) &&
+        CheckSetObjectMemberHandler(parser, &ObjectMemberHandler, JSON_Success) &&
+        CheckSetStartArrayHandler(parser, &StartArrayHandler, JSON_Success) &&
+        CheckSetEndArrayHandler(parser, &EndArrayHandler, JSON_Success) &&
+        CheckSetArrayItemHandler(parser, &ArrayItemHandler, JSON_Success) &&
+        CheckSetInputEncoding(parser, settings.inputEncoding, JSON_Success) &&
+        CheckSetOutputEncoding(parser, settings.outputEncoding, JSON_Success) &&
+        CheckSetMaxOutputStringLength(parser, settings.maxOutputStringLength, JSON_Success) &&
+        CheckSetAllowBOM(parser, settings.allowBOM, JSON_Success) &&
+        CheckSetAllowComments(parser, settings.allowComments, JSON_Success) &&
+        CheckSetAllowTrailingCommas(parser, settings.allowTrailingCommas, JSON_Success) &&
+        CheckSetAllowSpecialNumbers(parser, settings.allowSpecialNumbers, JSON_Success) &&
+        CheckSetAllowHexNumbers(parser, settings.allowHexNumbers, JSON_Success) &&
+        CheckSetReplaceInvalidEncodingSequences(parser, settings.replaceInvalidEncodingSequences, JSON_Success) &&
+        CheckSetTrackObjectMembers(parser, settings.trackObjectMembers, JSON_Success))
     {
-        printf("OK\n");
+        JSON_Error error = JSON_GetError(parser);
+        JSON_Parse(parser, pTest->pInput, pTest->length, pTest->isFinal);
+        if (error != JSON_Error_None)
+        {
+            JSON_Location location = { -1, -1, -1 };
+            JSON_GetErrorLocation(parser, &location);
+            OutputSeparator();
+            OutputFormatted("!(%s):%d,%d,%d,%d", errorNames[error], (int)location.byte, (int)location.line, (int)location.column, (int)location.depth);
+        }
+        if (CheckParserState(parser, &state) && (!pTest->pOutput || CheckOutput(pTest->pOutput)))
+        {
+            printf("OK\n");
+        }
+        else
+        {
+            s_failureCount++;
+        }
     }
     else
     {
@@ -1083,142 +1255,6 @@ static void RunParseTest(const ParseTest* pTest)
     }
     JSON_FreeParser(parser);
     ResetOutput();
-}
-
-static JSON_Parser DefaultParserFactory()
-{
-    JSON_Parser parser = NULL;
-    JSON_MemorySuite memorySuite;
-    memorySuite.malloc = &MallocHandler;
-    memorySuite.realloc = &ReallocHandler;
-    memorySuite.free = &FreeHandler;
-    parser = JSON_CreateParser(&memorySuite);
-    if (parser)
-    {
-        JSON_SetNullHandler(parser, &NullHandler);
-        JSON_SetBooleanHandler(parser, &BooleanHandler);
-        JSON_SetStringHandler(parser, &StringHandler);
-        JSON_SetNumberHandler(parser, &NumberHandler);
-        JSON_SetRawNumberHandler(parser, &RawNumberHandler);
-        JSON_SetSpecialNumberHandler(parser, &SpecialNumberHandler);
-        JSON_SetStartObjectHandler(parser, &StartObjectHandler);
-        JSON_SetEndObjectHandler(parser, &EndObjectHandler);
-        JSON_SetObjectMemberHandler(parser, &ObjectMemberHandler);
-        JSON_SetStartArrayHandler(parser, &StartArrayHandler);
-        JSON_SetEndArrayHandler(parser, &EndArrayHandler);
-        JSON_SetArrayItemHandler(parser, &ArrayItemHandler);
-    }
-    return parser;
-}
-
-static JSON_Parser AllowBOMParserFactory()
-{
-    JSON_Parser parser = DefaultParserFactory();
-    JSON_SetAllowBOM(parser, JSON_True);
-    return parser;
-}
-
-static JSON_Parser AllowCommentsParserFactory()
-{
-    JSON_Parser parser = DefaultParserFactory();
-    JSON_SetAllowComments(parser, JSON_True);
-    return parser;
-}
-
-static JSON_Parser AllowTrailingCommasParserFactory()
-{
-    JSON_Parser parser = DefaultParserFactory();
-    JSON_SetAllowTrailingCommas(parser, JSON_True);
-    return parser;
-}
-
-static JSON_Parser AllowSpecialNumbersParserFactory()
-{
-    JSON_Parser parser = DefaultParserFactory();
-    JSON_SetAllowSpecialNumbers(parser, JSON_True);
-    return parser;
-}
-
-static JSON_Parser AllowHexNumbersParserFactory()
-{
-    JSON_Parser parser = DefaultParserFactory();
-    JSON_SetAllowHexNumbers(parser, JSON_True);
-    return parser;
-}
-
-static JSON_Parser ReplaceInvalidEncodingSequencesParserFactory()
-{
-    JSON_Parser parser = DefaultParserFactory();
-    JSON_SetReplaceInvalidEncodingSequences(parser, JSON_True);
-    return parser;
-}
-
-static JSON_Parser TrackObjectMembersParserFactory()
-{
-    JSON_Parser parser = DefaultParserFactory();
-    JSON_SetTrackObjectMembers(parser, JSON_True);
-    return parser;
-}
-
-static JSON_Parser UTF8ParserFactory()
-{
-    JSON_Parser parser = DefaultParserFactory();
-    JSON_SetInputEncoding(parser, JSON_UTF8);
-    JSON_SetOutputEncoding(parser, JSON_UTF8);
-    return parser;
-}
-
-static JSON_Parser UTF16LEParserFactory()
-{
-    JSON_Parser parser = DefaultParserFactory();
-    JSON_SetInputEncoding(parser, JSON_UTF16LE);
-    JSON_SetOutputEncoding(parser, JSON_UTF16LE);
-    return parser;
-}
-
-static JSON_Parser UTF16BEParserFactory()
-{
-    JSON_Parser parser = DefaultParserFactory();
-    JSON_SetInputEncoding(parser, JSON_UTF16BE);
-    JSON_SetOutputEncoding(parser, JSON_UTF16BE);
-    return parser;
-}
-
-static JSON_Parser UTF32LEParserFactory()
-{
-    JSON_Parser parser = DefaultParserFactory();
-    JSON_SetInputEncoding(parser, JSON_UTF32LE);
-    JSON_SetOutputEncoding(parser, JSON_UTF32LE);
-    return parser;
-}
-
-static JSON_Parser UTF32BEParserFactory()
-{
-    JSON_Parser parser = DefaultParserFactory();
-    JSON_SetInputEncoding(parser, JSON_UTF32BE);
-    JSON_SetOutputEncoding(parser, JSON_UTF32BE);
-    return parser;
-}
-
-static JSON_Parser MaxStringLength0ParserFactory()
-{
-    JSON_Parser parser = DefaultParserFactory();
-    JSON_SetMaxOutputStringLength(parser, 0);
-    return parser;
-}
-
-static JSON_Parser MaxStringLength1ParserFactory()
-{
-    JSON_Parser parser = DefaultParserFactory();
-    JSON_SetMaxOutputStringLength(parser, 1);
-    return parser;
-}
-
-static JSON_Parser MaxStringLength2ParserFactory()
-{
-    JSON_Parser parser = DefaultParserFactory();
-    JSON_SetMaxOutputStringLength(parser, 2);
-    return parser;
 }
 
 static void TestParserCreation()
@@ -1504,6 +1540,7 @@ static void TestAbortInCallbacks()
     state.errorLocation.byte = 1;
     state.errorLocation.line = 0;
     state.errorLocation.column = 1;
+    state.errorLocation.depth = 0;
     state.startedParsing = JSON_True;
     state.finishedParsing = JSON_True;
     state.inputEncoding = JSON_UTF8;
@@ -1550,11 +1587,6 @@ static void TestAbortInCallbacks()
         CheckParserState(parser, &state) &&
 
         CheckResetParser(parser, JSON_Success) &&
-        CheckSetObjectMemberHandler(parser, &ObjectMemberHandler, JSON_Success) &&
-        CheckParse(parser, "{\"x\":0}", 7, JSON_True, JSON_Failure) &&
-        CheckParserState(parser, &state) &&
-
-        CheckResetParser(parser, JSON_Success) &&
         CheckSetStartArrayHandler(parser, &StartArrayHandler, JSON_Success) &&
         CheckParse(parser, " []", 3, JSON_True, JSON_Failure) &&
         CheckParserState(parser, &state) &&
@@ -1562,6 +1594,13 @@ static void TestAbortInCallbacks()
         CheckResetParser(parser, JSON_Success) &&
         CheckSetEndArrayHandler(parser, &EndArrayHandler, JSON_Success) &&
         CheckParse(parser, "[]", 2, JSON_True, JSON_Failure) &&
+        CheckParserState(parser, &state) &&
+
+        !!(state.errorLocation.depth = 1) && /* hacky! */
+
+        CheckResetParser(parser, JSON_Success) &&
+        CheckSetObjectMemberHandler(parser, &ObjectMemberHandler, JSON_Success) &&
+        CheckParse(parser, "{\"x\":0}", 7, JSON_True, JSON_Failure) &&
         CheckParserState(parser, &state) &&
 
         CheckResetParser(parser, JSON_Success) &&
@@ -1832,13 +1871,13 @@ static void TestGetErrorLocationNullLocation()
 static void TestGetErrorLocationNoError()
 {
     JSON_Parser parser = NULL;
-    JSON_Location location = { 100, 200, 300 };
+    JSON_Location location = { 100, 200, 300, 400 };
     printf("Test get error location when no error occurred ... ");
     if (CheckCreateParserWithCustomMemorySuite(&MallocHandler, &ReallocHandler, &FreeHandler, JSON_Success, &parser) &&
         CheckParse(parser, "7", 1, JSON_True, JSON_Success) &&
         CheckGetErrorLocation(parser, &location, JSON_Failure))
     {
-        if (location.byte != 100 || location.line != 200 || location.column != 300)
+        if (location.byte != 100 || location.line != 200 || location.column != 300 || location.depth != 400)
         {
             printf("FAILURE: JSON_GetErrorLocation() modified the location when it shouldn't have\n");
             s_failureCount++;
@@ -1858,13 +1897,13 @@ static void TestGetErrorLocationNoError()
 static void TestGetTokenLocationOutsideHandler()
 {
     JSON_Parser parser = NULL;
-    JSON_Location location = { 100, 200, 300 };
+    JSON_Location location = { 100, 200, 300, 400 };
     printf("Test get token location when not in a parse handler  ... ");
     if (CheckCreateParserWithCustomMemorySuite(&MallocHandler, &ReallocHandler, &FreeHandler, JSON_Success, &parser) &&
         CheckParse(parser, "7", 1, JSON_True, JSON_Success) &&
         CheckGetTokenLocation(parser, &location, JSON_Failure))
     {
-        if (location.byte != 100 || location.line != 200 || location.column != 300)
+        if (location.byte != 100 || location.line != 200 || location.column != 300 || location.depth != 400)
         {
             printf("FAILURE: JSON_GetTokenLocation() modified the location when it shouldn't have\n");
             s_failureCount++;
@@ -2021,8 +2060,8 @@ static void TestIEEE754NumberInterpretation()
     }
 }
 
-#define PARSE_SUCCESS_TEST(name, create, input, final, enc, output) { name, create, input, sizeof(input) - 1, final, JSON_Error_None, 0, 0, 0, JSON_##enc, output },
-#define PARSE_FAILURE_TEST(name, create, input, final, err, byte, line, col, enc) { name, create, input, sizeof(input) - 1, final, JSON_Error_##err, byte, line, col, JSON_##enc, NULL },
+#define PARSE_SUCCESS_TEST(name, params, input, final, enc, output) { name, params, input, sizeof(input) - 1, final, JSON_Error_None, 0, 0, 0, 0, JSON_##enc, output },
+#define PARSE_FAILURE_TEST(name, params, input, final, err, byte, line, col, depth, enc) { name, params, input, sizeof(input) - 1, final, JSON_Error_##err, byte, line, col, depth, JSON_##enc, NULL },
 
 #define FINAL   JSON_True
 #define PARTIAL JSON_False
@@ -2032,637 +2071,637 @@ static const ParseTest s_parseTests[] =
 
 /* input encoding detection */
 
-PARSE_FAILURE_TEST("infer input encoding from 0 bytes", DefaultParserFactory, "", FINAL, ExpectedMoreTokens, 0, 0, 0, UnknownEncoding)
-PARSE_SUCCESS_TEST("infer input encoding from 1 byte (1)", DefaultParserFactory, "7", FINAL, UTF8, "#(7):0,0,0;")
-PARSE_FAILURE_TEST("infer input encoding from 1 byte (2)", DefaultParserFactory, " ", FINAL, ExpectedMoreTokens, 1, 0, 1, UTF8)
-PARSE_FAILURE_TEST("infer input encoding from 1 byte (3)", DefaultParserFactory, "\xFF", FINAL, InvalidEncodingSequence, 0, 0, 0, UTF8)
-PARSE_SUCCESS_TEST("infer input encoding from 2 bytes (1)", DefaultParserFactory, "{}", FINAL, UTF8, "{:0,0,0;}:1,0,1;")
-PARSE_SUCCESS_TEST("infer input encoding from 2 bytes (2)", DefaultParserFactory, "7\x00", FINAL, UTF16LE, "#(7):0,0,0;")
-PARSE_SUCCESS_TEST("infer input encoding from 2 bytes (3)", DefaultParserFactory, "\x00" "7", FINAL, UTF16BE, "#(7):0,0,0;")
-PARSE_FAILURE_TEST("infer input encoding from 2 bytes (4)", AllowBOMParserFactory, "\xFF\xFE", FINAL, ExpectedMoreTokens, 2, 0, 1, UTF16LE)
-PARSE_FAILURE_TEST("infer input encoding from 2 bytes (5)", AllowBOMParserFactory, "\xFE\xFF", FINAL, ExpectedMoreTokens, 2, 0, 1, UTF16BE)
-PARSE_FAILURE_TEST("infer input encoding from 2 bytes (6)", DefaultParserFactory, "\xFF\xFF", FINAL, InvalidEncodingSequence, 0, 0, 0, UTF8)
-PARSE_SUCCESS_TEST("infer input encoding from 3 bytes (1)", DefaultParserFactory, "{ }", FINAL, UTF8, "{:0,0,0;}:2,0,2;")
-PARSE_FAILURE_TEST("infer input encoding from 3 bytes (2)", AllowBOMParserFactory, "\xEF\xBB\xBF", FINAL, ExpectedMoreTokens, 3, 0, 1, UTF8)
-PARSE_FAILURE_TEST("infer input encoding from 3 bytes (3)", AllowBOMParserFactory, "\xFF\xFF\xFF", FINAL, InvalidEncodingSequence, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("infer input encoding from 3 bytes (4)", DefaultParserFactory, "\xFF\xFF\xFF", FINAL, InvalidEncodingSequence, 0, 0, 0, UTF8)
-PARSE_SUCCESS_TEST("infer input encoding from 4 bytes (1)", DefaultParserFactory, "1234", FINAL, UTF8, "#(1234):0,0,0;")
-PARSE_SUCCESS_TEST("infer input encoding from 4 bytes (2)", DefaultParserFactory, "   7", FINAL, UTF8, "#(7):3,0,3;")
-PARSE_SUCCESS_TEST("infer input encoding from 4 bytes (3)", DefaultParserFactory, "\x00 \x00" "7", FINAL, UTF16BE, "#(7):2,0,1;")
-PARSE_SUCCESS_TEST("infer input encoding from 4 bytes (4)", DefaultParserFactory, " \x00" "7\x00", FINAL, UTF16LE, "#(7):2,0,1;")
-PARSE_SUCCESS_TEST("infer input encoding from 4 bytes (5)", DefaultParserFactory, "\x00\x00\x00" "7", FINAL, UTF32BE, "#(7):0,0,0;")
-PARSE_SUCCESS_TEST("infer input encoding from 4 bytes (6)", DefaultParserFactory, "7\x00\x00\x00", FINAL, UTF32LE, "#(7):0,0,0;")
-PARSE_FAILURE_TEST("no input encoding starts <00 00 00 00>", DefaultParserFactory, "\x00\x00\x00\x00", FINAL, InvalidEncodingSequence, 0, 0, 0, UnknownEncoding)
-PARSE_FAILURE_TEST("no input encoding starts <nz 00 00 nz>", DefaultParserFactory, " \x00\x00 ", FINAL, InvalidEncodingSequence, 0, 0, 0, UnknownEncoding)
-PARSE_FAILURE_TEST("UTF-8 BOM not allowed", DefaultParserFactory, "\xEF\xBB\xBF" "7", PARTIAL, BOMNotAllowed, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("UTF-16LE BOM not allowed", DefaultParserFactory, "\xFF\xFE" "7\x00", PARTIAL, BOMNotAllowed, 0, 0, 0, UTF16LE)
-PARSE_FAILURE_TEST("UTF-16BE BOM not allowed", DefaultParserFactory, "\xFE\xFF\x00" "7", PARTIAL, BOMNotAllowed, 0, 0, 0, UTF16BE)
-PARSE_FAILURE_TEST("UTF-32LE BOM not allowed", DefaultParserFactory, "\xFF\xFE\x00\x00" "7\x00\x00\x00", PARTIAL, BOMNotAllowed, 0, 0, 0, UTF32LE)
-PARSE_FAILURE_TEST("UTF-32BE BOM not allowed", DefaultParserFactory, "\x00\x00\xFE\xFF\x00\x00\x00" "7", PARTIAL, BOMNotAllowed, 0, 0, 0, UTF32BE)
-PARSE_SUCCESS_TEST("UTF-8 BOM allowed", AllowBOMParserFactory, "\xEF\xBB\xBF" "7", FINAL, UTF8, "#(7):3,0,1;")
-PARSE_SUCCESS_TEST("UTF-16LE BOM allowed", AllowBOMParserFactory, "\xFF\xFE" "7\x00", FINAL, UTF16LE, "#(7):2,0,1;")
-PARSE_SUCCESS_TEST("UTF-16BE BOM allowed", AllowBOMParserFactory, "\xFE\xFF\x00" "7", FINAL, UTF16BE, "#(7):2,0,1;")
-PARSE_SUCCESS_TEST("UTF-32LE BOM allowed", AllowBOMParserFactory, "\xFF\xFE\x00\x00" "7\x00\x00\x00", FINAL, UTF32LE, "#(7):4,0,1;")
-PARSE_SUCCESS_TEST("UTF-32BE BOM allowed", AllowBOMParserFactory, "\x00\x00\xFE\xFF\x00\x00\x00" "7", FINAL, UTF32BE, "#(7):4,0,1;")
-PARSE_FAILURE_TEST("UTF-8 BOM allowed but no content", AllowBOMParserFactory, "\xEF\xBB\xBF", FINAL, ExpectedMoreTokens, 3, 0, 1, UTF8)
-PARSE_FAILURE_TEST("UTF-16LE BOM allowed but no content", AllowBOMParserFactory, "\xFF\xFE", FINAL, ExpectedMoreTokens, 2, 0, 1, UTF16LE)
-PARSE_FAILURE_TEST("UTF-16BE BOM allowed but no content", AllowBOMParserFactory, "\xFE\xFF", FINAL, ExpectedMoreTokens, 2, 0, 1, UTF16BE)
-PARSE_FAILURE_TEST("UTF-32LE BOM allowed but no content", AllowBOMParserFactory, "\xFF\xFE\x00\x00", FINAL, ExpectedMoreTokens, 4, 0, 1, UTF32LE)
-PARSE_FAILURE_TEST("UTF-32BE BOM allowed but no content", AllowBOMParserFactory, "\x00\x00\xFE\xFF", FINAL, ExpectedMoreTokens, 4, 0, 1, UTF32BE)
+PARSE_FAILURE_TEST("infer input encoding from 0 bytes", DefaultSettings, "", FINAL, ExpectedMoreTokens, 0, 0, 0, 0,  UnknownEncoding)
+PARSE_SUCCESS_TEST("infer input encoding from 1 byte (1)", DefaultSettings, "7", FINAL, UTF8, "#(7):0,0,0,0")
+PARSE_FAILURE_TEST("infer input encoding from 1 byte (2)", DefaultSettings, " ", FINAL, ExpectedMoreTokens, 1, 0, 1, 0, UTF8)
+PARSE_FAILURE_TEST("infer input encoding from 1 byte (3)", DefaultSettings, "\xFF", FINAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF8)
+PARSE_SUCCESS_TEST("infer input encoding from 2 bytes (1)", DefaultSettings, "{}", FINAL, UTF8, "{:0,0,0,0 }:1,0,1,0")
+PARSE_SUCCESS_TEST("infer input encoding from 2 bytes (2)", DefaultSettings, "7\x00", FINAL, UTF16LE, "#(7):0,0,0,0")
+PARSE_SUCCESS_TEST("infer input encoding from 2 bytes (3)", DefaultSettings, "\x00" "7", FINAL, UTF16BE, "#(7):0,0,0,0")
+PARSE_FAILURE_TEST("infer input encoding from 2 bytes (4)", AllowBOM, "\xFF\xFE", FINAL, ExpectedMoreTokens, 2, 0, 1, 0, UTF16LE)
+PARSE_FAILURE_TEST("infer input encoding from 2 bytes (5)", AllowBOM, "\xFE\xFF", FINAL, ExpectedMoreTokens, 2, 0, 1, 0, UTF16BE)
+PARSE_FAILURE_TEST("infer input encoding from 2 bytes (6)", DefaultSettings, "\xFF\xFF", FINAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF8)
+PARSE_SUCCESS_TEST("infer input encoding from 3 bytes (1)", DefaultSettings, "{ }", FINAL, UTF8, "{:0,0,0,0 }:2,0,2,0")
+PARSE_FAILURE_TEST("infer input encoding from 3 bytes (2)", AllowBOM, "\xEF\xBB\xBF", FINAL, ExpectedMoreTokens, 3, 0, 1, 0, UTF8)
+PARSE_FAILURE_TEST("infer input encoding from 3 bytes (3)", AllowBOM, "\xFF\xFF\xFF", FINAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("infer input encoding from 3 bytes (4)", DefaultSettings, "\xFF\xFF\xFF", FINAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF8)
+PARSE_SUCCESS_TEST("infer input encoding from 4 bytes (1)", DefaultSettings, "1234", FINAL, UTF8, "#(1234):0,0,0,0")
+PARSE_SUCCESS_TEST("infer input encoding from 4 bytes (2)", DefaultSettings, "   7", FINAL, UTF8, "#(7):3,0,3,0")
+PARSE_SUCCESS_TEST("infer input encoding from 4 bytes (3)", DefaultSettings, "\x00 \x00" "7", FINAL, UTF16BE, "#(7):2,0,1,0")
+PARSE_SUCCESS_TEST("infer input encoding from 4 bytes (4)", DefaultSettings, " \x00" "7\x00", FINAL, UTF16LE, "#(7):2,0,1,0")
+PARSE_SUCCESS_TEST("infer input encoding from 4 bytes (5)", DefaultSettings, "\x00\x00\x00" "7", FINAL, UTF32BE, "#(7):0,0,0,0")
+PARSE_SUCCESS_TEST("infer input encoding from 4 bytes (6)", DefaultSettings, "7\x00\x00\x00", FINAL, UTF32LE, "#(7):0,0,0,0")
+PARSE_FAILURE_TEST("no input encoding starts <00 00 00 00>", DefaultSettings, "\x00\x00\x00\x00", FINAL, InvalidEncodingSequence, 0, 0, 0, 0, UnknownEncoding)
+PARSE_FAILURE_TEST("no input encoding starts <nz 00 00 nz>", DefaultSettings, " \x00\x00 ", FINAL, InvalidEncodingSequence, 0, 0, 0, 0, UnknownEncoding)
+PARSE_FAILURE_TEST("UTF-8 BOM not allowed", DefaultSettings, "\xEF\xBB\xBF" "7", PARTIAL, BOMNotAllowed, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("UTF-16LE BOM not allowed", DefaultSettings, "\xFF\xFE" "7\x00", PARTIAL, BOMNotAllowed, 0, 0, 0, 0, UTF16LE)
+PARSE_FAILURE_TEST("UTF-16BE BOM not allowed", DefaultSettings, "\xFE\xFF\x00" "7", PARTIAL, BOMNotAllowed, 0, 0, 0, 0, UTF16BE)
+PARSE_FAILURE_TEST("UTF-32LE BOM not allowed", DefaultSettings, "\xFF\xFE\x00\x00" "7\x00\x00\x00", PARTIAL, BOMNotAllowed, 0, 0, 0, 0, UTF32LE)
+PARSE_FAILURE_TEST("UTF-32BE BOM not allowed", DefaultSettings, "\x00\x00\xFE\xFF\x00\x00\x00" "7", PARTIAL, BOMNotAllowed, 0, 0, 0, 0, UTF32BE)
+PARSE_SUCCESS_TEST("UTF-8 BOM allowed", AllowBOM, "\xEF\xBB\xBF" "7", FINAL, UTF8, "#(7):3,0,1,0")
+PARSE_SUCCESS_TEST("UTF-16LE BOM allowed", AllowBOM, "\xFF\xFE" "7\x00", FINAL, UTF16LE, "#(7):2,0,1,0")
+PARSE_SUCCESS_TEST("UTF-16BE BOM allowed", AllowBOM, "\xFE\xFF\x00" "7", FINAL, UTF16BE, "#(7):2,0,1,0")
+PARSE_SUCCESS_TEST("UTF-32LE BOM allowed", AllowBOM, "\xFF\xFE\x00\x00" "7\x00\x00\x00", FINAL, UTF32LE, "#(7):4,0,1,0")
+PARSE_SUCCESS_TEST("UTF-32BE BOM allowed", AllowBOM, "\x00\x00\xFE\xFF\x00\x00\x00" "7", FINAL, UTF32BE, "#(7):4,0,1,0")
+PARSE_FAILURE_TEST("UTF-8 BOM allowed but no content", AllowBOM, "\xEF\xBB\xBF", FINAL, ExpectedMoreTokens, 3, 0, 1, 0, UTF8)
+PARSE_FAILURE_TEST("UTF-16LE BOM allowed but no content", AllowBOM, "\xFF\xFE", FINAL, ExpectedMoreTokens, 2, 0, 1, 0, UTF16LE)
+PARSE_FAILURE_TEST("UTF-16BE BOM allowed but no content", AllowBOM, "\xFE\xFF", FINAL, ExpectedMoreTokens, 2, 0, 1, 0, UTF16BE)
+PARSE_FAILURE_TEST("UTF-32LE BOM allowed but no content", AllowBOM, "\xFF\xFE\x00\x00", FINAL, ExpectedMoreTokens, 4, 0, 1, 0, UTF32LE)
+PARSE_FAILURE_TEST("UTF-32BE BOM allowed but no content", AllowBOM, "\x00\x00\xFE\xFF", FINAL, ExpectedMoreTokens, 4, 0, 1, 0, UTF32BE)
 
 /* invalid input encoding sequences */
 
-PARSE_FAILURE_TEST("UTF-8 truncated sequence (1)", UTF8ParserFactory, "\xC2", FINAL, InvalidEncodingSequence, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("UTF-8 truncated sequence (2)", UTF8ParserFactory, "\xE0", FINAL, InvalidEncodingSequence, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("UTF-8 truncated sequence (3)", UTF8ParserFactory, "\xE0\xBF", FINAL, InvalidEncodingSequence, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("UTF-8 truncated sequence (4)", UTF8ParserFactory, "\xF0\xBF", FINAL, InvalidEncodingSequence, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("UTF-8 truncated sequence (5)", UTF8ParserFactory, "\xF0\xBF\xBF", FINAL, InvalidEncodingSequence, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("UTF-8 overlong 2-byte sequence not allowed (1)", UTF8ParserFactory, "\xC0", PARTIAL, InvalidEncodingSequence, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("UTF-8 overlong 2-byte sequence not allowed (2)", UTF8ParserFactory, "\xC1", PARTIAL, InvalidEncodingSequence, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("UTF-8 overlong 3-byte sequence not allowed (1)", UTF8ParserFactory, "\xE0\x80", PARTIAL, InvalidEncodingSequence, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("UTF-8 overlong 3-byte sequence not allowed (2)", UTF8ParserFactory, "\xE0\x9F", PARTIAL, InvalidEncodingSequence, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("UTF-8 encoded surrogate not allowed (1)", UTF8ParserFactory, "\xED\xA0", PARTIAL, InvalidEncodingSequence, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("UTF-8 encoded surrogate not allowed (2)", UTF8ParserFactory, "\xED\xBF", PARTIAL, InvalidEncodingSequence, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("UTF-8 overlong 4-byte sequence not allowed (1)", UTF8ParserFactory, "\xF0\x80", PARTIAL, InvalidEncodingSequence, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("UTF-8 overlong 4-byte sequence not allowed (2)", UTF8ParserFactory, "\xF0\x8F", PARTIAL, InvalidEncodingSequence, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("UTF-8 encoded out-of-range codepoint not allowed (1)", UTF8ParserFactory, "\xF4\x90", PARTIAL, InvalidEncodingSequence, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("UTF-8 invalid leading byte not allowed (1)", UTF8ParserFactory, "\x80", PARTIAL, InvalidEncodingSequence, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("UTF-8 invalid leading byte not allowed (2)", UTF8ParserFactory, "\xBF", PARTIAL, InvalidEncodingSequence, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("UTF-8 invalid leading byte not allowed (3)", UTF8ParserFactory, "\xF5", PARTIAL, InvalidEncodingSequence, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("UTF-8 invalid leading byte not allowed (4)", UTF8ParserFactory, "\xFF", PARTIAL, InvalidEncodingSequence, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("UTF-8 invalid continuation byte not allowed (1)", UTF8ParserFactory, "\xC2\x7F", PARTIAL, InvalidEncodingSequence, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("UTF-8 invalid continuation byte not allowed (2)", UTF8ParserFactory, "\xC2\xC0", PARTIAL, InvalidEncodingSequence, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("UTF-8 invalid continuation byte not allowed (3)", UTF8ParserFactory, "\xE1\x7F", PARTIAL, InvalidEncodingSequence, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("UTF-8 invalid continuation byte not allowed (4)", UTF8ParserFactory, "\xE1\xC0", PARTIAL, InvalidEncodingSequence, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("UTF-8 invalid continuation byte not allowed (5)", UTF8ParserFactory, "\xE1\xBF\x7F", PARTIAL, InvalidEncodingSequence, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("UTF-8 invalid continuation byte not allowed (6)", UTF8ParserFactory, "\xE1\xBF\xC0", PARTIAL, InvalidEncodingSequence, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("UTF-8 invalid continuation byte not allowed (7)", UTF8ParserFactory, "\xF1\x7F", PARTIAL, InvalidEncodingSequence, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("UTF-8 invalid continuation byte not allowed (8)", UTF8ParserFactory, "\xF1\xC0", PARTIAL, InvalidEncodingSequence, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("UTF-8 invalid continuation byte not allowed (9)", UTF8ParserFactory, "\xF1\xBF\x7F", PARTIAL, InvalidEncodingSequence, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("UTF-8 invalid continuation byte not allowed (10)", UTF8ParserFactory, "\xF1\xBF\xC0", PARTIAL, InvalidEncodingSequence, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("UTF-8 invalid continuation byte not allowed (11)", UTF8ParserFactory, "\xF1\xBF\xBF\x7F", PARTIAL, InvalidEncodingSequence, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("UTF-8 invalid continuation byte not allowed (12)", UTF8ParserFactory, "\xF1\xBF\xBF\xC0", PARTIAL, InvalidEncodingSequence, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("UTF-16LE truncated sequence", UTF16LEParserFactory, " ", FINAL, InvalidEncodingSequence, 0, 0, 0, UTF16LE)
-PARSE_FAILURE_TEST("UTF-16LE standalone trailing surrogate not allowed (1)", UTF16LEParserFactory, "\x00\xDC", PARTIAL, InvalidEncodingSequence, 0, 0, 0, UTF16LE)
-PARSE_FAILURE_TEST("UTF-16LE standalone trailing surrogate not allowed (2)", UTF16LEParserFactory, "\xFF\xDF", PARTIAL, InvalidEncodingSequence, 0, 0, 0, UTF16LE)
-PARSE_FAILURE_TEST("UTF-16LE standalone leading surrogate not allowed (1)", UTF16LEParserFactory, "\x00\xD8\x00_", PARTIAL, InvalidEncodingSequence, 0, 0, 0, UTF16LE)
-PARSE_FAILURE_TEST("UTF-16LE standalone leading surrogate not allowed (2)", UTF16LEParserFactory, "\xFF\xDB\x00_", PARTIAL, InvalidEncodingSequence, 0, 0, 0, UTF16LE)
-PARSE_FAILURE_TEST("UTF-16LE standalone leading surrogate not allowed (3)", UTF16LEParserFactory, "\xFF\xDB_", FINAL, InvalidEncodingSequence, 0, 0, 0, UTF16LE)
-PARSE_FAILURE_TEST("UTF-16BE truncated sequence", UTF16BEParserFactory, "\x00", FINAL, InvalidEncodingSequence, 0, 0, 0, UTF16BE)
-PARSE_FAILURE_TEST("UTF-16BE standalone trailing surrogate not allowed (1)", UTF16BEParserFactory, "\xDC\x00", PARTIAL, InvalidEncodingSequence, 0, 0, 0, UTF16BE)
-PARSE_FAILURE_TEST("UTF-16BE standalone trailing surrogate not allowed (2)", UTF16BEParserFactory, "\xDF\xFF", PARTIAL, InvalidEncodingSequence, 0, 0, 0, UTF16BE)
-PARSE_FAILURE_TEST("UTF-16BE standalone leading surrogate not allowed (1)", UTF16BEParserFactory, "\xD8\x00\x00_", PARTIAL, InvalidEncodingSequence, 0, 0, 0, UTF16BE)
-PARSE_FAILURE_TEST("UTF-16BE standalone leading surrogate not allowed (2)", UTF16BEParserFactory, "\xDB\xFF\x00_", PARTIAL, InvalidEncodingSequence, 0, 0, 0, UTF16BE)
-PARSE_FAILURE_TEST("UTF-16BE standalone leading surrogate not allowed (3)", UTF16BEParserFactory, "\xDB\xFF", FINAL, InvalidEncodingSequence, 0, 0, 0, UTF16BE)
-PARSE_FAILURE_TEST("UTF-32LE truncated sequence (1)", UTF32LEParserFactory, " ", FINAL, InvalidEncodingSequence, 0, 0, 0, UTF32LE)
-PARSE_FAILURE_TEST("UTF-32LE truncated sequence (2)", UTF32LEParserFactory, " \x00", FINAL, InvalidEncodingSequence, 0, 0, 0, UTF32LE)
-PARSE_FAILURE_TEST("UTF-32LE truncated sequence (3)", UTF32LEParserFactory, " \x00\x00", FINAL, InvalidEncodingSequence, 0, 0, 0, UTF32LE)
-PARSE_FAILURE_TEST("UTF-32LE encoded surrogate not allowed (1)", UTF32LEParserFactory, "\x00\xD8\x00\x00", PARTIAL, InvalidEncodingSequence, 0, 0, 0, UTF32LE)
-PARSE_FAILURE_TEST("UTF-32LE encoded surrogate not allowed (2)", UTF32LEParserFactory, "\x00\xDF\x00\x00", PARTIAL, InvalidEncodingSequence, 0, 0, 0, UTF32LE)
-PARSE_FAILURE_TEST("UTF-32LE encoded out-of-range codepoint not allowed (1)", UTF32LEParserFactory, "\x00\x00\x11\x00", PARTIAL, InvalidEncodingSequence, 0, 0, 0, UTF32LE)
-PARSE_FAILURE_TEST("UTF-32LE encoded out-of-range codepoint not allowed (2)", UTF32LEParserFactory, "\xFF\xFF\xFF\xFF", PARTIAL, InvalidEncodingSequence, 0, 0, 0, UTF32LE)
-PARSE_FAILURE_TEST("UTF-32BE truncated sequence (1)", UTF32BEParserFactory, "\x00", FINAL, InvalidEncodingSequence, 0, 0, 0, UTF32BE)
-PARSE_FAILURE_TEST("UTF-32BE truncated sequence (2)", UTF32BEParserFactory, "\x00\x00", FINAL, InvalidEncodingSequence, 0, 0, 0, UTF32BE)
-PARSE_FAILURE_TEST("UTF-32BE truncated sequence (3)", UTF32BEParserFactory, "\x00\x00\x00", FINAL, InvalidEncodingSequence, 0, 0, 0, UTF32BE)
-PARSE_FAILURE_TEST("UTF-32BE encoded surrogate not allowed (1)", UTF32BEParserFactory, "\x00\x00\xD8\x00", PARTIAL, InvalidEncodingSequence, 0, 0, 0, UTF32BE)
-PARSE_FAILURE_TEST("UTF-32BE encoded surrogate not allowed (2)", UTF32BEParserFactory, "\x00\x00\xDF\xFF", PARTIAL, InvalidEncodingSequence, 0, 0, 0, UTF32BE)
-PARSE_FAILURE_TEST("UTF-32BE encoded out-of-range codepoint not allowed (1)", UTF32BEParserFactory, "\x00\x11\x00\x00", PARTIAL, InvalidEncodingSequence, 0, 0, 0, UTF32BE)
-PARSE_FAILURE_TEST("UTF-32BE encoded out-of-range codepoint not allowed (2)", UTF32BEParserFactory, "\xFF\xFF\xFF\xFF", PARTIAL, InvalidEncodingSequence, 0, 0, 0, UTF32BE)
+PARSE_FAILURE_TEST("UTF-8 truncated sequence (1)", UTF8In | UTF8Out, "\xC2", FINAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("UTF-8 truncated sequence (2)", UTF8In | UTF8Out, "\xE0", FINAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("UTF-8 truncated sequence (3)", UTF8In | UTF8Out, "\xE0\xBF", FINAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("UTF-8 truncated sequence (4)", UTF8In | UTF8Out, "\xF0\xBF", FINAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("UTF-8 truncated sequence (5)", UTF8In | UTF8Out, "\xF0\xBF\xBF", FINAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("UTF-8 overlong 2-byte sequence not allowed (1)", UTF8In | UTF8Out, "\xC0", PARTIAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("UTF-8 overlong 2-byte sequence not allowed (2)", UTF8In | UTF8Out, "\xC1", PARTIAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("UTF-8 overlong 3-byte sequence not allowed (1)", UTF8In | UTF8Out, "\xE0\x80", PARTIAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("UTF-8 overlong 3-byte sequence not allowed (2)", UTF8In | UTF8Out, "\xE0\x9F", PARTIAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("UTF-8 encoded surrogate not allowed (1)", UTF8In | UTF8Out, "\xED\xA0", PARTIAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("UTF-8 encoded surrogate not allowed (2)", UTF8In | UTF8Out, "\xED\xBF", PARTIAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("UTF-8 overlong 4-byte sequence not allowed (1)", UTF8In | UTF8Out, "\xF0\x80", PARTIAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("UTF-8 overlong 4-byte sequence not allowed (2)", UTF8In | UTF8Out, "\xF0\x8F", PARTIAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("UTF-8 encoded out-of-range codepoint not allowed (1)", UTF8In | UTF8Out, "\xF4\x90", PARTIAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("UTF-8 invalid leading byte not allowed (1)", UTF8In | UTF8Out, "\x80", PARTIAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("UTF-8 invalid leading byte not allowed (2)", UTF8In | UTF8Out, "\xBF", PARTIAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("UTF-8 invalid leading byte not allowed (3)", UTF8In | UTF8Out, "\xF5", PARTIAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("UTF-8 invalid leading byte not allowed (4)", UTF8In | UTF8Out, "\xFF", PARTIAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("UTF-8 invalid continuation byte not allowed (1)", UTF8In | UTF8Out, "\xC2\x7F", PARTIAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("UTF-8 invalid continuation byte not allowed (2)", UTF8In | UTF8Out, "\xC2\xC0", PARTIAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("UTF-8 invalid continuation byte not allowed (3)", UTF8In | UTF8Out, "\xE1\x7F", PARTIAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("UTF-8 invalid continuation byte not allowed (4)", UTF8In | UTF8Out, "\xE1\xC0", PARTIAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("UTF-8 invalid continuation byte not allowed (5)", UTF8In | UTF8Out, "\xE1\xBF\x7F", PARTIAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("UTF-8 invalid continuation byte not allowed (6)", UTF8In | UTF8Out, "\xE1\xBF\xC0", PARTIAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("UTF-8 invalid continuation byte not allowed (7)", UTF8In | UTF8Out, "\xF1\x7F", PARTIAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("UTF-8 invalid continuation byte not allowed (8)", UTF8In | UTF8Out, "\xF1\xC0", PARTIAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("UTF-8 invalid continuation byte not allowed (9)", UTF8In | UTF8Out, "\xF1\xBF\x7F", PARTIAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("UTF-8 invalid continuation byte not allowed (10)", UTF8In | UTF8Out, "\xF1\xBF\xC0", PARTIAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("UTF-8 invalid continuation byte not allowed (11)", UTF8In | UTF8Out, "\xF1\xBF\xBF\x7F", PARTIAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("UTF-8 invalid continuation byte not allowed (12)", UTF8In | UTF8Out, "\xF1\xBF\xBF\xC0", PARTIAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("UTF-16LE truncated sequence", UTF16LEIn | UTF16LEOut, " ", FINAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF16LE)
+PARSE_FAILURE_TEST("UTF-16LE standalone trailing surrogate not allowed (1)", UTF16LEIn | UTF16LEOut, "\x00\xDC", PARTIAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF16LE)
+PARSE_FAILURE_TEST("UTF-16LE standalone trailing surrogate not allowed (2)", UTF16LEIn | UTF16LEOut, "\xFF\xDF", PARTIAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF16LE)
+PARSE_FAILURE_TEST("UTF-16LE standalone leading surrogate not allowed (1)", UTF16LEIn | UTF16LEOut, "\x00\xD8\x00_", PARTIAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF16LE)
+PARSE_FAILURE_TEST("UTF-16LE standalone leading surrogate not allowed (2)", UTF16LEIn | UTF16LEOut, "\xFF\xDB\x00_", PARTIAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF16LE)
+PARSE_FAILURE_TEST("UTF-16LE standalone leading surrogate not allowed (3)", UTF16LEIn | UTF16LEOut, "\xFF\xDB_", FINAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF16LE)
+PARSE_FAILURE_TEST("UTF-16BE truncated sequence", UTF16BEIn | UTF16BEOut, "\x00", FINAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF16BE)
+PARSE_FAILURE_TEST("UTF-16BE standalone trailing surrogate not allowed (1)", UTF16BEIn | UTF16BEOut, "\xDC\x00", PARTIAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF16BE)
+PARSE_FAILURE_TEST("UTF-16BE standalone trailing surrogate not allowed (2)", UTF16BEIn | UTF16BEOut, "\xDF\xFF", PARTIAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF16BE)
+PARSE_FAILURE_TEST("UTF-16BE standalone leading surrogate not allowed (1)", UTF16BEIn | UTF16BEOut, "\xD8\x00\x00_", PARTIAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF16BE)
+PARSE_FAILURE_TEST("UTF-16BE standalone leading surrogate not allowed (2)", UTF16BEIn | UTF16BEOut, "\xDB\xFF\x00_", PARTIAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF16BE)
+PARSE_FAILURE_TEST("UTF-16BE standalone leading surrogate not allowed (3)", UTF16BEIn | UTF16BEOut, "\xDB\xFF", FINAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF16BE)
+PARSE_FAILURE_TEST("UTF-32LE truncated sequence (1)", UTF32LEIn | UTF32LEOut, " ", FINAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF32LE)
+PARSE_FAILURE_TEST("UTF-32LE truncated sequence (2)", UTF32LEIn | UTF32LEOut, " \x00", FINAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF32LE)
+PARSE_FAILURE_TEST("UTF-32LE truncated sequence (3)", UTF32LEIn | UTF32LEOut, " \x00\x00", FINAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF32LE)
+PARSE_FAILURE_TEST("UTF-32LE encoded surrogate not allowed (1)", UTF32LEIn | UTF32LEOut, "\x00\xD8\x00\x00", PARTIAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF32LE)
+PARSE_FAILURE_TEST("UTF-32LE encoded surrogate not allowed (2)", UTF32LEIn | UTF32LEOut, "\x00\xDF\x00\x00", PARTIAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF32LE)
+PARSE_FAILURE_TEST("UTF-32LE encoded out-of-range codepoint not allowed (1)", UTF32LEIn | UTF32LEOut, "\x00\x00\x11\x00", PARTIAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF32LE)
+PARSE_FAILURE_TEST("UTF-32LE encoded out-of-range codepoint not allowed (2)", UTF32LEIn | UTF32LEOut, "\xFF\xFF\xFF\xFF", PARTIAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF32LE)
+PARSE_FAILURE_TEST("UTF-32BE truncated sequence (1)", UTF32BEIn | UTF32BEOut, "\x00", FINAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF32BE)
+PARSE_FAILURE_TEST("UTF-32BE truncated sequence (2)", UTF32BEIn | UTF32BEOut, "\x00\x00", FINAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF32BE)
+PARSE_FAILURE_TEST("UTF-32BE truncated sequence (3)", UTF32BEIn | UTF32BEOut, "\x00\x00\x00", FINAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF32BE)
+PARSE_FAILURE_TEST("UTF-32BE encoded surrogate not allowed (1)", UTF32BEIn | UTF32BEOut, "\x00\x00\xD8\x00", PARTIAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF32BE)
+PARSE_FAILURE_TEST("UTF-32BE encoded surrogate not allowed (2)", UTF32BEIn | UTF32BEOut, "\x00\x00\xDF\xFF", PARTIAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF32BE)
+PARSE_FAILURE_TEST("UTF-32BE encoded out-of-range codepoint not allowed (1)", UTF32BEIn | UTF32BEOut, "\x00\x11\x00\x00", PARTIAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF32BE)
+PARSE_FAILURE_TEST("UTF-32BE encoded out-of-range codepoint not allowed (2)", UTF32BEIn | UTF32BEOut, "\xFF\xFF\xFF\xFF", PARTIAL, InvalidEncodingSequence, 0, 0, 0, 0, UTF32BE)
 
 /* replace invalid input encoding sequences */
 
-PARSE_SUCCESS_TEST("replace UTF-8 truncated 2-byte sequence (1)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xC2\"", FINAL, UTF8, "string(0x14, 61 62 63 EF BF BD):0,0,0;")
-PARSE_FAILURE_TEST("replace UTF-8 truncated 2-byte sequence (2)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xC2\"!", FINAL, UnknownToken, 6, 0, 6, UTF8)
-PARSE_SUCCESS_TEST("replace UTF-8 truncated 3-byte sequence (1)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xE0\"", FINAL, UTF8, "string(0x14, 61 62 63 EF BF BD):0,0,0;")
-PARSE_FAILURE_TEST("replace UTF-8 truncated 3-byte sequence (2)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xE0\"!", FINAL, UnknownToken, 6, 0, 6, UTF8)
-PARSE_SUCCESS_TEST("replace UTF-8 truncated 3-byte sequence (3)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xE0\xBF\"", FINAL, UTF8, "string(0x14, 61 62 63 EF BF BD):0,0,0;")
-PARSE_FAILURE_TEST("replace UTF-8 truncated 3-byte sequence (4)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xE0\xBF\"!", FINAL, UnknownToken, 7, 0, 6, UTF8)
-PARSE_SUCCESS_TEST("replace UTF-8 truncated 4-byte sequence (1)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xF0\"", FINAL, UTF8, "string(0x14, 61 62 63 EF BF BD):0,0,0;")
-PARSE_FAILURE_TEST("replace UTF-8 truncated 4-byte sequence (2)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xF0\"!", FINAL, UnknownToken, 6, 0, 6, UTF8)
-PARSE_SUCCESS_TEST("replace UTF-8 truncated 4-byte sequence (3)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xF0\xBF\"", FINAL, UTF8, "string(0x14, 61 62 63 EF BF BD):0,0,0;")
-PARSE_FAILURE_TEST("replace UTF-8 truncated 4-byte sequence (4)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xF0\xBF\"!", FINAL, UnknownToken, 7, 0, 6, UTF8)
-PARSE_SUCCESS_TEST("replace UTF-8 truncated 4-byte sequence (5)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xF0\xBF\xBF\"", FINAL, UTF8, "string(0x14, 61 62 63 EF BF BD):0,0,0;")
-PARSE_FAILURE_TEST("replace UTF-8 truncated 4-byte sequence (6)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xF0\xBF\xBF\"!", FINAL, UnknownToken, 8, 0, 6, UTF8)
-PARSE_SUCCESS_TEST("replace UTF-8 overlong 2-byte sequence (1)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xC0\"", FINAL, UTF8, "string(0x14, 61 62 63 EF BF BD):0,0,0;")
-PARSE_FAILURE_TEST("replace UTF-8 overlong 2-byte sequence (2)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xC0\"!", FINAL, UnknownToken, 6, 0, 6, UTF8)
-PARSE_SUCCESS_TEST("replace UTF-8 overlong 2-byte sequence (3)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xC1\"", FINAL, UTF8, "string(0x14, 61 62 63 EF BF BD):0,0,0;")
-PARSE_FAILURE_TEST("replace UTF-8 overlong 2-byte sequence (4)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xC1\"!", FINAL, UnknownToken, 6, 0, 6, UTF8)
-PARSE_SUCCESS_TEST("replace UTF-8 overlong 3-byte sequence (1)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xE0\x80\"", FINAL, UTF8, "string(0x14, 61 62 63 EF BF BD EF BF BD):0,0,0;")
-PARSE_FAILURE_TEST("replace UTF-8 overlong 3-byte sequence (2)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xE0\x80\"!", FINAL, UnknownToken, 7, 0, 7, UTF8)
-PARSE_SUCCESS_TEST("replace UTF-8 overlong 3-byte sequence (3)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xE0\x9F\"", FINAL, UTF8, "string(0x14, 61 62 63 EF BF BD EF BF BD):0,0,0;")
-PARSE_FAILURE_TEST("replace UTF-8 overlong 3-byte sequence (4)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xE0\x9F\"!", FINAL, UnknownToken, 7, 0, 7, UTF8)
-PARSE_SUCCESS_TEST("replace UTF-8 encoded surrogate (1)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xED\xA0\"", FINAL, UTF8, "string(0x14, 61 62 63 EF BF BD EF BF BD):0,0,0;")
-PARSE_FAILURE_TEST("replace UTF-8 encoded surrogate (2)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xED\xA0\"!", FINAL, UnknownToken, 7, 0, 7, UTF8)
-PARSE_SUCCESS_TEST("replace UTF-8 encoded surrogate (3)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xED\xBF\"", FINAL, UTF8, "string(0x14, 61 62 63 EF BF BD EF BF BD):0,0,0;")
-PARSE_FAILURE_TEST("replace UTF-8 encoded surrogate (4)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xED\xBF\"!", FINAL, UnknownToken, 7, 0, 7, UTF8)
-PARSE_SUCCESS_TEST("replace UTF-8 overlong 4-byte sequence (1)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xF0\x80\"", FINAL, UTF8, "string(0x14, 61 62 63 EF BF BD EF BF BD):0,0,0;")
-PARSE_FAILURE_TEST("replace UTF-8 overlong 4-byte sequence (2)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xF0\x80\"!", FINAL, UnknownToken, 7, 0, 7, UTF8)
-PARSE_SUCCESS_TEST("replace UTF-8 overlong 4-byte sequence (3)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xF0\x8F\"", FINAL, UTF8, "string(0x14, 61 62 63 EF BF BD EF BF BD):0,0,0;")
-PARSE_FAILURE_TEST("replace UTF-8 overlong 4-byte sequence (4)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xF0\x8F\"!", FINAL, UnknownToken, 7, 0, 7, UTF8)
-PARSE_SUCCESS_TEST("replace UTF-8 encoded out-of-range codepoint (1)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xF4\x90\"", FINAL, UTF8, "string(0x14, 61 62 63 EF BF BD EF BF BD):0,0,0;")
-PARSE_FAILURE_TEST("replace UTF-8 encoded out-of-range codepoint (2)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xF4\x90\"!", FINAL, UnknownToken, 7, 0, 7, UTF8)
-PARSE_SUCCESS_TEST("replace UTF-8 invalid leading byte (1)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\x80\"", FINAL, UTF8, "string(0x14, 61 62 63 EF BF BD):0,0,0;")
-PARSE_FAILURE_TEST("replace UTF-8 invalid leading byte (2)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\x80\"!", FINAL, UnknownToken, 6, 0, 6, UTF8)
-PARSE_SUCCESS_TEST("replace UTF-8 invalid leading byte (3)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xBF\"", FINAL, UTF8, "string(0x14, 61 62 63 EF BF BD):0,0,0;")
-PARSE_FAILURE_TEST("replace UTF-8 invalid leading byte (4)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xBF\"!", FINAL, UnknownToken, 6, 0, 6, UTF8)
-PARSE_SUCCESS_TEST("replace UTF-8 invalid leading byte (5)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xF5\"", FINAL, UTF8, "string(0x14, 61 62 63 EF BF BD):0,0,0;")
-PARSE_FAILURE_TEST("replace UTF-8 invalid leading byte (6)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xF5\"!", FINAL, UnknownToken, 6, 0, 6, UTF8)
-PARSE_SUCCESS_TEST("replace UTF-8 invalid leading byte (7)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xFF\"", FINAL, UTF8, "string(0x14, 61 62 63 EF BF BD):0,0,0;")
-PARSE_FAILURE_TEST("replace UTF-8 invalid leading byte (8)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xFF\"!", FINAL, UnknownToken, 6, 0, 6, UTF8)
-PARSE_SUCCESS_TEST("replace UTF-8 invalid continuation byte (1)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xC2\x7F\"", FINAL, UTF8, "string(0x14, 61 62 63 EF BF BD 7F):0,0,0;")
-PARSE_FAILURE_TEST("replace UTF-8 invalid continuation byte (2)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xC2\x7F\"!", FINAL, UnknownToken, 7, 0, 7, UTF8)
-PARSE_SUCCESS_TEST("replace UTF-8 invalid continuation byte (3)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xC2\xC0\"", FINAL, UTF8, "string(0x14, 61 62 63 EF BF BD EF BF BD):0,0,0;")
-PARSE_FAILURE_TEST("replace UTF-8 invalid continuation byte (4)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xC2\xC0\"!", FINAL, UnknownToken, 7, 0, 7, UTF8)
-PARSE_SUCCESS_TEST("replace UTF-8 invalid continuation byte (5)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xE1\x7F\"", FINAL, UTF8, "string(0x14, 61 62 63 EF BF BD 7F):0,0,0;")
-PARSE_FAILURE_TEST("replace UTF-8 invalid continuation byte (6)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xE1\x7F\"!", FINAL, UnknownToken, 7, 0, 7, UTF8)
-PARSE_SUCCESS_TEST("replace UTF-8 invalid continuation byte (7)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xE1\xC0\"", FINAL, UTF8, "string(0x14, 61 62 63 EF BF BD EF BF BD):0,0,0;")
-PARSE_FAILURE_TEST("replace UTF-8 invalid continuation byte (8)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xE1\xC0\"!", FINAL, UnknownToken, 7, 0, 7, UTF8)
-PARSE_SUCCESS_TEST("replace UTF-8 invalid continuation byte (9)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xE1\xBF\x7F\"", FINAL, UTF8, "string(0x14, 61 62 63 EF BF BD 7F):0,0,0;")
-PARSE_FAILURE_TEST("replace UTF-8 invalid continuation byte (10)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xE1\xBF\x7F\"!", FINAL, UnknownToken, 8, 0, 7, UTF8)
-PARSE_SUCCESS_TEST("replace UTF-8 invalid continuation byte (11)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xE1\xBF\xC0\"", FINAL, UTF8, "string(0x14, 61 62 63 EF BF BD EF BF BD):0,0,0;")
-PARSE_FAILURE_TEST("replace UTF-8 invalid continuation byte (12)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xE1\xBF\xC0\"!", FINAL, UnknownToken, 8, 0, 7, UTF8)
-PARSE_SUCCESS_TEST("replace UTF-8 invalid continuation byte (13)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xF1\x7F\"", FINAL, UTF8, "string(0x14, 61 62 63 EF BF BD 7F):0,0,0;")
-PARSE_FAILURE_TEST("replace UTF-8 invalid continuation byte (14)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xF1\x7F\"!", FINAL, UnknownToken, 7, 0, 7, UTF8)
-PARSE_SUCCESS_TEST("replace UTF-8 invalid continuation byte (15)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xF1\xC0\"", FINAL, UTF8, "string(0x14, 61 62 63 EF BF BD EF BF BD):0,0,0;")
-PARSE_FAILURE_TEST("replace UTF-8 invalid continuation byte (16)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xF1\xC0\"!", FINAL, UnknownToken, 7, 0, 7, UTF8)
-PARSE_SUCCESS_TEST("replace UTF-8 invalid continuation byte (17)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xF1\xBF\x7F\"", FINAL, UTF8, "string(0x14, 61 62 63 EF BF BD 7F):0,0,0;")
-PARSE_FAILURE_TEST("replace UTF-8 invalid continuation byte (18)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xF1\xBF\x7F\"!", FINAL, UnknownToken, 8, 0, 7, UTF8)
-PARSE_SUCCESS_TEST("replace UTF-8 invalid continuation byte (19)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xF1\xBF\xC0\"", FINAL, UTF8, "string(0x14, 61 62 63 EF BF BD EF BF BD):0,0,0;")
-PARSE_FAILURE_TEST("replace UTF-8 invalid continuation byte (20)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xF1\xBF\xC0\"!", FINAL, UnknownToken, 8, 0, 7, UTF8)
-PARSE_SUCCESS_TEST("replace UTF-8 invalid continuation byte (21)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xF1\xBF\xBF\x7F\"", FINAL, UTF8, "string(0x14, 61 62 63 EF BF BD 7F):0,0,0;")
-PARSE_FAILURE_TEST("replace UTF-8 invalid continuation byte (22)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xF1\xBF\xBF\x7F\"!", FINAL, UnknownToken, 9, 0, 7, UTF8)
-PARSE_SUCCESS_TEST("replace UTF-8 invalid continuation byte (23)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xF1\xBF\xBF\xC0\"", FINAL, UTF8, "string(0x14, 61 62 63 EF BF BD EF BF BD):0,0,0;")
-PARSE_FAILURE_TEST("replace UTF-8 invalid continuation byte (24)", ReplaceInvalidEncodingSequencesParserFactory, "\"abc\xF1\xBF\xBF\xC0\"!", FINAL, UnknownToken, 9, 0, 7, UTF8)
-PARSE_SUCCESS_TEST("Unicode 5.2.0 replacement example (1)", ReplaceInvalidEncodingSequencesParserFactory, "   \"\x61\xF1\x80\x80\xE1\x80\xC2\x62\x80\x63\x80\xBF\x64\"", FINAL, UTF8, "string(0x14, 61 EF BF BD EF BF BD EF BF BD 62 EF BF BD 63 EF BF BD EF BF BD 64):3,0,3;")
-PARSE_FAILURE_TEST("Unicode 5.2.0 replacement example (2)", ReplaceInvalidEncodingSequencesParserFactory, "   \"\x61\xF1\x80\x80\xE1\x80\xC2\x62\x80\x63\x80\xBF\x64\"!", FINAL, UnknownToken, 18, 0, 15, UTF8)
-PARSE_SUCCESS_TEST("replace UTF-16LE standalone trailing surrogate (1)", ReplaceInvalidEncodingSequencesParserFactory, "\"\x00" "_\x00" "\x00\xDC" "\"\x00", FINAL, UTF16LE, "string(0x14, 5F EF BF BD):0,0,0;")
-PARSE_FAILURE_TEST("replace UTF-16LE standalone trailing surrogate (2)", ReplaceInvalidEncodingSequencesParserFactory, "\"\x00" "_\x00" "\x00\xDC" "\"\x00" "!\x00", FINAL, UnknownToken, 8, 0, 4, UTF16LE)
-PARSE_SUCCESS_TEST("replace UTF-16LE standalone trailing surrogate (3)", ReplaceInvalidEncodingSequencesParserFactory, "\"\x00" "_\x00" "\xFF\xDF" "\"\x00", FINAL, UTF16LE, "string(0x14, 5F EF BF BD):0,0,0;")
-PARSE_FAILURE_TEST("replace UTF-16LE standalone trailing surrogate (4)", ReplaceInvalidEncodingSequencesParserFactory, "\"\x00" "_\x00" "\xFF\xDF" "\"\x00" "!\x00", FINAL, UnknownToken, 8, 0, 4, UTF16LE)
-PARSE_SUCCESS_TEST("replace UTF-16LE standalone leading surrogate (1)", ReplaceInvalidEncodingSequencesParserFactory,  "\"\x00" "_\x00" "\x00\xD8" "_\x00" "\"\x00", FINAL, UTF16LE, "string(0x14, 5F EF BF BD 5F):0,0,0;")
-PARSE_FAILURE_TEST("replace UTF-16LE standalone leading surrogate (2)", ReplaceInvalidEncodingSequencesParserFactory,  "\"\x00" "_\x00" "\x00\xD8" "_\x00" "\"\x00" "!\x00", FINAL, UnknownToken, 10, 0, 5, UTF16LE)
-PARSE_SUCCESS_TEST("replace UTF-16LE standalone leading surrogate (3)", ReplaceInvalidEncodingSequencesParserFactory,  "\"\x00" "_\x00" "\xFF\xDB" "_\x00" "\"\x00", FINAL, UTF16LE, "string(0x14, 5F EF BF BD 5F):0,0,0;")
-PARSE_FAILURE_TEST("replace UTF-16LE standalone leading surrogate (4)", ReplaceInvalidEncodingSequencesParserFactory,  "\"\x00" "_\x00" "\xFF\xDB" "_\x00" "\"\x00" "!\x00", FINAL, UnknownToken, 10, 0, 5, UTF16LE)
-PARSE_SUCCESS_TEST("replace UTF-16BE standalone trailing surrogate (1)", ReplaceInvalidEncodingSequencesParserFactory, "\x00\"" "\x00_" "\xDC\x00" "\x00\"", FINAL, UTF16BE, "string(0x14, 5F EF BF BD):0,0,0;")
-PARSE_FAILURE_TEST("replace UTF-16BE standalone trailing surrogate (2)", ReplaceInvalidEncodingSequencesParserFactory, "\x00\"" "\x00_" "\xDC\x00" "\x00\"" "\x00!", FINAL, UnknownToken, 8, 0, 4, UTF16BE)
-PARSE_SUCCESS_TEST("replace UTF-16BE standalone trailing surrogate (3)", ReplaceInvalidEncodingSequencesParserFactory, "\x00\"" "\x00_" "\xDF\xFF" "\x00\"", FINAL, UTF16BE, "string(0x14, 5F EF BF BD):0,0,0;")
-PARSE_FAILURE_TEST("replace UTF-16BE standalone trailing surrogate (4)", ReplaceInvalidEncodingSequencesParserFactory, "\x00\"" "\x00_" "\xDF\xFF" "\x00\"" "\x00!", FINAL, UnknownToken, 8, 0, 4, UTF16BE)
-PARSE_SUCCESS_TEST("replace UTF-16BE standalone leading surrogate (1)", ReplaceInvalidEncodingSequencesParserFactory,  "\x00\"" "\x00_" "\xD8\x00" "\x00_" "\x00\"", FINAL, UTF16BE, "string(0x14, 5F EF BF BD 5F):0,0,0;")
-PARSE_FAILURE_TEST("replace UTF-16BE standalone leading surrogate (2)", ReplaceInvalidEncodingSequencesParserFactory,  "\x00\"" "\x00_" "\xD8\x00" "\x00_" "\x00\"" "!\x00", FINAL, UnknownToken, 10, 0, 5, UTF16BE)
-PARSE_SUCCESS_TEST("replace UTF-16BE standalone leading surrogate (3)", ReplaceInvalidEncodingSequencesParserFactory,  "\x00\"" "\x00_" "\xDB\xFF" "\x00_" "\x00\"", FINAL, UTF16BE, "string(0x14, 5F EF BF BD 5F):0,0,0;")
-PARSE_FAILURE_TEST("replace UTF-16BE standalone leading surrogate (4)", ReplaceInvalidEncodingSequencesParserFactory,  "\x00\"" "\x00_" "\xDB\xFF" "\x00_" "\x00\"" "!\x00", FINAL, UnknownToken, 10, 0, 5, UTF16BE)
-PARSE_SUCCESS_TEST("replace UTF-32LE encoded surrogate (1)", ReplaceInvalidEncodingSequencesParserFactory, "\"\x00\x00\x00" "\x00\xD8\x00\x00" "\"\x00\x00\x00", FINAL, UTF32LE, "string(0x14, EF BF BD):0,0,0;")
-PARSE_FAILURE_TEST("replace UTF-32LE encoded surrogate (2)", ReplaceInvalidEncodingSequencesParserFactory, "\"\x00\x00\x00" "\x00\xD8\x00\x00" "\"\x00\x00\x00" "!\x00\x00\x00", FINAL, UnknownToken, 12, 0, 3, UTF32LE)
-PARSE_SUCCESS_TEST("replace UTF-32LE encoded surrogate (3)", ReplaceInvalidEncodingSequencesParserFactory, "\"\x00\x00\x00" "\xFF\xDF\x00\x00" "\"\x00\x00\x00", FINAL, UTF32LE, "string(0x14, EF BF BD):0,0,0;")
-PARSE_FAILURE_TEST("replace UTF-32LE encoded surrogate (4)", ReplaceInvalidEncodingSequencesParserFactory, "\"\x00\x00\x00" "\xFF\xDF\x00\x00" "\"\x00\x00\x00" "!\x00\x00\x00", FINAL, UnknownToken, 12, 0, 3, UTF32LE)
-PARSE_SUCCESS_TEST("replace UTF-32LE encoded out-of-range codepoint (1)", ReplaceInvalidEncodingSequencesParserFactory, "\"\x00\x00\x00" "\x00\x00\x11\x00" "\"\x00\x00\x00", FINAL, UTF32LE, "string(0x14, EF BF BD):0,0,0;")
-PARSE_FAILURE_TEST("replace UTF-32LE encoded out-of-range codepoint (2)", ReplaceInvalidEncodingSequencesParserFactory, "\"\x00\x00\x00" "\x00\x00\x11\x00" "\"\x00\x00\x00" "!\x00\x00\x00", FINAL, UnknownToken, 12, 0, 3, UTF32LE)
-PARSE_SUCCESS_TEST("replace UTF-32LE encoded out-of-range codepoint (3)", ReplaceInvalidEncodingSequencesParserFactory, "\"\x00\x00\x00" "\x00\x00\x00\x01" "\"\x00\x00\x00", FINAL, UTF32LE, "string(0x14, EF BF BD):0,0,0;")
-PARSE_FAILURE_TEST("replace UTF-32LE encoded out-of-range codepoint (4)", ReplaceInvalidEncodingSequencesParserFactory, "\"\x00\x00\x00" "\x00\x00\x00\x01" "\"\x00\x00\x00" "!\x00\x00\x00", FINAL, UnknownToken, 12, 0, 3, UTF32LE)
-PARSE_SUCCESS_TEST("replace UTF-32BE encoded surrogate (1)", ReplaceInvalidEncodingSequencesParserFactory, "\x00\x00\x00\"" "\x00\x00\xD8\x00" "\x00\x00\x00\"", FINAL, UTF32BE, "string(0x14, EF BF BD):0,0,0;")
-PARSE_FAILURE_TEST("replace UTF-32BE encoded surrogate (2)", ReplaceInvalidEncodingSequencesParserFactory, "\x00\x00\x00\"" "\x00\x00\xD8\x00" "\x00\x00\x00\"" "\x00\x00\x00!", FINAL, UnknownToken, 12, 0, 3, UTF32BE)
-PARSE_SUCCESS_TEST("replace UTF-32BE encoded surrogate (3)", ReplaceInvalidEncodingSequencesParserFactory, "\x00\x00\x00\"" "\x00\x00\xDF\xFF" "\x00\x00\x00\"", FINAL, UTF32BE, "string(0x14, EF BF BD):0,0,0;")
-PARSE_FAILURE_TEST("replace UTF-32BE encoded surrogate (4)", ReplaceInvalidEncodingSequencesParserFactory, "\x00\x00\x00\"" "\x00\x00\xDF\xFF" "\x00\x00\x00\"" "\x00\x00\x00!", FINAL, UnknownToken, 12, 0, 3, UTF32BE)
-PARSE_SUCCESS_TEST("replace UTF-32BE encoded out-of-range codepoint (1)", ReplaceInvalidEncodingSequencesParserFactory, "\x00\x00\x00\"" "\x00\x11\x00\x00" "\x00\x00\x00\"", FINAL, UTF32BE, "string(0x14, EF BF BD):0,0,0;")
-PARSE_FAILURE_TEST("replace UTF-32BE encoded out-of-range codepoint (2)", ReplaceInvalidEncodingSequencesParserFactory, "\x00\x00\x00\"" "\x00\x11\x00\x00" "\x00\x00\x00\"" "\x00\x00\x00!", FINAL, UnknownToken, 12, 0, 3, UTF32BE)
-PARSE_SUCCESS_TEST("replace UTF-32BE encoded out-of-range codepoint (3)", ReplaceInvalidEncodingSequencesParserFactory, "\x00\x00\x00\"" "\x01\x00\x00\x00" "\x00\x00\x00\"", FINAL, UTF32BE, "string(0x14, EF BF BD):0,0,0;")
-PARSE_FAILURE_TEST("replace UTF-32BE encoded out-of-range codepoint (4)", ReplaceInvalidEncodingSequencesParserFactory, "\x00\x00\x00\"" "\x01\x00\x00\x00" "\x00\x00\x00\"" "\x00\x00\x00!", FINAL, UnknownToken, 12, 0, 3, UTF32BE)
+PARSE_SUCCESS_TEST("replace UTF-8 truncated 2-byte sequence (1)", ReplaceInvalidEncodingSequences, "\"abc\xC2\"", FINAL, UTF8, "s(ar 61 62 63 EF BF BD):0,0,0,0")
+PARSE_FAILURE_TEST("replace UTF-8 truncated 2-byte sequence (2)", ReplaceInvalidEncodingSequences, "\"abc\xC2\"!", FINAL, UnknownToken, 6, 0, 6, 0, UTF8)
+PARSE_SUCCESS_TEST("replace UTF-8 truncated 3-byte sequence (1)", ReplaceInvalidEncodingSequences, "\"abc\xE0\"", FINAL, UTF8, "s(ar 61 62 63 EF BF BD):0,0,0,0")
+PARSE_FAILURE_TEST("replace UTF-8 truncated 3-byte sequence (2)", ReplaceInvalidEncodingSequences, "\"abc\xE0\"!", FINAL, UnknownToken, 6, 0, 6, 0, UTF8)
+PARSE_SUCCESS_TEST("replace UTF-8 truncated 3-byte sequence (3)", ReplaceInvalidEncodingSequences, "\"abc\xE0\xBF\"", FINAL, UTF8, "s(ar 61 62 63 EF BF BD):0,0,0,0")
+PARSE_FAILURE_TEST("replace UTF-8 truncated 3-byte sequence (4)", ReplaceInvalidEncodingSequences, "\"abc\xE0\xBF\"!", FINAL, UnknownToken, 7, 0, 6, 0, UTF8)
+PARSE_SUCCESS_TEST("replace UTF-8 truncated 4-byte sequence (1)", ReplaceInvalidEncodingSequences, "\"abc\xF0\"", FINAL, UTF8, "s(ar 61 62 63 EF BF BD):0,0,0,0")
+PARSE_FAILURE_TEST("replace UTF-8 truncated 4-byte sequence (2)", ReplaceInvalidEncodingSequences, "\"abc\xF0\"!", FINAL, UnknownToken, 6, 0, 6, 0, UTF8)
+PARSE_SUCCESS_TEST("replace UTF-8 truncated 4-byte sequence (3)", ReplaceInvalidEncodingSequences, "\"abc\xF0\xBF\"", FINAL, UTF8, "s(ar 61 62 63 EF BF BD):0,0,0,0")
+PARSE_FAILURE_TEST("replace UTF-8 truncated 4-byte sequence (4)", ReplaceInvalidEncodingSequences, "\"abc\xF0\xBF\"!", FINAL, UnknownToken, 7, 0, 6, 0, UTF8)
+PARSE_SUCCESS_TEST("replace UTF-8 truncated 4-byte sequence (5)", ReplaceInvalidEncodingSequences, "\"abc\xF0\xBF\xBF\"", FINAL, UTF8, "s(ar 61 62 63 EF BF BD):0,0,0,0")
+PARSE_FAILURE_TEST("replace UTF-8 truncated 4-byte sequence (6)", ReplaceInvalidEncodingSequences, "\"abc\xF0\xBF\xBF\"!", FINAL, UnknownToken, 8, 0, 6, 0, UTF8)
+PARSE_SUCCESS_TEST("replace UTF-8 overlong 2-byte sequence (1)", ReplaceInvalidEncodingSequences, "\"abc\xC0\"", FINAL, UTF8, "s(ar 61 62 63 EF BF BD):0,0,0,0")
+PARSE_FAILURE_TEST("replace UTF-8 overlong 2-byte sequence (2)", ReplaceInvalidEncodingSequences, "\"abc\xC0\"!", FINAL, UnknownToken, 6, 0, 6, 0, UTF8)
+PARSE_SUCCESS_TEST("replace UTF-8 overlong 2-byte sequence (3)", ReplaceInvalidEncodingSequences, "\"abc\xC1\"", FINAL, UTF8, "s(ar 61 62 63 EF BF BD):0,0,0,0")
+PARSE_FAILURE_TEST("replace UTF-8 overlong 2-byte sequence (4)", ReplaceInvalidEncodingSequences, "\"abc\xC1\"!", FINAL, UnknownToken, 6, 0, 6, 0, UTF8)
+PARSE_SUCCESS_TEST("replace UTF-8 overlong 3-byte sequence (1)", ReplaceInvalidEncodingSequences, "\"abc\xE0\x80\"", FINAL, UTF8, "s(ar 61 62 63 EF BF BD EF BF BD):0,0,0,0")
+PARSE_FAILURE_TEST("replace UTF-8 overlong 3-byte sequence (2)", ReplaceInvalidEncodingSequences, "\"abc\xE0\x80\"!", FINAL, UnknownToken, 7, 0, 7, 0, UTF8)
+PARSE_SUCCESS_TEST("replace UTF-8 overlong 3-byte sequence (3)", ReplaceInvalidEncodingSequences, "\"abc\xE0\x9F\"", FINAL, UTF8, "s(ar 61 62 63 EF BF BD EF BF BD):0,0,0,0")
+PARSE_FAILURE_TEST("replace UTF-8 overlong 3-byte sequence (4)", ReplaceInvalidEncodingSequences, "\"abc\xE0\x9F\"!", FINAL, UnknownToken, 7, 0, 7, 0, UTF8)
+PARSE_SUCCESS_TEST("replace UTF-8 encoded surrogate (1)", ReplaceInvalidEncodingSequences, "\"abc\xED\xA0\"", FINAL, UTF8, "s(ar 61 62 63 EF BF BD EF BF BD):0,0,0,0")
+PARSE_FAILURE_TEST("replace UTF-8 encoded surrogate (2)", ReplaceInvalidEncodingSequences, "\"abc\xED\xA0\"!", FINAL, UnknownToken, 7, 0, 7, 0, UTF8)
+PARSE_SUCCESS_TEST("replace UTF-8 encoded surrogate (3)", ReplaceInvalidEncodingSequences, "\"abc\xED\xBF\"", FINAL, UTF8, "s(ar 61 62 63 EF BF BD EF BF BD):0,0,0,0")
+PARSE_FAILURE_TEST("replace UTF-8 encoded surrogate (4)", ReplaceInvalidEncodingSequences, "\"abc\xED\xBF\"!", FINAL, UnknownToken, 7, 0, 7, 0, UTF8)
+PARSE_SUCCESS_TEST("replace UTF-8 overlong 4-byte sequence (1)", ReplaceInvalidEncodingSequences, "\"abc\xF0\x80\"", FINAL, UTF8, "s(ar 61 62 63 EF BF BD EF BF BD):0,0,0,0")
+PARSE_FAILURE_TEST("replace UTF-8 overlong 4-byte sequence (2)", ReplaceInvalidEncodingSequences, "\"abc\xF0\x80\"!", FINAL, UnknownToken, 7, 0, 7, 0, UTF8)
+PARSE_SUCCESS_TEST("replace UTF-8 overlong 4-byte sequence (3)", ReplaceInvalidEncodingSequences, "\"abc\xF0\x8F\"", FINAL, UTF8, "s(ar 61 62 63 EF BF BD EF BF BD):0,0,0,0")
+PARSE_FAILURE_TEST("replace UTF-8 overlong 4-byte sequence (4)", ReplaceInvalidEncodingSequences, "\"abc\xF0\x8F\"!", FINAL, UnknownToken, 7, 0, 7, 0, UTF8)
+PARSE_SUCCESS_TEST("replace UTF-8 encoded out-of-range codepoint (1)", ReplaceInvalidEncodingSequences, "\"abc\xF4\x90\"", FINAL, UTF8, "s(ar 61 62 63 EF BF BD EF BF BD):0,0,0,0")
+PARSE_FAILURE_TEST("replace UTF-8 encoded out-of-range codepoint (2)", ReplaceInvalidEncodingSequences, "\"abc\xF4\x90\"!", FINAL, UnknownToken, 7, 0, 7, 0, UTF8)
+PARSE_SUCCESS_TEST("replace UTF-8 invalid leading byte (1)", ReplaceInvalidEncodingSequences, "\"abc\x80\"", FINAL, UTF8, "s(ar 61 62 63 EF BF BD):0,0,0,0")
+PARSE_FAILURE_TEST("replace UTF-8 invalid leading byte (2)", ReplaceInvalidEncodingSequences, "\"abc\x80\"!", FINAL, UnknownToken, 6, 0, 6, 0, UTF8)
+PARSE_SUCCESS_TEST("replace UTF-8 invalid leading byte (3)", ReplaceInvalidEncodingSequences, "\"abc\xBF\"", FINAL, UTF8, "s(ar 61 62 63 EF BF BD):0,0,0,0")
+PARSE_FAILURE_TEST("replace UTF-8 invalid leading byte (4)", ReplaceInvalidEncodingSequences, "\"abc\xBF\"!", FINAL, UnknownToken, 6, 0, 6, 0, UTF8)
+PARSE_SUCCESS_TEST("replace UTF-8 invalid leading byte (5)", ReplaceInvalidEncodingSequences, "\"abc\xF5\"", FINAL, UTF8, "s(ar 61 62 63 EF BF BD):0,0,0,0")
+PARSE_FAILURE_TEST("replace UTF-8 invalid leading byte (6)", ReplaceInvalidEncodingSequences, "\"abc\xF5\"!", FINAL, UnknownToken, 6, 0, 6, 0, UTF8)
+PARSE_SUCCESS_TEST("replace UTF-8 invalid leading byte (7)", ReplaceInvalidEncodingSequences, "\"abc\xFF\"", FINAL, UTF8, "s(ar 61 62 63 EF BF BD):0,0,0,0")
+PARSE_FAILURE_TEST("replace UTF-8 invalid leading byte (8)", ReplaceInvalidEncodingSequences, "\"abc\xFF\"!", FINAL, UnknownToken, 6, 0, 6, 0, UTF8)
+PARSE_SUCCESS_TEST("replace UTF-8 invalid continuation byte (1)", ReplaceInvalidEncodingSequences, "\"abc\xC2\x7F\"", FINAL, UTF8, "s(ar 61 62 63 EF BF BD 7F):0,0,0,0")
+PARSE_FAILURE_TEST("replace UTF-8 invalid continuation byte (2)", ReplaceInvalidEncodingSequences, "\"abc\xC2\x7F\"!", FINAL, UnknownToken, 7, 0, 7, 0, UTF8)
+PARSE_SUCCESS_TEST("replace UTF-8 invalid continuation byte (3)", ReplaceInvalidEncodingSequences, "\"abc\xC2\xC0\"", FINAL, UTF8, "s(ar 61 62 63 EF BF BD EF BF BD):0,0,0,0")
+PARSE_FAILURE_TEST("replace UTF-8 invalid continuation byte (4)", ReplaceInvalidEncodingSequences, "\"abc\xC2\xC0\"!", FINAL, UnknownToken, 7, 0, 7, 0, UTF8)
+PARSE_SUCCESS_TEST("replace UTF-8 invalid continuation byte (5)", ReplaceInvalidEncodingSequences, "\"abc\xE1\x7F\"", FINAL, UTF8, "s(ar 61 62 63 EF BF BD 7F):0,0,0,0")
+PARSE_FAILURE_TEST("replace UTF-8 invalid continuation byte (6)", ReplaceInvalidEncodingSequences, "\"abc\xE1\x7F\"!", FINAL, UnknownToken, 7, 0, 7, 0, UTF8)
+PARSE_SUCCESS_TEST("replace UTF-8 invalid continuation byte (7)", ReplaceInvalidEncodingSequences, "\"abc\xE1\xC0\"", FINAL, UTF8, "s(ar 61 62 63 EF BF BD EF BF BD):0,0,0,0")
+PARSE_FAILURE_TEST("replace UTF-8 invalid continuation byte (8)", ReplaceInvalidEncodingSequences, "\"abc\xE1\xC0\"!", FINAL, UnknownToken, 7, 0, 7, 0, UTF8)
+PARSE_SUCCESS_TEST("replace UTF-8 invalid continuation byte (9)", ReplaceInvalidEncodingSequences, "\"abc\xE1\xBF\x7F\"", FINAL, UTF8, "s(ar 61 62 63 EF BF BD 7F):0,0,0,0")
+PARSE_FAILURE_TEST("replace UTF-8 invalid continuation byte (10)", ReplaceInvalidEncodingSequences, "\"abc\xE1\xBF\x7F\"!", FINAL, UnknownToken, 8, 0, 7, 0, UTF8)
+PARSE_SUCCESS_TEST("replace UTF-8 invalid continuation byte (11)", ReplaceInvalidEncodingSequences, "\"abc\xE1\xBF\xC0\"", FINAL, UTF8, "s(ar 61 62 63 EF BF BD EF BF BD):0,0,0,0")
+PARSE_FAILURE_TEST("replace UTF-8 invalid continuation byte (12)", ReplaceInvalidEncodingSequences, "\"abc\xE1\xBF\xC0\"!", FINAL, UnknownToken, 8, 0, 7, 0, UTF8)
+PARSE_SUCCESS_TEST("replace UTF-8 invalid continuation byte (13)", ReplaceInvalidEncodingSequences, "\"abc\xF1\x7F\"", FINAL, UTF8, "s(ar 61 62 63 EF BF BD 7F):0,0,0,0")
+PARSE_FAILURE_TEST("replace UTF-8 invalid continuation byte (14)", ReplaceInvalidEncodingSequences, "\"abc\xF1\x7F\"!", FINAL, UnknownToken, 7, 0, 7, 0, UTF8)
+PARSE_SUCCESS_TEST("replace UTF-8 invalid continuation byte (15)", ReplaceInvalidEncodingSequences, "\"abc\xF1\xC0\"", FINAL, UTF8, "s(ar 61 62 63 EF BF BD EF BF BD):0,0,0,0")
+PARSE_FAILURE_TEST("replace UTF-8 invalid continuation byte (16)", ReplaceInvalidEncodingSequences, "\"abc\xF1\xC0\"!", FINAL, UnknownToken, 7, 0, 7, 0, UTF8)
+PARSE_SUCCESS_TEST("replace UTF-8 invalid continuation byte (17)", ReplaceInvalidEncodingSequences, "\"abc\xF1\xBF\x7F\"", FINAL, UTF8, "s(ar 61 62 63 EF BF BD 7F):0,0,0,0")
+PARSE_FAILURE_TEST("replace UTF-8 invalid continuation byte (18)", ReplaceInvalidEncodingSequences, "\"abc\xF1\xBF\x7F\"!", FINAL, UnknownToken, 8, 0, 7, 0, UTF8)
+PARSE_SUCCESS_TEST("replace UTF-8 invalid continuation byte (19)", ReplaceInvalidEncodingSequences, "\"abc\xF1\xBF\xC0\"", FINAL, UTF8, "s(ar 61 62 63 EF BF BD EF BF BD):0,0,0,0")
+PARSE_FAILURE_TEST("replace UTF-8 invalid continuation byte (20)", ReplaceInvalidEncodingSequences, "\"abc\xF1\xBF\xC0\"!", FINAL, UnknownToken, 8, 0, 7, 0, UTF8)
+PARSE_SUCCESS_TEST("replace UTF-8 invalid continuation byte (21)", ReplaceInvalidEncodingSequences, "\"abc\xF1\xBF\xBF\x7F\"", FINAL, UTF8, "s(ar 61 62 63 EF BF BD 7F):0,0,0,0")
+PARSE_FAILURE_TEST("replace UTF-8 invalid continuation byte (22)", ReplaceInvalidEncodingSequences, "\"abc\xF1\xBF\xBF\x7F\"!", FINAL, UnknownToken, 9, 0, 7, 0, UTF8)
+PARSE_SUCCESS_TEST("replace UTF-8 invalid continuation byte (23)", ReplaceInvalidEncodingSequences, "\"abc\xF1\xBF\xBF\xC0\"", FINAL, UTF8, "s(ar 61 62 63 EF BF BD EF BF BD):0,0,0,0")
+PARSE_FAILURE_TEST("replace UTF-8 invalid continuation byte (24)", ReplaceInvalidEncodingSequences, "\"abc\xF1\xBF\xBF\xC0\"!", FINAL, UnknownToken, 9, 0, 7, 0, UTF8)
+PARSE_SUCCESS_TEST("Unicode 5.2.0 replacement example (1)", ReplaceInvalidEncodingSequences, "   \"\x61\xF1\x80\x80\xE1\x80\xC2\x62\x80\x63\x80\xBF\x64\"", FINAL, UTF8, "s(ar 61 EF BF BD EF BF BD EF BF BD 62 EF BF BD 63 EF BF BD EF BF BD 64):3,0,3,0")
+PARSE_FAILURE_TEST("Unicode 5.2.0 replacement example (2)", ReplaceInvalidEncodingSequences, "   \"\x61\xF1\x80\x80\xE1\x80\xC2\x62\x80\x63\x80\xBF\x64\"!", FINAL, UnknownToken, 18, 0, 15, 0, UTF8)
+PARSE_SUCCESS_TEST("replace UTF-16LE standalone trailing surrogate (1)", ReplaceInvalidEncodingSequences, "\"\x00" "_\x00" "\x00\xDC" "\"\x00", FINAL, UTF16LE, "s(ar 5F EF BF BD):0,0,0,0")
+PARSE_FAILURE_TEST("replace UTF-16LE standalone trailing surrogate (2)", ReplaceInvalidEncodingSequences, "\"\x00" "_\x00" "\x00\xDC" "\"\x00" "!\x00", FINAL, UnknownToken, 8, 0, 4, 0, UTF16LE)
+PARSE_SUCCESS_TEST("replace UTF-16LE standalone trailing surrogate (3)", ReplaceInvalidEncodingSequences, "\"\x00" "_\x00" "\xFF\xDF" "\"\x00", FINAL, UTF16LE, "s(ar 5F EF BF BD):0,0,0,0")
+PARSE_FAILURE_TEST("replace UTF-16LE standalone trailing surrogate (4)", ReplaceInvalidEncodingSequences, "\"\x00" "_\x00" "\xFF\xDF" "\"\x00" "!\x00", FINAL, UnknownToken, 8, 0, 4, 0, UTF16LE)
+PARSE_SUCCESS_TEST("replace UTF-16LE standalone leading surrogate (1)", ReplaceInvalidEncodingSequences,  "\"\x00" "_\x00" "\x00\xD8" "_\x00" "\"\x00", FINAL, UTF16LE, "s(ar 5F EF BF BD 5F):0,0,0,0")
+PARSE_FAILURE_TEST("replace UTF-16LE standalone leading surrogate (2)", ReplaceInvalidEncodingSequences,  "\"\x00" "_\x00" "\x00\xD8" "_\x00" "\"\x00" "!\x00", FINAL, UnknownToken, 10, 0, 5, 0, UTF16LE)
+PARSE_SUCCESS_TEST("replace UTF-16LE standalone leading surrogate (3)", ReplaceInvalidEncodingSequences,  "\"\x00" "_\x00" "\xFF\xDB" "_\x00" "\"\x00", FINAL, UTF16LE, "s(ar 5F EF BF BD 5F):0,0,0,0")
+PARSE_FAILURE_TEST("replace UTF-16LE standalone leading surrogate (4)", ReplaceInvalidEncodingSequences,  "\"\x00" "_\x00" "\xFF\xDB" "_\x00" "\"\x00" "!\x00", FINAL, UnknownToken, 10, 0, 5, 0, UTF16LE)
+PARSE_SUCCESS_TEST("replace UTF-16BE standalone trailing surrogate (1)", ReplaceInvalidEncodingSequences, "\x00\"" "\x00_" "\xDC\x00" "\x00\"", FINAL, UTF16BE, "s(ar 5F EF BF BD):0,0,0,0")
+PARSE_FAILURE_TEST("replace UTF-16BE standalone trailing surrogate (2)", ReplaceInvalidEncodingSequences, "\x00\"" "\x00_" "\xDC\x00" "\x00\"" "\x00!", FINAL, UnknownToken, 8, 0, 4, 0, UTF16BE)
+PARSE_SUCCESS_TEST("replace UTF-16BE standalone trailing surrogate (3)", ReplaceInvalidEncodingSequences, "\x00\"" "\x00_" "\xDF\xFF" "\x00\"", FINAL, UTF16BE, "s(ar 5F EF BF BD):0,0,0,0")
+PARSE_FAILURE_TEST("replace UTF-16BE standalone trailing surrogate (4)", ReplaceInvalidEncodingSequences, "\x00\"" "\x00_" "\xDF\xFF" "\x00\"" "\x00!", FINAL, UnknownToken, 8, 0, 4, 0, UTF16BE)
+PARSE_SUCCESS_TEST("replace UTF-16BE standalone leading surrogate (1)", ReplaceInvalidEncodingSequences,  "\x00\"" "\x00_" "\xD8\x00" "\x00_" "\x00\"", FINAL, UTF16BE, "s(ar 5F EF BF BD 5F):0,0,0,0")
+PARSE_FAILURE_TEST("replace UTF-16BE standalone leading surrogate (2)", ReplaceInvalidEncodingSequences,  "\x00\"" "\x00_" "\xD8\x00" "\x00_" "\x00\"" "!\x00", FINAL, UnknownToken, 10, 0, 5, 0, UTF16BE)
+PARSE_SUCCESS_TEST("replace UTF-16BE standalone leading surrogate (3)", ReplaceInvalidEncodingSequences,  "\x00\"" "\x00_" "\xDB\xFF" "\x00_" "\x00\"", FINAL, UTF16BE, "s(ar 5F EF BF BD 5F):0,0,0,0")
+PARSE_FAILURE_TEST("replace UTF-16BE standalone leading surrogate (4)", ReplaceInvalidEncodingSequences,  "\x00\"" "\x00_" "\xDB\xFF" "\x00_" "\x00\"" "!\x00", FINAL, UnknownToken, 10, 0, 5, 0, UTF16BE)
+PARSE_SUCCESS_TEST("replace UTF-32LE encoded surrogate (1)", ReplaceInvalidEncodingSequences, "\"\x00\x00\x00" "\x00\xD8\x00\x00" "\"\x00\x00\x00", FINAL, UTF32LE, "s(ar EF BF BD):0,0,0,0")
+PARSE_FAILURE_TEST("replace UTF-32LE encoded surrogate (2)", ReplaceInvalidEncodingSequences, "\"\x00\x00\x00" "\x00\xD8\x00\x00" "\"\x00\x00\x00" "!\x00\x00\x00", FINAL, UnknownToken, 12, 0, 3, 0, UTF32LE)
+PARSE_SUCCESS_TEST("replace UTF-32LE encoded surrogate (3)", ReplaceInvalidEncodingSequences, "\"\x00\x00\x00" "\xFF\xDF\x00\x00" "\"\x00\x00\x00", FINAL, UTF32LE, "s(ar EF BF BD):0,0,0,0")
+PARSE_FAILURE_TEST("replace UTF-32LE encoded surrogate (4)", ReplaceInvalidEncodingSequences, "\"\x00\x00\x00" "\xFF\xDF\x00\x00" "\"\x00\x00\x00" "!\x00\x00\x00", FINAL, UnknownToken, 12, 0, 3, 0, UTF32LE)
+PARSE_SUCCESS_TEST("replace UTF-32LE encoded out-of-range codepoint (1)", ReplaceInvalidEncodingSequences, "\"\x00\x00\x00" "\x00\x00\x11\x00" "\"\x00\x00\x00", FINAL, UTF32LE, "s(ar EF BF BD):0,0,0,0")
+PARSE_FAILURE_TEST("replace UTF-32LE encoded out-of-range codepoint (2)", ReplaceInvalidEncodingSequences, "\"\x00\x00\x00" "\x00\x00\x11\x00" "\"\x00\x00\x00" "!\x00\x00\x00", FINAL, UnknownToken, 12, 0, 3, 0, UTF32LE)
+PARSE_SUCCESS_TEST("replace UTF-32LE encoded out-of-range codepoint (3)", ReplaceInvalidEncodingSequences, "\"\x00\x00\x00" "\x00\x00\x00\x01" "\"\x00\x00\x00", FINAL, UTF32LE, "s(ar EF BF BD):0,0,0,0")
+PARSE_FAILURE_TEST("replace UTF-32LE encoded out-of-range codepoint (4)", ReplaceInvalidEncodingSequences, "\"\x00\x00\x00" "\x00\x00\x00\x01" "\"\x00\x00\x00" "!\x00\x00\x00", FINAL, UnknownToken, 12, 0, 3, 0, UTF32LE)
+PARSE_SUCCESS_TEST("replace UTF-32BE encoded surrogate (1)", ReplaceInvalidEncodingSequences, "\x00\x00\x00\"" "\x00\x00\xD8\x00" "\x00\x00\x00\"", FINAL, UTF32BE, "s(ar EF BF BD):0,0,0,0")
+PARSE_FAILURE_TEST("replace UTF-32BE encoded surrogate (2)", ReplaceInvalidEncodingSequences, "\x00\x00\x00\"" "\x00\x00\xD8\x00" "\x00\x00\x00\"" "\x00\x00\x00!", FINAL, UnknownToken, 12, 0, 3, 0, UTF32BE)
+PARSE_SUCCESS_TEST("replace UTF-32BE encoded surrogate (3)", ReplaceInvalidEncodingSequences, "\x00\x00\x00\"" "\x00\x00\xDF\xFF" "\x00\x00\x00\"", FINAL, UTF32BE, "s(ar EF BF BD):0,0,0,0")
+PARSE_FAILURE_TEST("replace UTF-32BE encoded surrogate (4)", ReplaceInvalidEncodingSequences, "\x00\x00\x00\"" "\x00\x00\xDF\xFF" "\x00\x00\x00\"" "\x00\x00\x00!", FINAL, UnknownToken, 12, 0, 3, 0, UTF32BE)
+PARSE_SUCCESS_TEST("replace UTF-32BE encoded out-of-range codepoint (1)", ReplaceInvalidEncodingSequences, "\x00\x00\x00\"" "\x00\x11\x00\x00" "\x00\x00\x00\"", FINAL, UTF32BE, "s(ar EF BF BD):0,0,0,0")
+PARSE_FAILURE_TEST("replace UTF-32BE encoded out-of-range codepoint (2)", ReplaceInvalidEncodingSequences, "\x00\x00\x00\"" "\x00\x11\x00\x00" "\x00\x00\x00\"" "\x00\x00\x00!", FINAL, UnknownToken, 12, 0, 3, 0, UTF32BE)
+PARSE_SUCCESS_TEST("replace UTF-32BE encoded out-of-range codepoint (3)", ReplaceInvalidEncodingSequences, "\x00\x00\x00\"" "\x01\x00\x00\x00" "\x00\x00\x00\"", FINAL, UTF32BE, "s(ar EF BF BD):0,0,0,0")
+PARSE_FAILURE_TEST("replace UTF-32BE encoded out-of-range codepoint (4)", ReplaceInvalidEncodingSequences, "\x00\x00\x00\"" "\x01\x00\x00\x00" "\x00\x00\x00\"" "\x00\x00\x00!", FINAL, UnknownToken, 12, 0, 3, 0, UTF32BE)
 
 /* general */
 
-PARSE_SUCCESS_TEST("no input bytes (partial)", DefaultParserFactory, "", PARTIAL, UnknownEncoding, "")
-PARSE_FAILURE_TEST("no input bytes", DefaultParserFactory, "", FINAL, ExpectedMoreTokens, 0, 0, 0, UnknownEncoding)
-PARSE_SUCCESS_TEST("all whitespace (partial) (1)", DefaultParserFactory, " ", PARTIAL, UnknownEncoding, "")
-PARSE_SUCCESS_TEST("all whitespace (partial) (2)", DefaultParserFactory, "\t", PARTIAL, UnknownEncoding, "")
-PARSE_SUCCESS_TEST("all whitespace (partial) (3)", DefaultParserFactory, "\r\n", PARTIAL, UnknownEncoding, "")
-PARSE_SUCCESS_TEST("all whitespace (partial) (4)", DefaultParserFactory, "\r\n\n\r ", PARTIAL, UTF8, "")
-PARSE_FAILURE_TEST("all whitespace (1)", DefaultParserFactory, " ", FINAL, ExpectedMoreTokens, 1, 0, 1, UTF8)
-PARSE_FAILURE_TEST("all whitespace (2)", DefaultParserFactory, "\t", FINAL, ExpectedMoreTokens, 1, 0, 1, UTF8)
-PARSE_FAILURE_TEST("all whitespace (3)", DefaultParserFactory, "\r\n", FINAL, ExpectedMoreTokens, 2, 1, 0, UTF8)
-PARSE_FAILURE_TEST("all whitespace (4)", DefaultParserFactory, "\r\n\n\r ", FINAL, ExpectedMoreTokens, 5, 3, 1, UTF8)
-PARSE_FAILURE_TEST("trailing garbage (1)", DefaultParserFactory, "7 !", FINAL, UnknownToken, 2, 0, 2, UTF8)
-PARSE_FAILURE_TEST("trailing garbage (2)", DefaultParserFactory, "7 {", FINAL, UnexpectedToken, 2, 0, 2, UTF8)
-PARSE_FAILURE_TEST("trailing garbage (3)", DefaultParserFactory, "7 \xC0", FINAL, InvalidEncodingSequence, 2, 0, 2, UTF8)
-PARSE_FAILURE_TEST("trailing garbage (4)", DefaultParserFactory, "7 \xC2", FINAL, InvalidEncodingSequence, 2, 0, 2, UTF8)
-PARSE_FAILURE_TEST("trailing garbage (5)", DefaultParserFactory, "7 [", FINAL, UnexpectedToken, 2, 0, 2, UTF8)
-PARSE_FAILURE_TEST("trailing garbage (6)", DefaultParserFactory, "7 ,", FINAL, UnexpectedToken, 2, 0, 2, UTF8)
-PARSE_FAILURE_TEST("trailing garbage (7)", DefaultParserFactory, "7 8", FINAL, UnexpectedToken, 2, 0, 2, UTF8)
-PARSE_FAILURE_TEST("trailing garbage (8)", DefaultParserFactory, "7 \"", FINAL, IncompleteToken, 2, 0, 2, UTF8)
+PARSE_SUCCESS_TEST("no input bytes (partial)", DefaultSettings, "", PARTIAL, UnknownEncoding, "")
+PARSE_FAILURE_TEST("no input bytes", DefaultSettings, "", FINAL, ExpectedMoreTokens, 0, 0, 0, 0, UnknownEncoding)
+PARSE_SUCCESS_TEST("all whitespace (partial) (1)", DefaultSettings, " ", PARTIAL, UnknownEncoding, "")
+PARSE_SUCCESS_TEST("all whitespace (partial) (2)", DefaultSettings, "\t", PARTIAL, UnknownEncoding, "")
+PARSE_SUCCESS_TEST("all whitespace (partial) (3)", DefaultSettings, "\r\n", PARTIAL, UnknownEncoding, "")
+PARSE_SUCCESS_TEST("all whitespace (partial) (4)", DefaultSettings, "\r\n\n\r ", PARTIAL, UTF8, "")
+PARSE_FAILURE_TEST("all whitespace (1)", DefaultSettings, " ", FINAL, ExpectedMoreTokens, 1, 0, 1, 0, UTF8)
+PARSE_FAILURE_TEST("all whitespace (2)", DefaultSettings, "\t", FINAL, ExpectedMoreTokens, 1, 0, 1, 0, UTF8)
+PARSE_FAILURE_TEST("all whitespace (3)", DefaultSettings, "\r\n", FINAL, ExpectedMoreTokens, 2, 1, 0, 0, UTF8)
+PARSE_FAILURE_TEST("all whitespace (4)", DefaultSettings, "\r\n\n\r ", FINAL, ExpectedMoreTokens, 5, 3, 1, 0, UTF8)
+PARSE_FAILURE_TEST("trailing garbage (1)", DefaultSettings, "7 !", FINAL, UnknownToken, 2, 0, 2, 0, UTF8)
+PARSE_FAILURE_TEST("trailing garbage (2)", DefaultSettings, "7 {", FINAL, UnexpectedToken, 2, 0, 2, 0, UTF8)
+PARSE_FAILURE_TEST("trailing garbage (3)", DefaultSettings, "7 \xC0", FINAL, InvalidEncodingSequence, 2, 0, 2, 0, UTF8)
+PARSE_FAILURE_TEST("trailing garbage (4)", DefaultSettings, "7 \xC2", FINAL, InvalidEncodingSequence, 2, 0, 2, 0, UTF8)
+PARSE_FAILURE_TEST("trailing garbage (5)", DefaultSettings, "7 [", FINAL, UnexpectedToken, 2, 0, 2, 0, UTF8)
+PARSE_FAILURE_TEST("trailing garbage (6)", DefaultSettings, "7 ,", FINAL, UnexpectedToken, 2, 0, 2, 0, UTF8)
+PARSE_FAILURE_TEST("trailing garbage (7)", DefaultSettings, "7 8", FINAL, UnexpectedToken, 2, 0, 2, 0, UTF8)
+PARSE_FAILURE_TEST("trailing garbage (8)", DefaultSettings, "7 \"", FINAL, IncompleteToken, 2, 0, 2, 0, UTF8)
 
 /* null */
 
-PARSE_SUCCESS_TEST("null (1)", DefaultParserFactory, "null", FINAL, UTF8, "null:0,0,0;")
-PARSE_SUCCESS_TEST("null (2)", DefaultParserFactory, " null ", FINAL, UTF8, "null:1,0,1;")
-PARSE_FAILURE_TEST("n is not a literal", DefaultParserFactory, "n ", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("nu is not a literal", DefaultParserFactory, "nu ", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("nul is not a literal", DefaultParserFactory, "nul ", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("nullx is not a literal", DefaultParserFactory, "nullx", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("null0 is not a literal", DefaultParserFactory, "null0", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("null_ is not a literal", DefaultParserFactory, "null_", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("nullX is not a literal", DefaultParserFactory, "nullX", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("NULL is not a literal", DefaultParserFactory, "NULL", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("null truncated after n", DefaultParserFactory, "n", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("null truncated after nu", DefaultParserFactory, "nu", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("null truncated after nul", DefaultParserFactory, "nul", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_SUCCESS_TEST("null (1)", DefaultSettings, "null", FINAL, UTF8, "n:0,0,0,0")
+PARSE_SUCCESS_TEST("null (2)", DefaultSettings, " null ", FINAL, UTF8, "n:1,0,1,0")
+PARSE_FAILURE_TEST("n is not a literal", DefaultSettings, "n ", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("nu is not a literal", DefaultSettings, "nu ", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("nul is not a literal", DefaultSettings, "nul ", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("nullx is not a literal", DefaultSettings, "nullx", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("null0 is not a literal", DefaultSettings, "null0", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("null_ is not a literal", DefaultSettings, "null_", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("nullX is not a literal", DefaultSettings, "nullX", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("NULL is not a literal", DefaultSettings, "NULL", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("null truncated after n", DefaultSettings, "n", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("null truncated after nu", DefaultSettings, "nu", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("null truncated after nul", DefaultSettings, "nul", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
 
 /* true */
 
-PARSE_SUCCESS_TEST("true (1)", DefaultParserFactory, "true", FINAL, UTF8, "true:0,0,0;")
-PARSE_SUCCESS_TEST("true (2)", DefaultParserFactory, " true ", FINAL, UTF8, "true:1,0,1;")
-PARSE_FAILURE_TEST("t is not a literal", DefaultParserFactory, "t ", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("tr is not a literal", DefaultParserFactory, "tr ", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("tru is not a literal", DefaultParserFactory, "tru ", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("trux is not a literal", DefaultParserFactory, "trux", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("true0 is not a literal", DefaultParserFactory, "true0", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("true_ is not a literal", DefaultParserFactory, "true__", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("trueX is not a literal", DefaultParserFactory, "trueX", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("TRUE is not a literal", DefaultParserFactory, "TRUE", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("true truncated after t", DefaultParserFactory, "t", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("true truncated after tr", DefaultParserFactory, "tr", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("true truncated after tru", DefaultParserFactory, "tru", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_SUCCESS_TEST("true (1)", DefaultSettings, "true", FINAL, UTF8, "t:0,0,0,0")
+PARSE_SUCCESS_TEST("true (2)", DefaultSettings, " true ", FINAL, UTF8, "t:1,0,1,0")
+PARSE_FAILURE_TEST("t is not a literal", DefaultSettings, "t ", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("tr is not a literal", DefaultSettings, "tr ", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("tru is not a literal", DefaultSettings, "tru ", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("trux is not a literal", DefaultSettings, "trux", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("true0 is not a literal", DefaultSettings, "true0", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("true_ is not a literal", DefaultSettings, "true__", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("trueX is not a literal", DefaultSettings, "trueX", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("TRUE is not a literal", DefaultSettings, "TRUE", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("true truncated after t", DefaultSettings, "t", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("true truncated after tr", DefaultSettings, "tr", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("true truncated after tru", DefaultSettings, "tru", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
 
 /* false */
 
-PARSE_SUCCESS_TEST("false (1)", DefaultParserFactory, "false", FINAL, UTF8, "false:0,0,0;")
-PARSE_SUCCESS_TEST("false (2)", DefaultParserFactory, " false ", FINAL, UTF8, "false:1,0,1;")
-PARSE_FAILURE_TEST("f is not a literal", DefaultParserFactory, "f ", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("fa is not a literal", DefaultParserFactory, "fa ", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("fal is not a literal", DefaultParserFactory, "fal ", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("falx is not a literal", DefaultParserFactory, "falx", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("fals is not a literal", DefaultParserFactory, "fals", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("false0 is not a literal", DefaultParserFactory, "false0", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("false_ is not a literal", DefaultParserFactory, "false_", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("falseX is not a literal", DefaultParserFactory, "falseX", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("FALSE is not a literal", DefaultParserFactory, "FALSE", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("false truncated after f", DefaultParserFactory, "f", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("false truncated after fa", DefaultParserFactory, "fa", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("false truncated after fal", DefaultParserFactory, "fal", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("false truncated after fals", DefaultParserFactory, "fals", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_SUCCESS_TEST("false (1)", DefaultSettings, "false", FINAL, UTF8, "f:0,0,0,0")
+PARSE_SUCCESS_TEST("false (2)", DefaultSettings, " false ", FINAL, UTF8, "f:1,0,1,0")
+PARSE_FAILURE_TEST("f is not a literal", DefaultSettings, "f ", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("fa is not a literal", DefaultSettings, "fa ", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("fal is not a literal", DefaultSettings, "fal ", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("falx is not a literal", DefaultSettings, "falx", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("fals is not a literal", DefaultSettings, "fals", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("false0 is not a literal", DefaultSettings, "false0", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("false_ is not a literal", DefaultSettings, "false_", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("falseX is not a literal", DefaultSettings, "falseX", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("FALSE is not a literal", DefaultSettings, "FALSE", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("false truncated after f", DefaultSettings, "f", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("false truncated after fa", DefaultSettings, "fa", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("false truncated after fal", DefaultSettings, "fal", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("false truncated after fals", DefaultSettings, "fals", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
 
 /* NaN */
 
-PARSE_SUCCESS_TEST("NaN (1)", AllowSpecialNumbersParserFactory, "NaN", FINAL, UTF8, "NaN:0,0,0;")
-PARSE_SUCCESS_TEST("NaN (2)", AllowSpecialNumbersParserFactory, " NaN ", FINAL, UTF8, "NaN:1,0,1;")
-PARSE_FAILURE_TEST("N is not a literal", AllowSpecialNumbersParserFactory, "N ", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("Na is not a literal", AllowSpecialNumbersParserFactory, "Na ", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("Nax is not a literal", AllowSpecialNumbersParserFactory, "Nax", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("Na0 is not a literal", AllowSpecialNumbersParserFactory, "NaN0", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("NaN_ is not a literal", AllowSpecialNumbersParserFactory, "NaN_", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("NaNX is not a literal", AllowSpecialNumbersParserFactory, "NaNX", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("NAN is not a literal", AllowSpecialNumbersParserFactory, "NAN", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("NaN truncated after N", AllowSpecialNumbersParserFactory, "N", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("NaN truncated after Na", AllowSpecialNumbersParserFactory, "Na", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("NaN not allowed", DefaultParserFactory, "NaN", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_SUCCESS_TEST("NaN (1)", AllowSpecialNumbers, "NaN", FINAL, UTF8, "#(NaN):0,0,0,0")
+PARSE_SUCCESS_TEST("NaN (2)", AllowSpecialNumbers, " NaN ", FINAL, UTF8, "#(NaN):1,0,1,0")
+PARSE_FAILURE_TEST("N is not a literal", AllowSpecialNumbers, "N ", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("Na is not a literal", AllowSpecialNumbers, "Na ", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("Nax is not a literal", AllowSpecialNumbers, "Nax", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("Na0 is not a literal", AllowSpecialNumbers, "NaN0", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("NaN_ is not a literal", AllowSpecialNumbers, "NaN_", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("NaNX is not a literal", AllowSpecialNumbers, "NaNX", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("NAN is not a literal", AllowSpecialNumbers, "NAN", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("NaN truncated after N", AllowSpecialNumbers, "N", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("NaN truncated after Na", AllowSpecialNumbers, "Na", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("NaN not allowed", DefaultSettings, "NaN", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
 
 /* Infinity */
 
-PARSE_SUCCESS_TEST("Infinity (1)", AllowSpecialNumbersParserFactory, "Infinity", FINAL, UTF8, "Infinity:0,0,0;")
-PARSE_SUCCESS_TEST("Infinity (2)", AllowSpecialNumbersParserFactory, " Infinity ", FINAL, UTF8, "Infinity:1,0,1;")
-PARSE_FAILURE_TEST("I is not a literal", AllowSpecialNumbersParserFactory, "I ", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("In is not a literal", AllowSpecialNumbersParserFactory, "In ", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("Inf is not a literal", AllowSpecialNumbersParserFactory, "Inf ", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("Infi is not a literal", AllowSpecialNumbersParserFactory, "Infi ", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("Infin is not a literal", AllowSpecialNumbersParserFactory, "Infin ", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("Infini is not a literal", AllowSpecialNumbersParserFactory, "Infini ", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("Infinit is not a literal", AllowSpecialNumbersParserFactory, "Infinit ", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("Infinitx is not a literal", AllowSpecialNumbersParserFactory, "Infinitx", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("Infinit0 is not a literal", AllowSpecialNumbersParserFactory, "Infinit0", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("Infinity_ is not a literal", AllowSpecialNumbersParserFactory, "Infinity_", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("InfinityX is not a literal", AllowSpecialNumbersParserFactory, "InfinityX", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("INF is not a literal", AllowSpecialNumbersParserFactory, "INF", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("INFINITY is not a literal", AllowSpecialNumbersParserFactory, "INFINITY", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("Infinity truncated after I", AllowSpecialNumbersParserFactory, "I", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("Infinity truncated after In", AllowSpecialNumbersParserFactory, "In", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("Infinity truncated after Inf", AllowSpecialNumbersParserFactory, "Inf", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("Infinity truncated after Infi", AllowSpecialNumbersParserFactory, "Infi", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("Infinity truncated after Infin", AllowSpecialNumbersParserFactory, "Infin", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("Infinity truncated after Infini", AllowSpecialNumbersParserFactory, "Infini", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("Infinity truncated after Infinit", AllowSpecialNumbersParserFactory, "Infinit", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("Infinity not allowed", DefaultParserFactory, "Infinity", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_SUCCESS_TEST("Infinity (1)", AllowSpecialNumbers, "Infinity", FINAL, UTF8, "#(Infinity):0,0,0,0")
+PARSE_SUCCESS_TEST("Infinity (2)", AllowSpecialNumbers, " Infinity ", FINAL, UTF8, "#(Infinity):1,0,1,0")
+PARSE_FAILURE_TEST("I is not a literal", AllowSpecialNumbers, "I ", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("In is not a literal", AllowSpecialNumbers, "In ", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("Inf is not a literal", AllowSpecialNumbers, "Inf ", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("Infi is not a literal", AllowSpecialNumbers, "Infi ", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("Infin is not a literal", AllowSpecialNumbers, "Infin ", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("Infini is not a literal", AllowSpecialNumbers, "Infini ", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("Infinit is not a literal", AllowSpecialNumbers, "Infinit ", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("Infinitx is not a literal", AllowSpecialNumbers, "Infinitx", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("Infinit0 is not a literal", AllowSpecialNumbers, "Infinit0", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("Infinity_ is not a literal", AllowSpecialNumbers, "Infinity_", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("InfinityX is not a literal", AllowSpecialNumbers, "InfinityX", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("INF is not a literal", AllowSpecialNumbers, "INF", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("INFINITY is not a literal", AllowSpecialNumbers, "INFINITY", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("Infinity truncated after I", AllowSpecialNumbers, "I", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("Infinity truncated after In", AllowSpecialNumbers, "In", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("Infinity truncated after Inf", AllowSpecialNumbers, "Inf", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("Infinity truncated after Infi", AllowSpecialNumbers, "Infi", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("Infinity truncated after Infin", AllowSpecialNumbers, "Infin", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("Infinity truncated after Infini", AllowSpecialNumbers, "Infini", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("Infinity truncated after Infinit", AllowSpecialNumbers, "Infinit", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("Infinity not allowed", DefaultSettings, "Infinity", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
 
 /* -Infinity */
 
-PARSE_SUCCESS_TEST("-Infinity (1)", AllowSpecialNumbersParserFactory, "-Infinity", FINAL, UTF8, "-Infinity:0,0,0;")
-PARSE_SUCCESS_TEST("-Infinity (2)", AllowSpecialNumbersParserFactory, " -Infinity ", FINAL, UTF8, "-Infinity:1,0,1;")
-PARSE_FAILURE_TEST("-I is not a number", AllowSpecialNumbersParserFactory, "-I ", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("-In is not a number", AllowSpecialNumbersParserFactory, "-In ", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("-Inf is not a number", AllowSpecialNumbersParserFactory, "-Inf ", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("-Infi is not a number", AllowSpecialNumbersParserFactory, "-Infi ", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("-Infin is not a number", AllowSpecialNumbersParserFactory, "-Infin ", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("-Infini is not a number", AllowSpecialNumbersParserFactory, "-Infini ", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("-Infinit is not a number", AllowSpecialNumbersParserFactory, "-Infinit ", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("-Infinitx is not a number", AllowSpecialNumbersParserFactory, "-Infinitx", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("-Infinit0 is not a number", AllowSpecialNumbersParserFactory, "-Infinit0", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("-Infinity_ is not a number", AllowSpecialNumbersParserFactory, "-Infinity_", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("-InfinityX is not a number", AllowSpecialNumbersParserFactory, "-InfinityX", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("-INF is not a number", AllowSpecialNumbersParserFactory, "-INF", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("-INFINITY is not a number", AllowSpecialNumbersParserFactory, "-INFINITY", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("-Infinity truncated after I", AllowSpecialNumbersParserFactory, "-I", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("-Infinity truncated after In", AllowSpecialNumbersParserFactory, "-In", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("-Infinity truncated after Inf", AllowSpecialNumbersParserFactory, "-Inf", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("-Infinity truncated after Infi", AllowSpecialNumbersParserFactory, "-Infi", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("-Infinity truncated after Infin", AllowSpecialNumbersParserFactory, "-Infin", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("-Infinity truncated after Infini", AllowSpecialNumbersParserFactory, "-Infini", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("-Infinity truncated after Infinit", AllowSpecialNumbersParserFactory, "-Infinit", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("-Infinity not allowed", DefaultParserFactory, "-Infinity", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_SUCCESS_TEST("-Infinity (1)", AllowSpecialNumbers, "-Infinity", FINAL, UTF8, "#(-Infinity):0,0,0,0")
+PARSE_SUCCESS_TEST("-Infinity (2)", AllowSpecialNumbers, " -Infinity ", FINAL, UTF8, "#(-Infinity):1,0,1,0")
+PARSE_FAILURE_TEST("-I is not a number", AllowSpecialNumbers, "-I ", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("-In is not a number", AllowSpecialNumbers, "-In ", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("-Inf is not a number", AllowSpecialNumbers, "-Inf ", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("-Infi is not a number", AllowSpecialNumbers, "-Infi ", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("-Infin is not a number", AllowSpecialNumbers, "-Infin ", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("-Infini is not a number", AllowSpecialNumbers, "-Infini ", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("-Infinit is not a number", AllowSpecialNumbers, "-Infinit ", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("-Infinitx is not a number", AllowSpecialNumbers, "-Infinitx", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("-Infinit0 is not a number", AllowSpecialNumbers, "-Infinit0", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("-Infinity_ is not a number", AllowSpecialNumbers, "-Infinity_", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("-InfinityX is not a number", AllowSpecialNumbers, "-InfinityX", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("-INF is not a number", AllowSpecialNumbers, "-INF", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("-INFINITY is not a number", AllowSpecialNumbers, "-INFINITY", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("-Infinity truncated after I", AllowSpecialNumbers, "-I", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("-Infinity truncated after In", AllowSpecialNumbers, "-In", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("-Infinity truncated after Inf", AllowSpecialNumbers, "-Inf", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("-Infinity truncated after Infi", AllowSpecialNumbers, "-Infi", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("-Infinity truncated after Infin", AllowSpecialNumbers, "-Infin", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("-Infinity truncated after Infini", AllowSpecialNumbers, "-Infini", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("-Infinity truncated after Infinit", AllowSpecialNumbers, "-Infinit", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("-Infinity not allowed", DefaultSettings, "-Infinity", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
 
 /* numbers */
 
-PARSE_SUCCESS_TEST("0 (1)", DefaultParserFactory, "0", FINAL, UTF8, "#(0):0,0,0;")
-PARSE_SUCCESS_TEST("0 (2)", DefaultParserFactory, " 0 ", FINAL, UTF8, "#(0):1,0,1;")
-PARSE_SUCCESS_TEST("-0 (1)", DefaultParserFactory, "-0", FINAL, UTF8, "#(-0):0,0,0;")
-PARSE_SUCCESS_TEST("-0 (2)", DefaultParserFactory, " -0 ", FINAL, UTF8, "#(-0):1,0,1;")
-PARSE_SUCCESS_TEST("7 (1)", DefaultParserFactory, "7", FINAL, UTF8, "#(7):0,0,0;")
-PARSE_SUCCESS_TEST("7 (2)", DefaultParserFactory, " 7 ", FINAL, UTF8, "#(7):1,0,1;")
-PARSE_SUCCESS_TEST("-7 (1)", DefaultParserFactory, "-7", FINAL, UTF8, "#(-7):0,0,0;")
-PARSE_SUCCESS_TEST("-7 (2)", DefaultParserFactory, " -7 ", FINAL, UTF8, "#(-7):1,0,1;")
-PARSE_SUCCESS_TEST("1234567890 (1)", DefaultParserFactory, "1234567890", FINAL, UTF8, "#(1234567890):0,0,0;")
-PARSE_SUCCESS_TEST("1234567890 (2)", DefaultParserFactory, " 1234567890 ", FINAL, UTF8, "#(1234567890):1,0,1;")
-PARSE_SUCCESS_TEST("-1234567890 (1)", DefaultParserFactory, "-1234567890", FINAL, UTF8, "#(-1234567890):0,0,0;")
-PARSE_SUCCESS_TEST("-1234567890 (2)", DefaultParserFactory, " -1234567890 ", FINAL, UTF8, "#(-1234567890):1,0,1;")
-PARSE_SUCCESS_TEST("0e1 (1)", DefaultParserFactory, "0e1", FINAL, UTF8, "#(0e1):0,0,0;")
-PARSE_SUCCESS_TEST("0e1 (2)", DefaultParserFactory, " 0e1 ", FINAL, UTF8, "#(0e1):1,0,1;")
-PARSE_SUCCESS_TEST("1e2 (1)", DefaultParserFactory, "1e2", FINAL, UTF8, "#(1e2):0,0,0;")
-PARSE_SUCCESS_TEST("1e2 (2)", DefaultParserFactory, " 1e2 ", FINAL, UTF8, "#(1e2):1,0,1;")
-PARSE_SUCCESS_TEST("0e+1 (1)", DefaultParserFactory, "0e+1", FINAL, UTF8, "#(0e+1):0,0,0;")
-PARSE_SUCCESS_TEST("0e+1 (2)", DefaultParserFactory, " 0e+1 ", FINAL, UTF8, "#(0e+1):1,0,1;")
-PARSE_SUCCESS_TEST("1e+2 (1)", DefaultParserFactory, "1e+2", FINAL, UTF8, "#(1e+2):0,0,0;")
-PARSE_SUCCESS_TEST("1e+2 (2)", DefaultParserFactory, " 1e+2 ", FINAL, UTF8, "#(1e+2):1,0,1;")
-PARSE_SUCCESS_TEST("0e-1 (1)", DefaultParserFactory, "0e-1", FINAL, UTF8, "#(0e-1):0,0,0;")
-PARSE_SUCCESS_TEST("0e-1 (2)", DefaultParserFactory, " 0e-1 ", FINAL, UTF8, "#(0e-1):1,0,1;")
-PARSE_SUCCESS_TEST("1e-2 (1)", DefaultParserFactory, "1e-2", FINAL, UTF8, "#(1e-2):0,0,0;")
-PARSE_SUCCESS_TEST("1e-2 (2)", DefaultParserFactory, " 1e-2 ", FINAL, UTF8, "#(1e-2):1,0,1;")
-PARSE_SUCCESS_TEST("1234567890E0987654321 (1)", DefaultParserFactory, "1234567890E0987654321", FINAL, UTF8, "#(1234567890E0987654321):0,0,0;")
-PARSE_SUCCESS_TEST("1234567890E0987654321 (2)", DefaultParserFactory, " 1234567890E0987654321 ", FINAL, UTF8, "#(1234567890E0987654321):1,0,1;")
-PARSE_SUCCESS_TEST("0.0 (1)", DefaultParserFactory, "0.0", FINAL, UTF8, "#(0.0):0,0,0;")
-PARSE_SUCCESS_TEST("0.0 (2)", DefaultParserFactory, " 0.0 ", FINAL, UTF8, "#(0.0):1,0,1;")
-PARSE_SUCCESS_TEST("0.12 (1)", DefaultParserFactory, "0.12", FINAL, UTF8, "#(0.12):0,0,0;")
-PARSE_SUCCESS_TEST("0.12 (2)", DefaultParserFactory, " 0.12 ", FINAL, UTF8, "#(0.12):1,0,1;")
-PARSE_SUCCESS_TEST("1.2 (1)", DefaultParserFactory, "1.2", FINAL, UTF8, "#(1.2):0,0,0;")
-PARSE_SUCCESS_TEST("1.2 (2)", DefaultParserFactory, " 1.2 ", FINAL, UTF8, "#(1.2):1,0,1;")
-PARSE_SUCCESS_TEST("1.23 (1)", DefaultParserFactory, "1.23", FINAL, UTF8, "#(1.23):0,0,0;")
-PARSE_SUCCESS_TEST("1.23 (2)", DefaultParserFactory, " 1.23 ", FINAL, UTF8, "#(1.23):1,0,1;")
-PARSE_SUCCESS_TEST("1.23e456 (1)", DefaultParserFactory, "1.23e456", FINAL, UTF8, "#(1.23e456):0,0,0;")
-PARSE_SUCCESS_TEST("1.23e456 (2)", DefaultParserFactory, " 1.23e456 ", FINAL, UTF8, "#(1.23e456):1,0,1;")
-PARSE_SUCCESS_TEST("1.23e+456 (1)", DefaultParserFactory, "1.23e+456", FINAL, UTF8, "#(1.23e+456):0,0,0;")
-PARSE_SUCCESS_TEST("1.23e+456 (2)", DefaultParserFactory, " 1.23e+456 ", FINAL, UTF8, "#(1.23e+456):1,0,1;")
-PARSE_SUCCESS_TEST("1.23e-456 (1)", DefaultParserFactory, "1.23e-456", FINAL, UTF8, "#(1.23e-456):0,0,0;")
-PARSE_SUCCESS_TEST("1.23e-456 (2)", DefaultParserFactory, " 1.23e-456 ", FINAL, UTF8, "#(1.23e-456):1,0,1;")
-PARSE_SUCCESS_TEST("maximum length number", DefaultParserFactory, "-123456789012345678901234567890.12345678901234567890e1234567890", FINAL, UTF8, "#(-123456789012345678901234567890.12345678901234567890e1234567890):0,0,0;")
-PARSE_SUCCESS_TEST("number encoded in UTF-16LE (1)", UTF16LEParserFactory, "0\x00", FINAL, UTF16LE, "#(0):0,0,0;")
-PARSE_SUCCESS_TEST("number encoded in UTF-16LE (2)", UTF16LEParserFactory, "-\x00" "1\x00" ".\x00" "2\x00" "3\x00" "e\x00" "-\x00" "4\x00" "5\x00" "6\x00", FINAL, UTF16LE, "#(-1.23e-456):0,0,0;")
-PARSE_SUCCESS_TEST("number encoded in UTF-16BE (1)", UTF16BEParserFactory, "\x00" "0", FINAL, UTF16BE, "#(0):0,0,0;")
-PARSE_SUCCESS_TEST("number encoded in UTF-16BE (2)", UTF16BEParserFactory, "\x00" "-\x00" "1\x00" ".\x00" "2\x00" "3\x00" "e\x00" "-\x00" "4\x00" "5\x00" "6", FINAL, UTF16BE, "#(-1.23e-456):0,0,0;")
-PARSE_SUCCESS_TEST("number encoded in UTF-32LE (1)", UTF32LEParserFactory, "0\x00\x00\x00", FINAL, UTF32LE, "#(0):0,0,0;")
-PARSE_SUCCESS_TEST("number encoded in UTF-32LE (2)", UTF32LEParserFactory, "-\x00\x00\x00" "1\x00\x00\x00" ".\x00\x00\x00" "2\x00\x00\x00" "3\x00\x00\x00" "e\x00\x00\x00" "-\x00\x00\x00" "4\x00\x00\x00" "5\x00\x00\x00" "6\x00\x00\x00", FINAL, UTF32LE, "#(-1.23e-456):0,0,0;")
-PARSE_SUCCESS_TEST("number encoded in UTF-32BE (1)", UTF32BEParserFactory, "\x00\x00\x00" "0", FINAL, UTF32BE, "#(0):0,0,0;")
-PARSE_SUCCESS_TEST("number encoded in UTF-32BE (2)", UTF32BEParserFactory, "\x00\x00\x00" "-\x00\x00\x00" "1\x00\x00\x00" ".\x00\x00\x00" "2\x00\x00\x00" "3\x00\x00\x00" "e\x00\x00\x00" "-\x00\x00\x00" "4\x00\x00\x00" "5\x00\x00\x00" "6", FINAL, UTF32BE, "#(-1.23e-456):0,0,0;")
-PARSE_FAILURE_TEST("number cannot have leading + sign", DefaultParserFactory, "+7", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("number cannot have digits after leading 0 (1)", DefaultParserFactory, "00", FINAL, InvalidNumber, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("number cannot have digits after leading 0 (2)", DefaultParserFactory, "01", FINAL, InvalidNumber, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("number cannot have digits after leading 0 (3)", DefaultParserFactory, "-00", FINAL, InvalidNumber, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("number cannot have digits after leading 0 (4)", DefaultParserFactory, "-01", FINAL, InvalidNumber, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("number requires digit after - sign", DefaultParserFactory, "-x", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("number truncated after - sign", DefaultParserFactory, "-", FINAL, IncompleteToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("number requires digit after decimal point", DefaultParserFactory, "7.x", FINAL, InvalidNumber, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("number truncated after decimal point", DefaultParserFactory, "7.", FINAL, IncompleteToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("number requires digit or sign after e", DefaultParserFactory, "7ex", FINAL, InvalidNumber, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("number truncated after e", DefaultParserFactory, "7e", FINAL, IncompleteToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("number requires digit or sign after E", DefaultParserFactory, "7Ex", FINAL, InvalidNumber, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("number truncated after E", DefaultParserFactory, "7E", FINAL, IncompleteToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("number requires digit after exponent + sign", DefaultParserFactory, "7e+x", FINAL, InvalidNumber, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("number truncated after exponent + sign", DefaultParserFactory, "7e+", FINAL, IncompleteToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("number requires digit after exponent - sign", DefaultParserFactory, "7e-x", FINAL, InvalidNumber, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("number truncated after exponent - sign", DefaultParserFactory, "7e-", FINAL, IncompleteToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("too long number", DefaultParserFactory, "-123456789012345678901234567890.12345678901234567890e12345678900", FINAL, TooLongNumber, 0, 0, 0, UTF8)
+PARSE_SUCCESS_TEST("0 (1)", DefaultSettings, "0", FINAL, UTF8, "#(0):0,0,0,0")
+PARSE_SUCCESS_TEST("0 (2)", DefaultSettings, " 0 ", FINAL, UTF8, "#(0):1,0,1,0")
+PARSE_SUCCESS_TEST("-0 (1)", DefaultSettings, "-0", FINAL, UTF8, "#(-0):0,0,0,0")
+PARSE_SUCCESS_TEST("-0 (2)", DefaultSettings, " -0 ", FINAL, UTF8, "#(-0):1,0,1,0")
+PARSE_SUCCESS_TEST("7 (1)", DefaultSettings, "7", FINAL, UTF8, "#(7):0,0,0,0")
+PARSE_SUCCESS_TEST("7 (2)", DefaultSettings, " 7 ", FINAL, UTF8, "#(7):1,0,1,0")
+PARSE_SUCCESS_TEST("-7 (1)", DefaultSettings, "-7", FINAL, UTF8, "#(-7):0,0,0,0")
+PARSE_SUCCESS_TEST("-7 (2)", DefaultSettings, " -7 ", FINAL, UTF8, "#(-7):1,0,1,0")
+PARSE_SUCCESS_TEST("1234567890 (1)", DefaultSettings, "1234567890", FINAL, UTF8, "#(1234567890):0,0,0,0")
+PARSE_SUCCESS_TEST("1234567890 (2)", DefaultSettings, " 1234567890 ", FINAL, UTF8, "#(1234567890):1,0,1,0")
+PARSE_SUCCESS_TEST("-1234567890 (1)", DefaultSettings, "-1234567890", FINAL, UTF8, "#(-1234567890):0,0,0,0")
+PARSE_SUCCESS_TEST("-1234567890 (2)", DefaultSettings, " -1234567890 ", FINAL, UTF8, "#(-1234567890):1,0,1,0")
+PARSE_SUCCESS_TEST("0e1 (1)", DefaultSettings, "0e1", FINAL, UTF8, "#(0e1):0,0,0,0")
+PARSE_SUCCESS_TEST("0e1 (2)", DefaultSettings, " 0e1 ", FINAL, UTF8, "#(0e1):1,0,1,0")
+PARSE_SUCCESS_TEST("1e2 (1)", DefaultSettings, "1e2", FINAL, UTF8, "#(1e2):0,0,0,0")
+PARSE_SUCCESS_TEST("1e2 (2)", DefaultSettings, " 1e2 ", FINAL, UTF8, "#(1e2):1,0,1,0")
+PARSE_SUCCESS_TEST("0e+1 (1)", DefaultSettings, "0e+1", FINAL, UTF8, "#(0e+1):0,0,0,0")
+PARSE_SUCCESS_TEST("0e+1 (2)", DefaultSettings, " 0e+1 ", FINAL, UTF8, "#(0e+1):1,0,1,0")
+PARSE_SUCCESS_TEST("1e+2 (1)", DefaultSettings, "1e+2", FINAL, UTF8, "#(1e+2):0,0,0,0")
+PARSE_SUCCESS_TEST("1e+2 (2)", DefaultSettings, " 1e+2 ", FINAL, UTF8, "#(1e+2):1,0,1,0")
+PARSE_SUCCESS_TEST("0e-1 (1)", DefaultSettings, "0e-1", FINAL, UTF8, "#(0e-1):0,0,0,0")
+PARSE_SUCCESS_TEST("0e-1 (2)", DefaultSettings, " 0e-1 ", FINAL, UTF8, "#(0e-1):1,0,1,0")
+PARSE_SUCCESS_TEST("1e-2 (1)", DefaultSettings, "1e-2", FINAL, UTF8, "#(1e-2):0,0,0,0")
+PARSE_SUCCESS_TEST("1e-2 (2)", DefaultSettings, " 1e-2 ", FINAL, UTF8, "#(1e-2):1,0,1,0")
+PARSE_SUCCESS_TEST("1234567890E0987654321 (1)", DefaultSettings, "1234567890E0987654321", FINAL, UTF8, "#(1234567890E0987654321):0,0,0,0")
+PARSE_SUCCESS_TEST("1234567890E0987654321 (2)", DefaultSettings, " 1234567890E0987654321 ", FINAL, UTF8, "#(1234567890E0987654321):1,0,1,0")
+PARSE_SUCCESS_TEST("0.0 (1)", DefaultSettings, "0.0", FINAL, UTF8, "#(0.0):0,0,0,0")
+PARSE_SUCCESS_TEST("0.0 (2)", DefaultSettings, " 0.0 ", FINAL, UTF8, "#(0.0):1,0,1,0")
+PARSE_SUCCESS_TEST("0.12 (1)", DefaultSettings, "0.12", FINAL, UTF8, "#(0.12):0,0,0,0")
+PARSE_SUCCESS_TEST("0.12 (2)", DefaultSettings, " 0.12 ", FINAL, UTF8, "#(0.12):1,0,1,0")
+PARSE_SUCCESS_TEST("1.2 (1)", DefaultSettings, "1.2", FINAL, UTF8, "#(1.2):0,0,0,0")
+PARSE_SUCCESS_TEST("1.2 (2)", DefaultSettings, " 1.2 ", FINAL, UTF8, "#(1.2):1,0,1,0")
+PARSE_SUCCESS_TEST("1.23 (1)", DefaultSettings, "1.23", FINAL, UTF8, "#(1.23):0,0,0,0")
+PARSE_SUCCESS_TEST("1.23 (2)", DefaultSettings, " 1.23 ", FINAL, UTF8, "#(1.23):1,0,1,0")
+PARSE_SUCCESS_TEST("1.23e456 (1)", DefaultSettings, "1.23e456", FINAL, UTF8, "#(1.23e456):0,0,0,0")
+PARSE_SUCCESS_TEST("1.23e456 (2)", DefaultSettings, " 1.23e456 ", FINAL, UTF8, "#(1.23e456):1,0,1,0")
+PARSE_SUCCESS_TEST("1.23e+456 (1)", DefaultSettings, "1.23e+456", FINAL, UTF8, "#(1.23e+456):0,0,0,0")
+PARSE_SUCCESS_TEST("1.23e+456 (2)", DefaultSettings, " 1.23e+456 ", FINAL, UTF8, "#(1.23e+456):1,0,1,0")
+PARSE_SUCCESS_TEST("1.23e-456 (1)", DefaultSettings, "1.23e-456", FINAL, UTF8, "#(1.23e-456):0,0,0,0")
+PARSE_SUCCESS_TEST("1.23e-456 (2)", DefaultSettings, " 1.23e-456 ", FINAL, UTF8, "#(1.23e-456):1,0,1,0")
+PARSE_SUCCESS_TEST("maximum length number", DefaultSettings, "-123456789012345678901234567890.12345678901234567890e1234567890", FINAL, UTF8, "#(-123456789012345678901234567890.12345678901234567890e1234567890):0,0,0,0")
+PARSE_SUCCESS_TEST("number encoded in UTF-16LE (1)", UTF16LEIn | UTF16LEOut, "0\x00", FINAL, UTF16LE, "#(0):0,0,0,0")
+PARSE_SUCCESS_TEST("number encoded in UTF-16LE (2)", UTF16LEIn | UTF16LEOut, "-\x00" "1\x00" ".\x00" "2\x00" "3\x00" "e\x00" "-\x00" "4\x00" "5\x00" "6\x00", FINAL, UTF16LE, "#(-1.23e-456):0,0,0,0")
+PARSE_SUCCESS_TEST("number encoded in UTF-16BE (1)", UTF16BEIn | UTF16BEOut, "\x00" "0", FINAL, UTF16BE, "#(0):0,0,0,0")
+PARSE_SUCCESS_TEST("number encoded in UTF-16BE (2)", UTF16BEIn | UTF16BEOut, "\x00" "-\x00" "1\x00" ".\x00" "2\x00" "3\x00" "e\x00" "-\x00" "4\x00" "5\x00" "6", FINAL, UTF16BE, "#(-1.23e-456):0,0,0,0")
+PARSE_SUCCESS_TEST("number encoded in UTF-32LE (1)", UTF32LEIn | UTF32LEOut, "0\x00\x00\x00", FINAL, UTF32LE, "#(0):0,0,0,0")
+PARSE_SUCCESS_TEST("number encoded in UTF-32LE (2)", UTF32LEIn | UTF32LEOut, "-\x00\x00\x00" "1\x00\x00\x00" ".\x00\x00\x00" "2\x00\x00\x00" "3\x00\x00\x00" "e\x00\x00\x00" "-\x00\x00\x00" "4\x00\x00\x00" "5\x00\x00\x00" "6\x00\x00\x00", FINAL, UTF32LE, "#(-1.23e-456):0,0,0,0")
+PARSE_SUCCESS_TEST("number encoded in UTF-32BE (1)", UTF32BEIn | UTF32BEOut, "\x00\x00\x00" "0", FINAL, UTF32BE, "#(0):0,0,0,0")
+PARSE_SUCCESS_TEST("number encoded in UTF-32BE (2)", UTF32BEIn | UTF32BEOut, "\x00\x00\x00" "-\x00\x00\x00" "1\x00\x00\x00" ".\x00\x00\x00" "2\x00\x00\x00" "3\x00\x00\x00" "e\x00\x00\x00" "-\x00\x00\x00" "4\x00\x00\x00" "5\x00\x00\x00" "6", FINAL, UTF32BE, "#(-1.23e-456):0,0,0,0")
+PARSE_FAILURE_TEST("number cannot have leading + sign", DefaultSettings, "+7", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("number cannot have digits after leading 0 (1)", DefaultSettings, "00", FINAL, InvalidNumber, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("number cannot have digits after leading 0 (2)", DefaultSettings, "01", FINAL, InvalidNumber, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("number cannot have digits after leading 0 (3)", DefaultSettings, "-00", FINAL, InvalidNumber, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("number cannot have digits after leading 0 (4)", DefaultSettings, "-01", FINAL, InvalidNumber, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("number requires digit after - sign", DefaultSettings, "-x", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("number truncated after - sign", DefaultSettings, "-", FINAL, IncompleteToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("number requires digit after decimal point", DefaultSettings, "7.x", FINAL, InvalidNumber, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("number truncated after decimal point", DefaultSettings, "7.", FINAL, IncompleteToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("number requires digit or sign after e", DefaultSettings, "7ex", FINAL, InvalidNumber, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("number truncated after e", DefaultSettings, "7e", FINAL, IncompleteToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("number requires digit or sign after E", DefaultSettings, "7Ex", FINAL, InvalidNumber, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("number truncated after E", DefaultSettings, "7E", FINAL, IncompleteToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("number requires digit after exponent + sign", DefaultSettings, "7e+x", FINAL, InvalidNumber, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("number truncated after exponent + sign", DefaultSettings, "7e+", FINAL, IncompleteToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("number requires digit after exponent - sign", DefaultSettings, "7e-x", FINAL, InvalidNumber, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("number truncated after exponent - sign", DefaultSettings, "7e-", FINAL, IncompleteToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("too long number", DefaultSettings, "-123456789012345678901234567890.12345678901234567890e12345678900", FINAL, TooLongNumber, 0, 0, 0, 0, UTF8)
 
 /* hex numbers */
 
-PARSE_FAILURE_TEST("hex number not allowed (1)", DefaultParserFactory, "0x0", FINAL, UnknownToken, 1, 0, 1, UTF8)
-PARSE_FAILURE_TEST("hex number not allowed (2)", DefaultParserFactory, "0X1", FINAL, UnknownToken, 1, 0, 1, UTF8)
-PARSE_FAILURE_TEST("hex number not allowed (3)", DefaultParserFactory, "-0X1", FINAL, UnknownToken, 2, 0, 2, UTF8)
+PARSE_FAILURE_TEST("hex number not allowed (1)", DefaultSettings, "0x0", FINAL, UnknownToken, 1, 0, 1, 0, UTF8)
+PARSE_FAILURE_TEST("hex number not allowed (2)", DefaultSettings, "0X1", FINAL, UnknownToken, 1, 0, 1, 0, UTF8)
+PARSE_FAILURE_TEST("hex number not allowed (3)", DefaultSettings, "-0X1", FINAL, UnknownToken, 2, 0, 2, 0, UTF8)
 
-PARSE_FAILURE_TEST("negative hex number not allowed", AllowHexNumbersParserFactory, "-0X1", FINAL, UnknownToken, 2, 0, 2, UTF8)
+PARSE_FAILURE_TEST("negative hex number not allowed", AllowHexNumbers, "-0X1", FINAL, UnknownToken, 2, 0, 2, 0, UTF8)
 
-PARSE_SUCCESS_TEST("hex number (1)", AllowHexNumbersParserFactory, "0x0", FINAL, UTF8, "#(0x0):0,0,0;")
-PARSE_SUCCESS_TEST("hex number (2)", AllowHexNumbersParserFactory, "0x1", FINAL, UTF8, "#(0x1):0,0,0;")
-PARSE_SUCCESS_TEST("hex number (3)", AllowHexNumbersParserFactory, "0x0000", FINAL, UTF8, "#(0x0000):0,0,0;")
-PARSE_SUCCESS_TEST("hex number (4)", AllowHexNumbersParserFactory, "0x123456789abcdefABCDEF", FINAL, UTF8, "#(0x123456789abcdefABCDEF):0,0,0;")
+PARSE_SUCCESS_TEST("hex number (1)", AllowHexNumbers, "0x0", FINAL, UTF8, "#(0x0):0,0,0,0")
+PARSE_SUCCESS_TEST("hex number (2)", AllowHexNumbers, "0x1", FINAL, UTF8, "#(0x1):0,0,0,0")
+PARSE_SUCCESS_TEST("hex number (3)", AllowHexNumbers, "0x0000", FINAL, UTF8, "#(0x0000):0,0,0,0")
+PARSE_SUCCESS_TEST("hex number (4)", AllowHexNumbers, "0x123456789abcdefABCDEF", FINAL, UTF8, "#(0x123456789abcdefABCDEF):0,0,0,0")
 
-PARSE_SUCCESS_TEST("maximum length hex number", AllowHexNumbersParserFactory, "0x123456789a123456789a123456789a123456789a123456789a123456789a0", FINAL, UTF8, "#(0x123456789a123456789a123456789a123456789a123456789a123456789a0):0,0,0;")
+PARSE_SUCCESS_TEST("maximum length hex number", AllowHexNumbers, "0x123456789a123456789a123456789a123456789a123456789a123456789a0", FINAL, UTF8, "#(0x123456789a123456789a123456789a123456789a123456789a123456789a0):0,0,0,0")
 
-PARSE_FAILURE_TEST("hex number truncated after x", AllowHexNumbersParserFactory, "0x", FINAL, IncompleteToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("hex number requires  digit after x", AllowHexNumbersParserFactory, "0xx", FINAL, InvalidNumber, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("hex number truncated after X", AllowHexNumbersParserFactory, "0X", FINAL, IncompleteToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("hex number requires  digit after X", AllowHexNumbersParserFactory, "0Xx", FINAL, InvalidNumber, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("hex number truncated after x", AllowHexNumbers, "0x", FINAL, IncompleteToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("hex number requires  digit after x", AllowHexNumbers, "0xx", FINAL, InvalidNumber, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("hex number truncated after X", AllowHexNumbers, "0X", FINAL, IncompleteToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("hex number requires  digit after X", AllowHexNumbers, "0Xx", FINAL, InvalidNumber, 0, 0, 0, 0, UTF8)
 
-PARSE_FAILURE_TEST("too long hex number", AllowHexNumbersParserFactory, "0x123456789a123456789a123456789a123456789a123456789a123456789a00", FINAL, TooLongNumber, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("too long hex number", AllowHexNumbers, "0x123456789a123456789a123456789a123456789a123456789a123456789a00", FINAL, TooLongNumber, 0, 0, 0, 0, UTF8)
 
 /* strings */
 
-PARSE_SUCCESS_TEST("all whitespace string", DefaultParserFactory, "\" \\r\\n\\t \"", FINAL, UTF8, "string(0x2, 20 0D 0A 09 20):0,0,0;")
-PARSE_SUCCESS_TEST("ASCII string", DefaultParserFactory, "\"abc DEF 123\"", FINAL, UTF8, "string(0x0, 61 62 63 20 44 45 46 20 31 32 33):0,0,0;")
-PARSE_SUCCESS_TEST("simple string escape sequences", DefaultParserFactory, "\"\\\"\\\\/\\t\\n\\r\\f\\b\"", FINAL, UTF8, "string(0x2, 22 5C 2F 09 0A 0D 0C 08):0,0,0;")
-PARSE_SUCCESS_TEST("string hex escape sequences", DefaultParserFactory, "\"\\u0000\\u0020\\u0aF9\\ufFfF\\uD834\\udd1e\"", FINAL, UTF8, "string(0xF, 00 20 E0 AB B9 EF BF BF F0 9D 84 9E):0,0,0;")
-PARSE_SUCCESS_TEST("string escaped control characters", DefaultParserFactory, "\""
+PARSE_SUCCESS_TEST("all whitespace string", DefaultSettings, "\" \\r\\n\\t \"", FINAL, UTF8, "s(c 20 0D 0A 09 20):0,0,0,0")
+PARSE_SUCCESS_TEST("ASCII string", DefaultSettings, "\"abc DEF 123\"", FINAL, UTF8, "s(61 62 63 20 44 45 46 20 31 32 33):0,0,0,0")
+PARSE_SUCCESS_TEST("simple string escape sequences", DefaultSettings, "\"\\\"\\\\/\\t\\n\\r\\f\\b\"", FINAL, UTF8, "s(c 22 5C 2F 09 0A 0D 0C 08):0,0,0,0")
+PARSE_SUCCESS_TEST("string hex escape sequences", DefaultSettings, "\"\\u0000\\u0020\\u0aF9\\ufFfF\\uD834\\udd1e\"", FINAL, UTF8, "s(zcab 00 20 E0 AB B9 EF BF BF F0 9D 84 9E):0,0,0,0")
+PARSE_SUCCESS_TEST("string escaped control characters", DefaultSettings, "\""
                    "\\u0000\\u0001\\u0002\\u0003\\u0004\\u0005\\u0006\\u0007\\u0008\\u0009\\u000A\\u000B\\u000C\\u000D\\u000E\\u000F"
                    "\\u0010\\u0011\\u0012\\u0013\\u0014\\u0015\\u0016\\u0017\\u0018\\u0019\\u001A\\u001B\\u001C\\u001D\\u001E\\u001F"
-                   "\"", FINAL, UTF8, "string(0x3, 00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F 10 11 12 13 14 15 16 17 18 19 1A 1B 1C 1D 1E 1F):0,0,0;")
-PARSE_SUCCESS_TEST("non-control ASCII string", DefaultParserFactory, "\""
+                   "\"", FINAL, UTF8, "s(zc 00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F 10 11 12 13 14 15 16 17 18 19 1A 1B 1C 1D 1E 1F):0,0,0,0")
+PARSE_SUCCESS_TEST("non-control ASCII string", DefaultSettings, "\""
                    " !\\u0022#$%&'()+*,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\u005C]^_`abcdefghijklmnopqrstuvwxyz{|}~\\u007F"
-                   "\"", FINAL, UTF8, "string(0x0, 20 21 22 23 24 25 26 27 28 29 2B 2A 2C 2D 2E 2F 30 31 32 33 34 35 36 37 38 39 3A 3B 3C 3D 3E 3F 40 41 42 43 44 45 46 47 48 49 4A 4B 4C 4D 4E 4F 50 51 52 53 54 55 56 57 58 59 5A 5B 5C 5D 5E 5F 60 61 62 63 64 65 66 67 68 69 6A 6B 6C 6D 6E 6F 70 71 72 73 74 75 76 77 78 79 7A 7B 7C 7D 7E 7F):0,0,0;")
-PARSE_SUCCESS_TEST("long string", DefaultParserFactory, "\""
+                   "\"", FINAL, UTF8, "s(20 21 22 23 24 25 26 27 28 29 2B 2A 2C 2D 2E 2F 30 31 32 33 34 35 36 37 38 39 3A 3B 3C 3D 3E 3F 40 41 42 43 44 45 46 47 48 49 4A 4B 4C 4D 4E 4F 50 51 52 53 54 55 56 57 58 59 5A 5B 5C 5D 5E 5F 60 61 62 63 64 65 66 67 68 69 6A 6B 6C 6D 6E 6F 70 71 72 73 74 75 76 77 78 79 7A 7B 7C 7D 7E 7F):0,0,0,0")
+PARSE_SUCCESS_TEST("long string", DefaultSettings, "\""
                    "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF"
                    "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF"
-                   "\"", FINAL, UTF8, "string(0x0, 30 31 32 33 34 35 36 37 38 39 41 42 43 44 45 46 30 31 32 33 34 35 36 37 38 39 41 42 43 44 45 46 30 31 32 33 34 35 36 37 38 39 41 42 43 44 45 46 30 31 32 33 34 35 36 37 38 39 41 42 43 44 45 46 30 31 32 33 34 35 36 37 38 39 41 42 43 44 45 46 30 31 32 33 34 35 36 37 38 39 41 42 43 44 45 46 30 31 32 33 34 35 36 37 38 39 41 42 43 44 45 46 30 31 32 33 34 35 36 37 38 39 41 42 43 44 45 46):0,0,0;")
-PARSE_SUCCESS_TEST("UTF-8 output empty string", UTF8ParserFactory, "\"\"", FINAL, UTF8, "string(0x0, ):0,0,0;")
-PARSE_SUCCESS_TEST("UTF-8 output ASCII string", UTF8ParserFactory, "\"\x61\"", FINAL, UTF8, "string(0x0, 61):0,0,0;")
-PARSE_SUCCESS_TEST("UTF-8 output non-ASCII string", UTF8ParserFactory, "\"\xE0\xAB\xB9\"", FINAL, UTF8, "string(0x4, E0 AB B9):0,0,0;")
-PARSE_SUCCESS_TEST("UTF-8 output non-BMP string", UTF8ParserFactory, "\"\xF0\x9D\x84\x9E\"", FINAL, UTF8, "string(0xC, F0 9D 84 9E):0,0,0;")
-PARSE_SUCCESS_TEST("UTF-16LE output empty string", UTF16LEParserFactory, "\"\x00\"\x00", FINAL, UTF16LE, "string(0x0, ):0,0,0;")
-PARSE_SUCCESS_TEST("UTF-16LE output ASCII string", UTF16LEParserFactory, "\"\x00\x61\x00\"\x00", FINAL, UTF16LE, "string(0x0, 61 00):0,0,0;")
-PARSE_SUCCESS_TEST("UTF-16LE output non-ASCII string", UTF16LEParserFactory, "\"\x00\xF9\x0A\"\x00", FINAL, UTF16LE, "string(0x4, F9 0A):0,0,0;")
-PARSE_SUCCESS_TEST("UTF-16LE output non-BMP string", UTF16LEParserFactory, "\"\x00\x34\xD8\x1E\xDD\"\x00", FINAL, UTF16LE, "string(0xC, 34 D8 1E DD):0,0,0;")
-PARSE_SUCCESS_TEST("UTF-16BE output empty string", UTF16BEParserFactory, "\x00\"\x00\"", FINAL, UTF16BE, "string(0x0, ):0,0,0;")
-PARSE_SUCCESS_TEST("UTF-16BE output ASCII string", UTF16BEParserFactory, "\x00\"\x00\x61\x00\"", FINAL, UTF16BE, "string(0x0, 00 61):0,0,0;")
-PARSE_SUCCESS_TEST("UTF-16BE output non-ASCII string", UTF16BEParserFactory, "\x00\"\x0A\xF9\x00\"", FINAL, UTF16BE, "string(0x4, 0A F9):0,0,0;")
-PARSE_SUCCESS_TEST("UTF-16BE output non-BMP string", UTF16BEParserFactory, "\x00\"\xD8\x34\xDD\x1E\x00\"", FINAL, UTF16BE, "string(0xC, D8 34 DD 1E):0,0,0;")
-PARSE_SUCCESS_TEST("UTF-32LE output empty string", UTF32LEParserFactory, "\"\x00\x00\x00\"\x00\x00\x00", FINAL, UTF32LE, "string(0x0, ):0,0,0;")
-PARSE_SUCCESS_TEST("UTF-32LE output ASCII string", UTF32LEParserFactory, "\"\x00\x00\x00\x61\x00\x00\x00\"\x00\x00\x00", FINAL, UTF32LE, "string(0x0, 61 00 00 00):0,0,0;")
-PARSE_SUCCESS_TEST("UTF-32LE output non-ASCII string", UTF32LEParserFactory, "\"\x00\x00\x00\xF9\x0A\x00\x00\"\x00\x00\x00", FINAL, UTF32LE, "string(0x4, F9 0A 00 00):0,0,0;")
-PARSE_SUCCESS_TEST("UTF-32LE output non-BMP string", UTF32LEParserFactory, "\"\x00\x00\x00\x1E\xD1\x01\x00\"\x00\x00\x00", FINAL, UTF32LE, "string(0xC, 1E D1 01 00):0,0,0;")
-PARSE_SUCCESS_TEST("UTF-32BE output empty string", UTF32BEParserFactory, "\x00\x00\x00\"\x00\x00\x00\"", FINAL, UTF32BE, "string(0x0, ):0,0,0;")
-PARSE_SUCCESS_TEST("UTF-32BE output ASCII string", UTF32BEParserFactory, "\x00\x00\x00\"\x00\x00\x00\x61\x00\x00\x00\"", FINAL, UTF32BE, "string(0x0, 00 00 00 61):0,0,0;")
-PARSE_SUCCESS_TEST("UTF-32BE output non-ASCII string", UTF32BEParserFactory, "\x00\x00\x00\"\x00\x00\x0A\xF9\x00\x00\x00\"", FINAL, UTF32BE, "string(0x4, 00 00 0A F9):0,0,0;")
-PARSE_SUCCESS_TEST("UTF-32BE output non-BMP string", UTF32BEParserFactory, "\x00\x00\x00\"\x00\x01\xD1\x1E\x00\x00\x00\"", FINAL, UTF32BE, "string(0xC, 00 01 D1 1E):0,0,0;")
-PARSE_FAILURE_TEST("unterminated string (1)", DefaultParserFactory, "\"", FINAL, IncompleteToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("unterminated string (2)", DefaultParserFactory, "\"abc", FINAL, IncompleteToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("string cannot contain unescaped control character (1)", DefaultParserFactory, "\"abc\x00\"", FINAL, UnescapedControlCharacter, 4, 0, 4, UTF8)
-PARSE_FAILURE_TEST("string cannot contain unescaped control character (2)", DefaultParserFactory, "\"abc\x09\"", FINAL, UnescapedControlCharacter, 4, 0, 4, UTF8)
-PARSE_FAILURE_TEST("string cannot contain unescaped control character (3)", DefaultParserFactory, "\"abc\x0A\"", FINAL, UnescapedControlCharacter, 4, 0, 4, UTF8)
-PARSE_FAILURE_TEST("string cannot contain unescaped control character (4)", DefaultParserFactory, "\"abc\x0D\"", FINAL, UnescapedControlCharacter, 4, 0, 4, UTF8)
-PARSE_FAILURE_TEST("string cannot contain unescaped control character (5)", DefaultParserFactory, "\"abc\x1F\"", FINAL, UnescapedControlCharacter, 4, 0, 4, UTF8)
-PARSE_FAILURE_TEST("string cannot contain invalid escape sequence (1)", DefaultParserFactory, "\"\\v\"", FINAL, InvalidEscapeSequence, 1, 0, 1, UTF8)
-PARSE_FAILURE_TEST("string cannot contain invalid escape sequence (2)", DefaultParserFactory, "\"\\x0020\"", FINAL, InvalidEscapeSequence, 1, 0, 1, UTF8)
-PARSE_FAILURE_TEST("string cannot contain invalid escape sequence (3)", DefaultParserFactory, "\"\\ \"", FINAL, InvalidEscapeSequence, 1, 0, 1, UTF8)
-PARSE_FAILURE_TEST("string truncated after \\", DefaultParserFactory, "\"\\", FINAL, IncompleteToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("string truncated after \\u", DefaultParserFactory, "\"\\u", FINAL, IncompleteToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("string truncated after \\ux", DefaultParserFactory, "\"\\u0", FINAL, IncompleteToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("string truncated after \\uxx", DefaultParserFactory, "\"\\u01", FINAL, IncompleteToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("string truncated after \\uxxx", DefaultParserFactory, "\"\\u01a", FINAL, IncompleteToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("string requires hex digit after \\u", DefaultParserFactory, "\"\\ux\"", FINAL, InvalidEscapeSequence, 1, 0, 1, UTF8)
-PARSE_FAILURE_TEST("string requires hex digit after \\ux", DefaultParserFactory, "\"\\u0x\"", FINAL, InvalidEscapeSequence, 1, 0, 1, UTF8)
-PARSE_FAILURE_TEST("string requires hex digit after \\uxx", DefaultParserFactory, "\"\\u01x\"", FINAL, InvalidEscapeSequence, 1, 0, 1, UTF8)
-PARSE_FAILURE_TEST("string requires hex digit after \\uxxx", DefaultParserFactory, "\"\\u01ax\"", FINAL, InvalidEscapeSequence, 1, 0, 1, UTF8)
-PARSE_FAILURE_TEST("string truncated after escaped leading surrogate", DefaultParserFactory, "\"\\uD800", FINAL, IncompleteToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("string requires escaped surrogates to appear in valid pairs (1)", DefaultParserFactory, "\"\\uD834\"", FINAL, UnpairedSurrogateEscapeSequence, 1, 0, 1, UTF8)
-PARSE_FAILURE_TEST("string requires escaped surrogates to appear in valid pairs (2)", DefaultParserFactory, "\"\\uD834x\"", FINAL, UnpairedSurrogateEscapeSequence, 1, 0, 1, UTF8)
-PARSE_FAILURE_TEST("string requires escaped surrogates to appear in valid pairs (3)", DefaultParserFactory, "\"\\uD834\\n\"", FINAL, UnpairedSurrogateEscapeSequence, 1, 0, 1, UTF8)
-PARSE_FAILURE_TEST("string requires escaped surrogates to appear in valid pairs (4)", DefaultParserFactory, "\"\\uD834\\u0020\"", FINAL, UnpairedSurrogateEscapeSequence, 1, 0, 1, UTF8)
-PARSE_FAILURE_TEST("string requires escaped surrogates to appear in valid pairs (5)", DefaultParserFactory, "\"\\uD834\\uD834\"", FINAL, UnpairedSurrogateEscapeSequence, 1, 0, 1, UTF8)
-PARSE_FAILURE_TEST("string requires escaped surrogates to appear in valid pairs (6)", DefaultParserFactory, "\"\\uDC00\"", FINAL, UnpairedSurrogateEscapeSequence, 1, 0, 1, UTF8)
-PARSE_FAILURE_TEST("string truncated after \\ of trailing surrogate escape sequence", DefaultParserFactory, "\"\\uD834\\", FINAL, IncompleteToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("string truncated after \\u of trailing surrogate escape sequence", DefaultParserFactory, "\"\\uD834\\u", FINAL, IncompleteToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("string truncated after \\ux of trailing surrogate escape sequence", DefaultParserFactory, "\"\\uD834\\uD", FINAL, IncompleteToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("string truncated after \\uxx of trailing surrogate escape sequence", DefaultParserFactory, "\"\\uD834\\uDD", FINAL, IncompleteToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("string truncated after \\uxxx of trailing surrogate escape sequence", DefaultParserFactory, "\"\\uD834\\uDD1", FINAL, IncompleteToken, 0, 0, 0, UTF8)
-PARSE_SUCCESS_TEST("max length 0 string (1)", MaxStringLength0ParserFactory, "\"\"", FINAL, UTF8, "string(0x0, ):0,0,0;")
-PARSE_SUCCESS_TEST("max length 0 string (2)", MaxStringLength0ParserFactory, "{\"\":0}", FINAL, UTF8, "{:0,0,0;member(0x0, ):1,0,1;#(0):4,0,4;}:5,0,5;")
-PARSE_FAILURE_TEST("max length 0 string (3)", MaxStringLength0ParserFactory, "\"a\"", FINAL, TooLongString, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("max length 0 string (4)", MaxStringLength0ParserFactory, "{\"a\":0}", FINAL, TooLongString, 1, 0, 1, UTF8)
-PARSE_SUCCESS_TEST("max length 1 string (1)", MaxStringLength1ParserFactory, "\"a\"", FINAL, UTF8, "string(0x0, 61):0,0,0;")
-PARSE_SUCCESS_TEST("max length 1 string (2)", MaxStringLength1ParserFactory, "{\"a\":0}", FINAL, UTF8, "{:0,0,0;member(0x0, 61):1,0,1;#(0):5,0,5;}:6,0,6;")
-PARSE_FAILURE_TEST("max length 1 string (3)", MaxStringLength1ParserFactory, "\"ab\"", FINAL, TooLongString, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("max length 1 string (4)", MaxStringLength1ParserFactory, "{\"ab\":0}", FINAL, TooLongString, 1, 0, 1, UTF8)
-PARSE_FAILURE_TEST("max length 1 string (5)", MaxStringLength1ParserFactory, "\"\xE0\xAB\xB9\"", FINAL, TooLongString, 0, 0, 0, UTF8)
-PARSE_SUCCESS_TEST("max length 2 string (1)", MaxStringLength2ParserFactory, "\"ab\"", FINAL, UTF8, "string(0x0, 61 62):0,0,0;")
-PARSE_SUCCESS_TEST("max length 2 string (2)", MaxStringLength2ParserFactory, "{\"ab\":0}", FINAL, UTF8, "{:0,0,0;member(0x0, 61 62):1,0,1;#(0):6,0,6;}:7,0,7;")
-PARSE_FAILURE_TEST("max length 2 string (3)", MaxStringLength2ParserFactory, "\"abc\"", FINAL, TooLongString, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("max length 2 string (4)", MaxStringLength2ParserFactory, "{\"abc\":0}", FINAL, TooLongString, 1, 0, 1, UTF8)
-PARSE_FAILURE_TEST("max length 2 string (5)", MaxStringLength2ParserFactory, "\"\xE0\xAB\xB9\"", FINAL, TooLongString, 0, 0, 0, UTF8)
+                   "\"", FINAL, UTF8, "s(30 31 32 33 34 35 36 37 38 39 41 42 43 44 45 46 30 31 32 33 34 35 36 37 38 39 41 42 43 44 45 46 30 31 32 33 34 35 36 37 38 39 41 42 43 44 45 46 30 31 32 33 34 35 36 37 38 39 41 42 43 44 45 46 30 31 32 33 34 35 36 37 38 39 41 42 43 44 45 46 30 31 32 33 34 35 36 37 38 39 41 42 43 44 45 46 30 31 32 33 34 35 36 37 38 39 41 42 43 44 45 46 30 31 32 33 34 35 36 37 38 39 41 42 43 44 45 46):0,0,0,0")
+PARSE_SUCCESS_TEST("UTF-8 output empty string", UTF8In | UTF8Out, "\"\"", FINAL, UTF8, "s():0,0,0,0")
+PARSE_SUCCESS_TEST("UTF-8 output ASCII string", UTF8In | UTF8Out, "\"\x61\"", FINAL, UTF8, "s(61):0,0,0,0")
+PARSE_SUCCESS_TEST("UTF-8 output non-ASCII string", UTF8In | UTF8Out, "\"\xE0\xAB\xB9\"", FINAL, UTF8, "s(a E0 AB B9):0,0,0,0")
+PARSE_SUCCESS_TEST("UTF-8 output non-BMP string", UTF8In | UTF8Out, "\"\xF0\x9D\x84\x9E\"", FINAL, UTF8, "s(ab F0 9D 84 9E):0,0,0,0")
+PARSE_SUCCESS_TEST("UTF-16LE output empty string", UTF16LEIn | UTF16LEOut, "\"\x00\"\x00", FINAL, UTF16LE, "s():0,0,0,0")
+PARSE_SUCCESS_TEST("UTF-16LE output ASCII string", UTF16LEIn | UTF16LEOut, "\"\x00\x61\x00\"\x00", FINAL, UTF16LE, "s(61 00):0,0,0,0")
+PARSE_SUCCESS_TEST("UTF-16LE output non-ASCII string", UTF16LEIn | UTF16LEOut, "\"\x00\xF9\x0A\"\x00", FINAL, UTF16LE, "s(a F9 0A):0,0,0,0")
+PARSE_SUCCESS_TEST("UTF-16LE output non-BMP string", UTF16LEIn | UTF16LEOut, "\"\x00\x34\xD8\x1E\xDD\"\x00", FINAL, UTF16LE, "s(ab 34 D8 1E DD):0,0,0,0")
+PARSE_SUCCESS_TEST("UTF-16BE output empty string", UTF16BEIn | UTF16BEOut, "\x00\"\x00\"", FINAL, UTF16BE, "s():0,0,0,0")
+PARSE_SUCCESS_TEST("UTF-16BE output ASCII string", UTF16BEIn | UTF16BEOut, "\x00\"\x00\x61\x00\"", FINAL, UTF16BE, "s(00 61):0,0,0,0")
+PARSE_SUCCESS_TEST("UTF-16BE output non-ASCII string", UTF16BEIn | UTF16BEOut, "\x00\"\x0A\xF9\x00\"", FINAL, UTF16BE, "s(a 0A F9):0,0,0,0")
+PARSE_SUCCESS_TEST("UTF-16BE output non-BMP string", UTF16BEIn | UTF16BEOut, "\x00\"\xD8\x34\xDD\x1E\x00\"", FINAL, UTF16BE, "s(ab D8 34 DD 1E):0,0,0,0")
+PARSE_SUCCESS_TEST("UTF-32LE output empty string", UTF32LEIn | UTF32LEOut, "\"\x00\x00\x00\"\x00\x00\x00", FINAL, UTF32LE, "s():0,0,0,0")
+PARSE_SUCCESS_TEST("UTF-32LE output ASCII string", UTF32LEIn | UTF32LEOut, "\"\x00\x00\x00\x61\x00\x00\x00\"\x00\x00\x00", FINAL, UTF32LE, "s(61 00 00 00):0,0,0,0")
+PARSE_SUCCESS_TEST("UTF-32LE output non-ASCII string", UTF32LEIn | UTF32LEOut, "\"\x00\x00\x00\xF9\x0A\x00\x00\"\x00\x00\x00", FINAL, UTF32LE, "s(a F9 0A 00 00):0,0,0,0")
+PARSE_SUCCESS_TEST("UTF-32LE output non-BMP string", UTF32LEIn | UTF32LEOut, "\"\x00\x00\x00\x1E\xD1\x01\x00\"\x00\x00\x00", FINAL, UTF32LE, "s(ab 1E D1 01 00):0,0,0,0")
+PARSE_SUCCESS_TEST("UTF-32BE output empty string", UTF32BEIn | UTF32BEOut, "\x00\x00\x00\"\x00\x00\x00\"", FINAL, UTF32BE, "s():0,0,0,0")
+PARSE_SUCCESS_TEST("UTF-32BE output ASCII string", UTF32BEIn | UTF32BEOut, "\x00\x00\x00\"\x00\x00\x00\x61\x00\x00\x00\"", FINAL, UTF32BE, "s(00 00 00 61):0,0,0,0")
+PARSE_SUCCESS_TEST("UTF-32BE output non-ASCII string", UTF32BEIn | UTF32BEOut, "\x00\x00\x00\"\x00\x00\x0A\xF9\x00\x00\x00\"", FINAL, UTF32BE, "s(a 00 00 0A F9):0,0,0,0")
+PARSE_SUCCESS_TEST("UTF-32BE output non-BMP string", UTF32BEIn | UTF32BEOut, "\x00\x00\x00\"\x00\x01\xD1\x1E\x00\x00\x00\"", FINAL, UTF32BE, "s(ab 00 01 D1 1E):0,0,0,0")
+PARSE_FAILURE_TEST("unterminated string (1)", DefaultSettings, "\"", FINAL, IncompleteToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("unterminated string (2)", DefaultSettings, "\"abc", FINAL, IncompleteToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("string cannot contain unescaped control character (1)", DefaultSettings, "\"abc\x00\"", FINAL, UnescapedControlCharacter, 4, 0, 4, 0, UTF8)
+PARSE_FAILURE_TEST("string cannot contain unescaped control character (2)", DefaultSettings, "\"abc\x09\"", FINAL, UnescapedControlCharacter, 4, 0, 4, 0, UTF8)
+PARSE_FAILURE_TEST("string cannot contain unescaped control character (3)", DefaultSettings, "\"abc\x0A\"", FINAL, UnescapedControlCharacter, 4, 0, 4, 0, UTF8)
+PARSE_FAILURE_TEST("string cannot contain unescaped control character (4)", DefaultSettings, "\"abc\x0D\"", FINAL, UnescapedControlCharacter, 4, 0, 4, 0, UTF8)
+PARSE_FAILURE_TEST("string cannot contain unescaped control character (5)", DefaultSettings, "\"abc\x1F\"", FINAL, UnescapedControlCharacter, 4, 0, 4, 0, UTF8)
+PARSE_FAILURE_TEST("string cannot contain invalid escape sequence (1)", DefaultSettings, "\"\\v\"", FINAL, InvalidEscapeSequence, 1, 0, 1, 0, UTF8)
+PARSE_FAILURE_TEST("string cannot contain invalid escape sequence (2)", DefaultSettings, "\"\\x0020\"", FINAL, InvalidEscapeSequence, 1, 0, 1, 0, UTF8)
+PARSE_FAILURE_TEST("string cannot contain invalid escape sequence (3)", DefaultSettings, "\"\\ \"", FINAL, InvalidEscapeSequence, 1, 0, 1, 0, UTF8)
+PARSE_FAILURE_TEST("string truncated after \\", DefaultSettings, "\"\\", FINAL, IncompleteToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("string truncated after \\u", DefaultSettings, "\"\\u", FINAL, IncompleteToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("string truncated after \\ux", DefaultSettings, "\"\\u0", FINAL, IncompleteToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("string truncated after \\uxx", DefaultSettings, "\"\\u01", FINAL, IncompleteToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("string truncated after \\uxxx", DefaultSettings, "\"\\u01a", FINAL, IncompleteToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("string requires hex digit after \\u", DefaultSettings, "\"\\ux\"", FINAL, InvalidEscapeSequence, 1, 0, 1, 0, UTF8)
+PARSE_FAILURE_TEST("string requires hex digit after \\ux", DefaultSettings, "\"\\u0x\"", FINAL, InvalidEscapeSequence, 1, 0, 1, 0, UTF8)
+PARSE_FAILURE_TEST("string requires hex digit after \\uxx", DefaultSettings, "\"\\u01x\"", FINAL, InvalidEscapeSequence, 1, 0, 1, 0, UTF8)
+PARSE_FAILURE_TEST("string requires hex digit after \\uxxx", DefaultSettings, "\"\\u01ax\"", FINAL, InvalidEscapeSequence, 1, 0, 1, 0, UTF8)
+PARSE_FAILURE_TEST("string truncated after escaped leading surrogate", DefaultSettings, "\"\\uD800", FINAL, IncompleteToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("string requires escaped surrogates to appear in valid pairs (1)", DefaultSettings, "\"\\uD834\"", FINAL, UnpairedSurrogateEscapeSequence, 1, 0, 1, 0, UTF8)
+PARSE_FAILURE_TEST("string requires escaped surrogates to appear in valid pairs (2)", DefaultSettings, "\"\\uD834x\"", FINAL, UnpairedSurrogateEscapeSequence, 1, 0, 1, 0, UTF8)
+PARSE_FAILURE_TEST("string requires escaped surrogates to appear in valid pairs (3)", DefaultSettings, "\"\\uD834\\n\"", FINAL, UnpairedSurrogateEscapeSequence, 1, 0, 1, 0, UTF8)
+PARSE_FAILURE_TEST("string requires escaped surrogates to appear in valid pairs (4)", DefaultSettings, "\"\\uD834\\u0020\"", FINAL, UnpairedSurrogateEscapeSequence, 1, 0, 1, 0, UTF8)
+PARSE_FAILURE_TEST("string requires escaped surrogates to appear in valid pairs (5)", DefaultSettings, "\"\\uD834\\uD834\"", FINAL, UnpairedSurrogateEscapeSequence, 1, 0, 1, 0, UTF8)
+PARSE_FAILURE_TEST("string requires escaped surrogates to appear in valid pairs (6)", DefaultSettings, "\"\\uDC00\"", FINAL, UnpairedSurrogateEscapeSequence, 1, 0, 1, 0, UTF8)
+PARSE_FAILURE_TEST("string truncated after \\ of trailing surrogate escape sequence", DefaultSettings, "\"\\uD834\\", FINAL, IncompleteToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("string truncated after \\u of trailing surrogate escape sequence", DefaultSettings, "\"\\uD834\\u", FINAL, IncompleteToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("string truncated after \\ux of trailing surrogate escape sequence", DefaultSettings, "\"\\uD834\\uD", FINAL, IncompleteToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("string truncated after \\uxx of trailing surrogate escape sequence", DefaultSettings, "\"\\uD834\\uDD", FINAL, IncompleteToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("string truncated after \\uxxx of trailing surrogate escape sequence", DefaultSettings, "\"\\uD834\\uDD1", FINAL, IncompleteToken, 0, 0, 0, 0, UTF8)
+PARSE_SUCCESS_TEST("max length 0 string (1)", MaxStringLength0, "\"\"", FINAL, UTF8, "s():0,0,0,0")
+PARSE_SUCCESS_TEST("max length 0 string (2)", MaxStringLength0, "{\"\":0}", FINAL, UTF8, "{:0,0,0,0 m():1,0,1,1 #(0):4,0,4,1 }:5,0,5,0")
+PARSE_FAILURE_TEST("max length 0 string (3)", MaxStringLength0, "\"a\"", FINAL, TooLongString, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("max length 0 string (4)", MaxStringLength0, "{\"a\":0}", FINAL, TooLongString, 1, 0, 1, 1, UTF8)
+PARSE_SUCCESS_TEST("max length 1 string (1)", MaxStringLength1, "\"a\"", FINAL, UTF8, "s(61):0,0,0,0")
+PARSE_SUCCESS_TEST("max length 1 string (2)", MaxStringLength1, "{\"a\":0}", FINAL, UTF8, "{:0,0,0,0 m(61):1,0,1,1 #(0):5,0,5,1 }:6,0,6,0")
+PARSE_FAILURE_TEST("max length 1 string (3)", MaxStringLength1, "\"ab\"", FINAL, TooLongString, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("max length 1 string (4)", MaxStringLength1, "{\"ab\":0}", FINAL, TooLongString, 1, 0, 1, 1, UTF8)
+PARSE_FAILURE_TEST("max length 1 string (5)", MaxStringLength1, "\"\xE0\xAB\xB9\"", FINAL, TooLongString, 0, 0, 0, 0, UTF8)
+PARSE_SUCCESS_TEST("max length 2 string (1)", MaxStringLength2, "\"ab\"", FINAL, UTF8, "s(61 62):0,0,0,0")
+PARSE_SUCCESS_TEST("max length 2 string (2)", MaxStringLength2, "{\"ab\":0}", FINAL, UTF8, "{:0,0,0,0 m(61 62):1,0,1,1 #(0):6,0,6,1 }:7,0,7,0")
+PARSE_FAILURE_TEST("max length 2 string (3)", MaxStringLength2, "\"abc\"", FINAL, TooLongString, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("max length 2 string (4)", MaxStringLength2, "{\"abc\":0}", FINAL, TooLongString, 1, 0, 1, 1, UTF8)
+PARSE_FAILURE_TEST("max length 2 string (5)", MaxStringLength2, "\"\xE0\xAB\xB9\"", FINAL, TooLongString, 0, 0, 0, 0, UTF8)
 
 /* objects */
 
-PARSE_SUCCESS_TEST("start object", UTF8ParserFactory, "{", PARTIAL, UTF8, "{:0,0,0;")
-PARSE_SUCCESS_TEST("empty object (1)", DefaultParserFactory, "{}", FINAL, UTF8, "{:0,0,0;}:1,0,1;")
-PARSE_SUCCESS_TEST("empty object (2)", AllowTrailingCommasParserFactory, "{}", FINAL, UTF8, "{:0,0,0;}:1,0,1;")
-PARSE_SUCCESS_TEST("single-member object (1)", DefaultParserFactory, "{ \"pi\" : 3.14159 }", FINAL, UTF8, "{:0,0,0;member(0x0, 70 69):2,0,2;#(3.14159):9,0,9;}:17,0,17;")
-PARSE_SUCCESS_TEST("single-member object (2)", AllowTrailingCommasParserFactory, "{ \"pi\" : 3.14159 }", FINAL, UTF8, "{:0,0,0;member(0x0, 70 69):2,0,2;#(3.14159):9,0,9;}:17,0,17;")
-PARSE_SUCCESS_TEST("multi-member object (1)", DefaultParserFactory, "{ \"pi\" : 3.14159, \"e\" : 2.71828 }", FINAL, UTF8, "{:0,0,0;member(0x0, 70 69):2,0,2;#(3.14159):9,0,9;member(0x0, 65):18,0,18;#(2.71828):24,0,24;}:32,0,32;")
-PARSE_SUCCESS_TEST("multi-member object (2)", AllowTrailingCommasParserFactory, "{ \"pi\" : 3.14159, \"e\" : 2.71828 }", FINAL, UTF8, "{:0,0,0;member(0x0, 70 69):2,0,2;#(3.14159):9,0,9;member(0x0, 65):18,0,18;#(2.71828):24,0,24;}:32,0,32;")
-PARSE_SUCCESS_TEST("all types of object member values", DefaultParserFactory, "{ \"a\" : null, \"b\" : true, \"c\" : false, \"d\" :\"foo\", \"e\" : 17, \"f\" : {}, \"g\" : { \"bar\" : 0 }, \"h\" : [], \"i\" : [ true, false ] }", FINAL, UTF8, "{:0,0,0;member(0x0, 61):2,0,2;null:8,0,8;member(0x0, 62):14,0,14;true:20,0,20;member(0x0, 63):26,0,26;false:32,0,32;member(0x0, 64):39,0,39;string(0x0, 66 6F 6F):44,0,44;member(0x0, 65):51,0,51;#(17):57,0,57;member(0x0, 66):61,0,61;{:67,0,67;}:68,0,68;member(0x0, 67):71,0,71;{:77,0,77;member(0x0, 62 61 72):79,0,79;#(0):87,0,87;}:89,0,89;member(0x0, 68):92,0,92;[:98,0,98;]:99,0,99;member(0x0, 69):102,0,102;[:108,0,108;item:110,0,110;true:110,0,110;item:116,0,116;false:116,0,116;]:122,0,122;}:124,0,124;")
-PARSE_SUCCESS_TEST("nested objects", DefaultParserFactory, "{\"a\":{\"b\":{\"c\":{\"d\":{\"e\":{}}}}}}", FINAL, UTF8, "{:0,0,0;member(0x0, 61):1,0,1;{:5,0,5;member(0x0, 62):6,0,6;{:10,0,10;member(0x0, 63):11,0,11;{:15,0,15;member(0x0, 64):16,0,16;{:20,0,20;member(0x0, 65):21,0,21;{:25,0,25;}:26,0,26;}:27,0,27;}:28,0,28;}:29,0,29;}:30,0,30;}:31,0,31;")
-PARSE_SUCCESS_TEST("object members with similar names", DefaultParserFactory, "{\"\":null,\"\\u0000\":0,\"x\":1,\"X\":2,\"x2\":3,\"x\\u0000\":4,\"x\\u0000y\":5}", FINAL, UTF8, "{:0,0,0;member(0x0, ):1,0,1;null:4,0,4;member(0x3, 00):9,0,9;#(0):18,0,18;member(0x0, 78):20,0,20;#(1):24,0,24;member(0x0, 58):26,0,26;#(2):30,0,30;member(0x0, 78 32):32,0,32;#(3):37,0,37;member(0x3, 78 00):39,0,39;#(4):49,0,49;member(0x3, 78 00 79):51,0,51;#(5):62,0,62;}:63,0,63;")
-PARSE_SUCCESS_TEST("different objects with members with same names", DefaultParserFactory, "{\"foo\":{\"foo\":{\"foo\":3}}}", FINAL, UTF8, "{:0,0,0;member(0x0, 66 6F 6F):1,0,1;{:7,0,7;member(0x0, 66 6F 6F):8,0,8;{:14,0,14;member(0x0, 66 6F 6F):15,0,15;#(3):21,0,21;}:22,0,22;}:23,0,23;}:24,0,24;")
-PARSE_FAILURE_TEST("object truncated after left curly brace", DefaultParserFactory, "{", FINAL, ExpectedMoreTokens, 1, 0, 1, UTF8)
-PARSE_FAILURE_TEST("object truncated after member name (1)", DefaultParserFactory, "{\"x\"", FINAL, ExpectedMoreTokens, 4, 0, 4, UTF8)
-PARSE_FAILURE_TEST("object truncated after member name (2)", DefaultParserFactory, "{\"x\":1,\"y\"", FINAL, ExpectedMoreTokens, 10, 0, 10, UTF8)
-PARSE_FAILURE_TEST("object truncated after colon (1)", DefaultParserFactory, "{\"x\":", FINAL, ExpectedMoreTokens, 5, 0, 5, UTF8)
-PARSE_FAILURE_TEST("object truncated after colon (2)", DefaultParserFactory, "{\"x\":1,\"y\":", FINAL, ExpectedMoreTokens, 11, 0, 11, UTF8)
-PARSE_FAILURE_TEST("object truncated after member value (1)", DefaultParserFactory, "{\"x\":1", FINAL, ExpectedMoreTokens, 6, 0, 6, UTF8)
-PARSE_FAILURE_TEST("object truncated after member value (2)", DefaultParserFactory, "{\"x\":1,\"y\":2", FINAL, ExpectedMoreTokens, 12, 0, 12, UTF8)
-PARSE_FAILURE_TEST("object truncated after comma (1)", DefaultParserFactory, "{\"x\":1,", FINAL, ExpectedMoreTokens, 7, 0, 7, UTF8)
-PARSE_FAILURE_TEST("object truncated after comma (2)", DefaultParserFactory, "{\"x\":1,\"y\":2,", FINAL, ExpectedMoreTokens, 13, 0, 13, UTF8)
-PARSE_FAILURE_TEST("object requires string member names (1)", DefaultParserFactory, "{null:1}", FINAL, UnexpectedToken, 1, 0, 1, UTF8)
-PARSE_FAILURE_TEST("object requires string member names (2)", DefaultParserFactory, "{true:1}", FINAL, UnexpectedToken, 1, 0, 1, UTF8)
-PARSE_FAILURE_TEST("object requires string member names (3)", DefaultParserFactory, "{false:1}", FINAL, UnexpectedToken, 1, 0, 1, UTF8)
-PARSE_FAILURE_TEST("object requires string member names (4)", DefaultParserFactory, "{7:1}", FINAL, UnexpectedToken, 1, 0, 1, UTF8)
-PARSE_FAILURE_TEST("object requires string member names (5)", DefaultParserFactory, "{[]:1}", FINAL, UnexpectedToken, 1, 0, 1, UTF8)
-PARSE_FAILURE_TEST("object requires string member names (6)", DefaultParserFactory, "{{}:1}", FINAL, UnexpectedToken, 1, 0, 1, UTF8)
-PARSE_FAILURE_TEST("object member requires value (1)", DefaultParserFactory, "{\"x\"}", FINAL, UnexpectedToken, 4, 0, 4, UTF8)
-PARSE_FAILURE_TEST("object member requires value (2)", DefaultParserFactory, "{\"x\":}", FINAL, UnexpectedToken, 5, 0, 5, UTF8)
-PARSE_FAILURE_TEST("object member missing (1)", DefaultParserFactory, "{,\"y\":2}", FINAL, UnexpectedToken, 1, 0, 1, UTF8)
-PARSE_FAILURE_TEST("object member missing (2)", DefaultParserFactory, "{\"x\":1,,\"y\":2}", FINAL, UnexpectedToken, 7, 0, 7, UTF8)
-PARSE_FAILURE_TEST("object member missing (3)", DefaultParserFactory, "{\"x\":1,}", FINAL, UnexpectedToken, 7, 0, 7, UTF8)
-PARSE_SUCCESS_TEST("allow trailing comma after last object member (1)", AllowTrailingCommasParserFactory, "{\"x\":0,}", FINAL, UTF8, "{:0,0,0;member(0x0, 78):1,0,1;#(0):5,0,5;}:7,0,7;")
-PARSE_SUCCESS_TEST("allow trailing comma after last object member (2)", AllowTrailingCommasParserFactory, "{\"x\":0,\"y\":1}", FINAL, UTF8, "{:0,0,0;member(0x0, 78):1,0,1;#(0):5,0,5;member(0x0, 79):7,0,7;#(1):11,0,11;}:12,0,12;")
-PARSE_FAILURE_TEST("object members require comma separator", DefaultParserFactory, "{\"x\":1 \"y\":2}", FINAL, UnexpectedToken, 7, 0, 7, UTF8)
-PARSE_FAILURE_TEST("object members must be unique (1)", TrackObjectMembersParserFactory, "{\"x\":1,\"x\":2}", FINAL, DuplicateObjectMember, 7, 0, 7, UTF8)
-PARSE_FAILURE_TEST("object members must be unique (2)", TrackObjectMembersParserFactory, "{\"x\":1,\"y\":2,\"x\":3}", FINAL, DuplicateObjectMember, 13, 0, 13, UTF8)
-PARSE_FAILURE_TEST("object members must be unique (3)", TrackObjectMembersParserFactory, "{\"x\":1,\"y\":{\"TRUE\":true,\"FALSE\":false},\"x\":3}", FINAL, DuplicateObjectMember, 39, 0, 39, UTF8)
-PARSE_FAILURE_TEST("object members must be unique (4)", TrackObjectMembersParserFactory, "{\"x\":1,\"y\":{\"TRUE\":true,\"TRUE\":true},\"z\":3}", FINAL, DuplicateObjectMember, 24, 0, 24, UTF8)
-PARSE_FAILURE_TEST("object members must be unique (5)", TrackObjectMembersParserFactory, "{\"x\":1,\"y\":2,\"y\":3}", FINAL, DuplicateObjectMember, 13, 0, 13, UTF8)
-PARSE_SUCCESS_TEST("allow duplicate object members (1)", DefaultParserFactory, "{\"x\":1,\"x\":2}", FINAL, UTF8, "{:0,0,0;member(0x0, 78):1,0,1;#(1):5,0,5;member(0x0, 78):7,0,7;#(2):11,0,11;}:12,0,12;")
-PARSE_SUCCESS_TEST("allow duplicate object members (2)", DefaultParserFactory, "{\"x\":1,\"y\":2,\"x\":3}", FINAL, UTF8, "{:0,0,0;member(0x0, 78):1,0,1;#(1):5,0,5;member(0x0, 79):7,0,7;#(2):11,0,11;member(0x0, 78):13,0,13;#(3):17,0,17;}:18,0,18;")
-PARSE_SUCCESS_TEST("allow duplicate object members (3)", DefaultParserFactory, "{\"x\":1,\"y\":{\"TRUE\":true,\"FALSE\":false},\"x\":3}", FINAL, UTF8, "{:0,0,0;member(0x0, 78):1,0,1;#(1):5,0,5;member(0x0, 79):7,0,7;{:11,0,11;member(0x0, 54 52 55 45):12,0,12;true:19,0,19;member(0x0, 46 41 4C 53 45):24,0,24;false:32,0,32;}:37,0,37;member(0x0, 78):39,0,39;#(3):43,0,43;}:44,0,44;")
-PARSE_SUCCESS_TEST("allow duplicate object members (4)", DefaultParserFactory, "{\"x\":1,\"y\":{\"TRUE\":true,\"TRUE\":true},\"z\":3}", FINAL, UTF8, "{:0,0,0;member(0x0, 78):1,0,1;#(1):5,0,5;member(0x0, 79):7,0,7;{:11,0,11;member(0x0, 54 52 55 45):12,0,12;true:19,0,19;member(0x0, 54 52 55 45):24,0,24;true:31,0,31;}:35,0,35;member(0x0, 7A):37,0,37;#(3):41,0,41;}:42,0,42;")
-PARSE_SUCCESS_TEST("allow duplicate object members (5)", DefaultParserFactory, "{\"x\":1,\"y\":2,\"y\":3}", FINAL, UTF8, "{:0,0,0;member(0x0, 78):1,0,1;#(1):5,0,5;member(0x0, 79):7,0,7;#(2):11,0,11;member(0x0, 79):13,0,13;#(3):17,0,17;}:18,0,18;")
-PARSE_FAILURE_TEST("detect duplicate object member in callback", DefaultParserFactory, "{\"duplicate\":0}", FINAL, DuplicateObjectMember, 1, 0, 1, UTF8)
-PARSE_SUCCESS_TEST("empty string object member name (1)", DefaultParserFactory, "{\"\":0}", FINAL, UTF8, "{:0,0,0;member(0x0, ):1,0,1;#(0):4,0,4;}:5,0,5;")
-PARSE_SUCCESS_TEST("empty string object member name (2)", TrackObjectMembersParserFactory, "{\"\":0}", FINAL, UTF8, "{:0,0,0;member(0x0, ):1,0,1;#(0):4,0,4;}:5,0,5;")
-PARSE_SUCCESS_TEST("empty string object member name (3)", TrackObjectMembersParserFactory, "{\"\":0,\"x\":1}", FINAL, UTF8, "{:0,0,0;member(0x0, ):1,0,1;#(0):4,0,4;member(0x0, 78):6,0,6;#(1):10,0,10;}:11,0,11;")
-PARSE_FAILURE_TEST("empty string object member name (4)", TrackObjectMembersParserFactory, "{\"\":0,\"\":1}", FINAL, DuplicateObjectMember, 6,0,6, UTF8)
+PARSE_SUCCESS_TEST("start object", UTF8In | UTF8Out, "{", PARTIAL, UTF8, "{:0,0,0,0")
+PARSE_SUCCESS_TEST("empty object (1)", DefaultSettings, "{}", FINAL, UTF8, "{:0,0,0,0 }:1,0,1,0")
+PARSE_SUCCESS_TEST("empty object (2)", AllowTrailingCommas, "{}", FINAL, UTF8, "{:0,0,0,0 }:1,0,1,0")
+PARSE_SUCCESS_TEST("single-member object (1)", DefaultSettings, "{ \"pi\" : 3.14159 }", FINAL, UTF8, "{:0,0,0,0 m(70 69):2,0,2,1 #(3.14159):9,0,9,1 }:17,0,17,0")
+PARSE_SUCCESS_TEST("single-member object (2)", AllowTrailingCommas, "{ \"pi\" : 3.14159 }", FINAL, UTF8, "{:0,0,0,0 m(70 69):2,0,2,1 #(3.14159):9,0,9,1 }:17,0,17,0")
+PARSE_SUCCESS_TEST("multi-member object (1)", DefaultSettings, "{ \"pi\" : 3.14159, \"e\" : 2.71828 }", FINAL, UTF8, "{:0,0,0,0 m(70 69):2,0,2,1 #(3.14159):9,0,9,1 m(65):18,0,18,1 #(2.71828):24,0,24,1 }:32,0,32,0")
+PARSE_SUCCESS_TEST("multi-member object (2)", AllowTrailingCommas, "{ \"pi\" : 3.14159, \"e\" : 2.71828 }", FINAL, UTF8, "{:0,0,0,0 m(70 69):2,0,2,1 #(3.14159):9,0,9,1 m(65):18,0,18,1 #(2.71828):24,0,24,1 }:32,0,32,0")
+PARSE_SUCCESS_TEST("all types of object member values", DefaultSettings, "{ \"a\" : null, \"b\" : true, \"c\" : false, \"d\" :\"foo\", \"e\" : 17, \"f\" : {}, \"g\" : { \"bar\" : 0 }, \"h\" : [], \"i\" : [ true, false ] }", FINAL, UTF8, "{:0,0,0,0 m(61):2,0,2,1 n:8,0,8,1 m(62):14,0,14,1 t:20,0,20,1 m(63):26,0,26,1 f:32,0,32,1 m(64):39,0,39,1 s(66 6F 6F):44,0,44,1 m(65):51,0,51,1 #(17):57,0,57,1 m(66):61,0,61,1 {:67,0,67,1 }:68,0,68,1 m(67):71,0,71,1 {:77,0,77,1 m(62 61 72):79,0,79,2 #(0):87,0,87,2 }:89,0,89,1 m(68):92,0,92,1 [:98,0,98,1 ]:99,0,99,1 m(69):102,0,102,1 [:108,0,108,1 i:110,0,110,2 t:110,0,110,2 i:116,0,116,2 f:116,0,116,2 ]:122,0,122,1 }:124,0,124,0")
+PARSE_SUCCESS_TEST("nested objects", DefaultSettings, "{\"a\":{\"b\":{\"c\":{\"d\":{\"e\":{}}}}}}", FINAL, UTF8, "{:0,0,0,0 m(61):1,0,1,1 {:5,0,5,1 m(62):6,0,6,2 {:10,0,10,2 m(63):11,0,11,3 {:15,0,15,3 m(64):16,0,16,4 {:20,0,20,4 m(65):21,0,21,5 {:25,0,25,5 }:26,0,26,5 }:27,0,27,4 }:28,0,28,3 }:29,0,29,2 }:30,0,30,1 }:31,0,31,0")
+PARSE_SUCCESS_TEST("object members with similar names", DefaultSettings, "{\"\":null,\"\\u0000\":0,\"x\":1,\"X\":2,\"x2\":3,\"x\\u0000\":4,\"x\\u0000y\":5}", FINAL, UTF8, "{:0,0,0,0 m():1,0,1,1 n:4,0,4,1 m(zc 00):9,0,9,1 #(0):18,0,18,1 m(78):20,0,20,1 #(1):24,0,24,1 m(58):26,0,26,1 #(2):30,0,30,1 m(78 32):32,0,32,1 #(3):37,0,37,1 m(zc 78 00):39,0,39,1 #(4):49,0,49,1 m(zc 78 00 79):51,0,51,1 #(5):62,0,62,1 }:63,0,63,0")
+PARSE_SUCCESS_TEST("different objects with members with same names", DefaultSettings, "{\"foo\":{\"foo\":{\"foo\":3}}}", FINAL, UTF8, "{:0,0,0,0 m(66 6F 6F):1,0,1,1 {:7,0,7,1 m(66 6F 6F):8,0,8,2 {:14,0,14,2 m(66 6F 6F):15,0,15,3 #(3):21,0,21,3 }:22,0,22,2 }:23,0,23,1 }:24,0,24,0")
+PARSE_FAILURE_TEST("object truncated after left curly brace", DefaultSettings, "{", FINAL, ExpectedMoreTokens, 1, 0, 1, 1, UTF8)
+PARSE_FAILURE_TEST("object truncated after member name (1)", DefaultSettings, "{\"x\"", FINAL, ExpectedMoreTokens, 4, 0, 4, 1, UTF8)
+PARSE_FAILURE_TEST("object truncated after member name (2)", DefaultSettings, "{\"x\":1,\"y\"", FINAL, ExpectedMoreTokens, 10, 0, 10, 1, UTF8)
+PARSE_FAILURE_TEST("object truncated after colon (1)", DefaultSettings, "{\"x\":", FINAL, ExpectedMoreTokens, 5, 0, 5, 1, UTF8)
+PARSE_FAILURE_TEST("object truncated after colon (2)", DefaultSettings, "{\"x\":1,\"y\":", FINAL, ExpectedMoreTokens, 11, 0, 11, 1, UTF8)
+PARSE_FAILURE_TEST("object truncated after member value (1)", DefaultSettings, "{\"x\":1", FINAL, ExpectedMoreTokens, 6, 0, 6, 1, UTF8)
+PARSE_FAILURE_TEST("object truncated after member value (2)", DefaultSettings, "{\"x\":1,\"y\":2", FINAL, ExpectedMoreTokens, 12, 0, 12, 1, UTF8)
+PARSE_FAILURE_TEST("object truncated after comma (1)", DefaultSettings, "{\"x\":1,", FINAL, ExpectedMoreTokens, 7, 0, 7, 1, UTF8)
+PARSE_FAILURE_TEST("object truncated after comma (2)", DefaultSettings, "{\"x\":1,\"y\":2,", FINAL, ExpectedMoreTokens, 13, 0, 13, 1, UTF8)
+PARSE_FAILURE_TEST("object requires string member names (1)", DefaultSettings, "{null:1}", FINAL, UnexpectedToken, 1, 0, 1, 1, UTF8)
+PARSE_FAILURE_TEST("object requires string member names (2)", DefaultSettings, "{true:1}", FINAL, UnexpectedToken, 1, 0, 1, 1, UTF8)
+PARSE_FAILURE_TEST("object requires string member names (3)", DefaultSettings, "{false:1}", FINAL, UnexpectedToken, 1, 0, 1, 1, UTF8)
+PARSE_FAILURE_TEST("object requires string member names (4)", DefaultSettings, "{7:1}", FINAL, UnexpectedToken, 1, 0, 1, 1, UTF8)
+PARSE_FAILURE_TEST("object requires string member names (5)", DefaultSettings, "{[]:1}", FINAL, UnexpectedToken, 1, 0, 1, 1, UTF8)
+PARSE_FAILURE_TEST("object requires string member names (6)", DefaultSettings, "{{}:1}", FINAL, UnexpectedToken, 1, 0, 1, 1, UTF8)
+PARSE_FAILURE_TEST("object member requires value (1)", DefaultSettings, "{\"x\"}", FINAL, UnexpectedToken, 4, 0, 4, 1, UTF8)
+PARSE_FAILURE_TEST("object member requires value (2)", DefaultSettings, "{\"x\":}", FINAL, UnexpectedToken, 5, 0, 5, 1, UTF8)
+PARSE_FAILURE_TEST("object member missing (1)", DefaultSettings, "{,\"y\":2}", FINAL, UnexpectedToken, 1, 0, 1, 1, UTF8)
+PARSE_FAILURE_TEST("object member missing (2)", DefaultSettings, "{\"x\":1,,\"y\":2}", FINAL, UnexpectedToken, 7, 0, 7, 1, UTF8)
+PARSE_FAILURE_TEST("object member missing (3)", DefaultSettings, "{\"x\":1,}", FINAL, UnexpectedToken, 7, 0, 7, 1, UTF8)
+PARSE_SUCCESS_TEST("allow trailing comma after last object member (1)", AllowTrailingCommas, "{\"x\":0,}", FINAL, UTF8, "{:0,0,0,0 m(78):1,0,1,1 #(0):5,0,5,1 }:7,0,7,0")
+PARSE_SUCCESS_TEST("allow trailing comma after last object member (2)", AllowTrailingCommas, "{\"x\":0,\"y\":1}", FINAL, UTF8, "{:0,0,0,0 m(78):1,0,1,1 #(0):5,0,5,1 m(79):7,0,7,1 #(1):11,0,11,1 }:12,0,12,0")
+PARSE_FAILURE_TEST("object members require comma separator", DefaultSettings, "{\"x\":1 \"y\":2}", FINAL, UnexpectedToken, 7, 0, 7, 1, UTF8)
+PARSE_FAILURE_TEST("object members must be unique (1)", TrackObjectMembers, "{\"x\":1,\"x\":2}", FINAL, DuplicateObjectMember, 7, 0, 7, 1, UTF8)
+PARSE_FAILURE_TEST("object members must be unique (2)", TrackObjectMembers, "{\"x\":1,\"y\":2,\"x\":3}", FINAL, DuplicateObjectMember, 13, 0, 13, 1, UTF8)
+PARSE_FAILURE_TEST("object members must be unique (3)", TrackObjectMembers, "{\"x\":1,\"y\":{\"TRUE\":true,\"FALSE\":false},\"x\":3}", FINAL, DuplicateObjectMember, 39, 0, 39, 1, UTF8)
+PARSE_FAILURE_TEST("object members must be unique (4)", TrackObjectMembers, "{\"x\":1,\"y\":{\"TRUE\":true,\"TRUE\":true},\"z\":3}", FINAL, DuplicateObjectMember, 24, 0, 24, 2, UTF8)
+PARSE_FAILURE_TEST("object members must be unique (5)", TrackObjectMembers, "{\"x\":1,\"y\":2,\"y\":3}", FINAL, DuplicateObjectMember, 13, 0, 13, 1, UTF8)
+PARSE_SUCCESS_TEST("allow duplicate object members (1)", DefaultSettings, "{\"x\":1,\"x\":2}", FINAL, UTF8, "{:0,0,0,0 m(78):1,0,1,1 #(1):5,0,5,1 m(78):7,0,7,1 #(2):11,0,11,1 }:12,0,12,0")
+PARSE_SUCCESS_TEST("allow duplicate object members (2)", DefaultSettings, "{\"x\":1,\"y\":2,\"x\":3}", FINAL, UTF8, "{:0,0,0,0 m(78):1,0,1,1 #(1):5,0,5,1 m(79):7,0,7,1 #(2):11,0,11,1 m(78):13,0,13,1 #(3):17,0,17,1 }:18,0,18,0")
+PARSE_SUCCESS_TEST("allow duplicate object members (3)", DefaultSettings, "{\"x\":1,\"y\":{\"TRUE\":true,\"FALSE\":false},\"x\":3}", FINAL, UTF8, "{:0,0,0,0 m(78):1,0,1,1 #(1):5,0,5,1 m(79):7,0,7,1 {:11,0,11,1 m(54 52 55 45):12,0,12,2 t:19,0,19,2 m(46 41 4C 53 45):24,0,24,2 f:32,0,32,2 }:37,0,37,1 m(78):39,0,39,1 #(3):43,0,43,1 }:44,0,44,0")
+PARSE_SUCCESS_TEST("allow duplicate object members (4)", DefaultSettings, "{\"x\":1,\"y\":{\"TRUE\":true,\"TRUE\":true},\"z\":3}", FINAL, UTF8, "{:0,0,0,0 m(78):1,0,1,1 #(1):5,0,5,1 m(79):7,0,7,1 {:11,0,11,1 m(54 52 55 45):12,0,12,2 t:19,0,19,2 m(54 52 55 45):24,0,24,2 t:31,0,31,2 }:35,0,35,1 m(7A):37,0,37,1 #(3):41,0,41,1 }:42,0,42,0")
+PARSE_SUCCESS_TEST("allow duplicate object members (5)", DefaultSettings, "{\"x\":1,\"y\":2,\"y\":3}", FINAL, UTF8, "{:0,0,0,0 m(78):1,0,1,1 #(1):5,0,5,1 m(79):7,0,7,1 #(2):11,0,11,1 m(79):13,0,13,1 #(3):17,0,17,1 }:18,0,18,0")
+PARSE_FAILURE_TEST("detect duplicate object member in callback", DefaultSettings, "{\"duplicate\":0}", FINAL, DuplicateObjectMember, 1, 0, 1, 1, UTF8)
+PARSE_SUCCESS_TEST("empty string object member name (1)", DefaultSettings, "{\"\":0}", FINAL, UTF8, "{:0,0,0,0 m():1,0,1,1 #(0):4,0,4,1 }:5,0,5,0")
+PARSE_SUCCESS_TEST("empty string object member name (2)", TrackObjectMembers, "{\"\":0}", FINAL, UTF8, "{:0,0,0,0 m():1,0,1,1 #(0):4,0,4,1 }:5,0,5,0")
+PARSE_SUCCESS_TEST("empty string object member name (3)", TrackObjectMembers, "{\"\":0,\"x\":1}", FINAL, UTF8, "{:0,0,0,0 m():1,0,1,1 #(0):4,0,4,1 m(78):6,0,6,1 #(1):10,0,10,1 }:11,0,11,0")
+PARSE_FAILURE_TEST("empty string object member name (4)", TrackObjectMembers, "{\"\":0,\"\":1}", FINAL, DuplicateObjectMember, 6,0,6, 1, UTF8)
 
 /* arrays */
 
-PARSE_SUCCESS_TEST("start array", UTF8ParserFactory, "[", PARTIAL, UTF8, "[:0,0,0;")
-PARSE_SUCCESS_TEST("empty array (1)", DefaultParserFactory, "[]", FINAL, UTF8, "[:0,0,0;]:1,0,1;")
-PARSE_SUCCESS_TEST("empty array (2)", AllowTrailingCommasParserFactory, "[]", FINAL, UTF8, "[:0,0,0;]:1,0,1;")
-PARSE_SUCCESS_TEST("single-item array (1)", DefaultParserFactory, "[ 3.14159 ]", FINAL, UTF8, "[:0,0,0;item:2,0,2;#(3.14159):2,0,2;]:10,0,10;")
-PARSE_SUCCESS_TEST("single-item array (2)", AllowTrailingCommasParserFactory, "[ 3.14159 ]", FINAL, UTF8, "[:0,0,0;item:2,0,2;#(3.14159):2,0,2;]:10,0,10;")
-PARSE_SUCCESS_TEST("multi-item array (1)", DefaultParserFactory, "[ 3.14159, 2.71828 ]", FINAL, UTF8, "[:0,0,0;item:2,0,2;#(3.14159):2,0,2;item:11,0,11;#(2.71828):11,0,11;]:19,0,19;")
-PARSE_SUCCESS_TEST("multi-item array (2)", AllowTrailingCommasParserFactory, "[ 3.14159, 2.71828 ]", FINAL, UTF8, "[:0,0,0;item:2,0,2;#(3.14159):2,0,2;item:11,0,11;#(2.71828):11,0,11;]:19,0,19;")
-PARSE_SUCCESS_TEST("all types of array items", DefaultParserFactory, "[ null, true, false, \"foo\", 17, {}, { \"bar\" : 0 }, [], [ true, false ] ]", FINAL, UTF8, "[:0,0,0;item:2,0,2;null:2,0,2;item:8,0,8;true:8,0,8;item:14,0,14;false:14,0,14;item:21,0,21;string(0x0, 66 6F 6F):21,0,21;item:28,0,28;#(17):28,0,28;item:32,0,32;{:32,0,32;}:33,0,33;item:36,0,36;{:36,0,36;member(0x0, 62 61 72):38,0,38;#(0):46,0,46;}:48,0,48;item:51,0,51;[:51,0,51;]:52,0,52;item:55,0,55;[:55,0,55;item:57,0,57;true:57,0,57;item:63,0,63;false:63,0,63;]:69,0,69;]:71,0,71;")
-PARSE_SUCCESS_TEST("nested arrays", DefaultParserFactory, "[[],[[],[[],[[],[[],[]]]]]]", FINAL, UTF8, "[:0,0,0;item:1,0,1;[:1,0,1;]:2,0,2;item:4,0,4;[:4,0,4;item:5,0,5;[:5,0,5;]:6,0,6;item:8,0,8;[:8,0,8;item:9,0,9;[:9,0,9;]:10,0,10;item:12,0,12;[:12,0,12;item:13,0,13;[:13,0,13;]:14,0,14;item:16,0,16;[:16,0,16;item:17,0,17;[:17,0,17;]:18,0,18;item:20,0,20;[:20,0,20;]:21,0,21;]:22,0,22;]:23,0,23;]:24,0,24;]:25,0,25;]:26,0,26;")
-PARSE_FAILURE_TEST("array truncated after left square brace", DefaultParserFactory, "[", FINAL, ExpectedMoreTokens, 1, 0, 1, UTF8)
-PARSE_FAILURE_TEST("array truncated after item value (1)", DefaultParserFactory, "[1", FINAL, ExpectedMoreTokens, 2, 0, 2, UTF8)
-PARSE_FAILURE_TEST("array truncated after item value (2)", DefaultParserFactory, "[1,2", FINAL, ExpectedMoreTokens, 4, 0, 4, UTF8)
-PARSE_FAILURE_TEST("array truncated after comma (1)", DefaultParserFactory, "[1,", FINAL, ExpectedMoreTokens, 3, 0, 3, UTF8)
-PARSE_FAILURE_TEST("array truncated after comma (2)", DefaultParserFactory, "[1,2,", FINAL, ExpectedMoreTokens, 5, 0, 5, UTF8)
-PARSE_FAILURE_TEST("array item missing (1)", DefaultParserFactory, "[,2]", FINAL, UnexpectedToken, 1, 0, 1, UTF8)
-PARSE_FAILURE_TEST("array item missing (2)", DefaultParserFactory, "[1,,2]", FINAL, UnexpectedToken, 3, 0, 3, UTF8)
-PARSE_FAILURE_TEST("array item missing (3)", DefaultParserFactory, "[1,]", FINAL, UnexpectedToken, 3, 0, 3, UTF8)
-PARSE_SUCCESS_TEST("allow trailing comma after last array item (1)", AllowTrailingCommasParserFactory, "[1,]", FINAL, UTF8, "[:0,0,0;item:1,0,1;#(1):1,0,1;]:3,0,3;")
-PARSE_SUCCESS_TEST("allow trailing comma after last array item (2)", AllowTrailingCommasParserFactory, "[1,2,]", FINAL, UTF8, "[:0,0,0;item:1,0,1;#(1):1,0,1;item:3,0,3;#(2):3,0,3;]:5,0,5;")
-PARSE_FAILURE_TEST("array items require comma separator", DefaultParserFactory, "[1 2]", FINAL, UnexpectedToken, 3, 0, 3, UTF8)
+PARSE_SUCCESS_TEST("start array", UTF8In | UTF8Out, "[", PARTIAL, UTF8, "[:0,0,0,0")
+PARSE_SUCCESS_TEST("empty array (1)", DefaultSettings, "[]", FINAL, UTF8, "[:0,0,0,0 ]:1,0,1,0")
+PARSE_SUCCESS_TEST("empty array (2)", AllowTrailingCommas, "[]", FINAL, UTF8, "[:0,0,0,0 ]:1,0,1,0")
+PARSE_SUCCESS_TEST("single-item array (1)", DefaultSettings, "[ 3.14159 ]", FINAL, UTF8, "[:0,0,0,0 i:2,0,2,1 #(3.14159):2,0,2,1 ]:10,0,10,0")
+PARSE_SUCCESS_TEST("single-item array (2)", AllowTrailingCommas, "[ 3.14159 ]", FINAL, UTF8, "[:0,0,0,0 i:2,0,2,1 #(3.14159):2,0,2,1 ]:10,0,10,0")
+PARSE_SUCCESS_TEST("multi-item array (1)", DefaultSettings, "[ 3.14159, 2.71828 ]", FINAL, UTF8, "[:0,0,0,0 i:2,0,2,1 #(3.14159):2,0,2,1 i:11,0,11,1 #(2.71828):11,0,11,1 ]:19,0,19,0")
+PARSE_SUCCESS_TEST("multi-item array (2)", AllowTrailingCommas, "[ 3.14159, 2.71828 ]", FINAL, UTF8, "[:0,0,0,0 i:2,0,2,1 #(3.14159):2,0,2,1 i:11,0,11,1 #(2.71828):11,0,11,1 ]:19,0,19,0")
+PARSE_SUCCESS_TEST("all types of array items", DefaultSettings, "[ null, true, false, \"foo\", 17, {}, { \"bar\" : 0 }, [], [ true, false ] ]", FINAL, UTF8, "[:0,0,0,0 i:2,0,2,1 n:2,0,2,1 i:8,0,8,1 t:8,0,8,1 i:14,0,14,1 f:14,0,14,1 i:21,0,21,1 s(66 6F 6F):21,0,21,1 i:28,0,28,1 #(17):28,0,28,1 i:32,0,32,1 {:32,0,32,1 }:33,0,33,1 i:36,0,36,1 {:36,0,36,1 m(62 61 72):38,0,38,2 #(0):46,0,46,2 }:48,0,48,1 i:51,0,51,1 [:51,0,51,1 ]:52,0,52,1 i:55,0,55,1 [:55,0,55,1 i:57,0,57,2 t:57,0,57,2 i:63,0,63,2 f:63,0,63,2 ]:69,0,69,1 ]:71,0,71,0")
+PARSE_SUCCESS_TEST("nested arrays", DefaultSettings, "[[],[[],[[],[[],[[],[]]]]]]", FINAL, UTF8, "[:0,0,0,0 i:1,0,1,1 [:1,0,1,1 ]:2,0,2,1 i:4,0,4,1 [:4,0,4,1 i:5,0,5,2 [:5,0,5,2 ]:6,0,6,2 i:8,0,8,2 [:8,0,8,2 i:9,0,9,3 [:9,0,9,3 ]:10,0,10,3 i:12,0,12,3 [:12,0,12,3 i:13,0,13,4 [:13,0,13,4 ]:14,0,14,4 i:16,0,16,4 [:16,0,16,4 i:17,0,17,5 [:17,0,17,5 ]:18,0,18,5 i:20,0,20,5 [:20,0,20,5 ]:21,0,21,5 ]:22,0,22,4 ]:23,0,23,3 ]:24,0,24,2 ]:25,0,25,1 ]:26,0,26,0")
+PARSE_FAILURE_TEST("array truncated after left square brace", DefaultSettings, "[", FINAL, ExpectedMoreTokens, 1, 0, 1, 1, UTF8)
+PARSE_FAILURE_TEST("array truncated after item value (1)", DefaultSettings, "[1", FINAL, ExpectedMoreTokens, 2, 0, 2, 1, UTF8)
+PARSE_FAILURE_TEST("array truncated after item value (2)", DefaultSettings, "[1,2", FINAL, ExpectedMoreTokens, 4, 0, 4, 1, UTF8)
+PARSE_FAILURE_TEST("array truncated after comma (1)", DefaultSettings, "[1,", FINAL, ExpectedMoreTokens, 3, 0, 3, 1, UTF8)
+PARSE_FAILURE_TEST("array truncated after comma (2)", DefaultSettings, "[1,2,", FINAL, ExpectedMoreTokens, 5, 0, 5, 1, UTF8)
+PARSE_FAILURE_TEST("array item missing (1)", DefaultSettings, "[,2]", FINAL, UnexpectedToken, 1, 0, 1, 1, UTF8)
+PARSE_FAILURE_TEST("array item missing (2)", DefaultSettings, "[1,,2]", FINAL, UnexpectedToken, 3, 0, 3, 1, UTF8)
+PARSE_FAILURE_TEST("array item missing (3)", DefaultSettings, "[1,]", FINAL, UnexpectedToken, 3, 0, 3, 1, UTF8)
+PARSE_SUCCESS_TEST("allow trailing comma after last array item (1)", AllowTrailingCommas, "[1,]", FINAL, UTF8, "[:0,0,0,0 i:1,0,1,1 #(1):1,0,1,1 ]:3,0,3,0")
+PARSE_SUCCESS_TEST("allow trailing comma after last array item (2)", AllowTrailingCommas, "[1,2,]", FINAL, UTF8, "[:0,0,0,0 i:1,0,1,1 #(1):1,0,1,1 i:3,0,3,1 #(2):3,0,3,1 ]:5,0,5,0")
+PARSE_FAILURE_TEST("array items require comma separator", DefaultSettings, "[1 2]", FINAL, UnexpectedToken, 3, 0, 3, 1, UTF8)
 
 /* comments */
 
-PARSE_FAILURE_TEST("single-line comment not allowed (1)", DefaultParserFactory, "0 // comment", FINAL, UnknownToken, 2, 0, 2, UTF8)
-PARSE_FAILURE_TEST("single-line comment not allowed (2)", DefaultParserFactory, "// comment\r\n0", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("multi-line comment not allowed (1)", DefaultParserFactory, "0 /* comment */", FINAL, UnknownToken, 2, 0, 2, UTF8)
-PARSE_FAILURE_TEST("multi-line comment not allowed (2)", DefaultParserFactory, "/* comment */0", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("multi-line comment not allowed (3)", DefaultParserFactory, "/* comment \r\n * / * /*/0", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("multi-line comment not allowed (4)", DefaultParserFactory, "/* comment \r\n * / * /*/\r\n0", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_SUCCESS_TEST("single-line comment (1)", AllowCommentsParserFactory, "0 //", FINAL, UTF8, "#(0):0,0,0;")
-PARSE_SUCCESS_TEST("single-line comment (2)", AllowCommentsParserFactory, "0 // comment", FINAL, UTF8, "#(0):0,0,0;")
-PARSE_SUCCESS_TEST("single-line comment (3)", AllowCommentsParserFactory, "// comment\r\n0", FINAL, UTF8, "#(0):12,1,0;")
-PARSE_SUCCESS_TEST("single-line comment with extra slashes", AllowCommentsParserFactory, "0 ////////////", FINAL, UTF8, "#(0):0,0,0;")
-PARSE_SUCCESS_TEST("multi-line comment (1)", AllowCommentsParserFactory, "0 /**/", FINAL, UTF8, "#(0):0,0,0;")
-PARSE_SUCCESS_TEST("multi-line comment (2)", AllowCommentsParserFactory, "0 /* comment */", FINAL, UTF8, "#(0):0,0,0;")
-PARSE_SUCCESS_TEST("multi-line comment (3)", AllowCommentsParserFactory, "/* comment */0", FINAL, UTF8, "#(0):13,0,13;")
-PARSE_SUCCESS_TEST("multi-line comment (4)", AllowCommentsParserFactory, "/* comment \r\n * / * /*/0", FINAL, UTF8, "#(0):23,1,10;")
-PARSE_SUCCESS_TEST("multi-line comment (5)", AllowCommentsParserFactory, "/* comment \r\n * / * /*/\r\n0", FINAL, UTF8, "#(0):25,2,0;")
-PARSE_SUCCESS_TEST("multi-line comment with extra stars", AllowCommentsParserFactory, "0 /************/", FINAL, UTF8, "#(0):0,0,0;")
-PARSE_FAILURE_TEST("unclosed multi-line comment (1)", AllowCommentsParserFactory, "/*", FINAL, IncompleteToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("unclosed multi-line comment (2)", AllowCommentsParserFactory, "/* comment", FINAL, IncompleteToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("just a comment (1)", AllowCommentsParserFactory, "//", FINAL, ExpectedMoreTokens, 2, 0, 2, UTF8)
-PARSE_FAILURE_TEST("just a comment (2)", AllowCommentsParserFactory, "/**/", FINAL, ExpectedMoreTokens, 4, 0, 4, UTF8)
-PARSE_SUCCESS_TEST("comment between tokens (1)", AllowCommentsParserFactory, "[//\n]", FINAL, UTF8, "[:0,0,0;]:4,1,0;")
-PARSE_SUCCESS_TEST("comment between tokens (2)", AllowCommentsParserFactory, "[/**/]", FINAL, UTF8, "[:0,0,0;]:5,0,5;")
-PARSE_FAILURE_TEST("lone forward slash (1)", AllowCommentsParserFactory, "/", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("lone forward slash (2)", AllowCommentsParserFactory, "/ ", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("single-line comment not allowed (1)", DefaultSettings, "0 // comment", FINAL, UnknownToken, 2, 0, 2, 0, UTF8)
+PARSE_FAILURE_TEST("single-line comment not allowed (2)", DefaultSettings, "// comment\r\n0", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("multi-line comment not allowed (1)", DefaultSettings, "0 /* comment */", FINAL, UnknownToken, 2, 0, 2, 0, UTF8)
+PARSE_FAILURE_TEST("multi-line comment not allowed (2)", DefaultSettings, "/* comment */0", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("multi-line comment not allowed (3)", DefaultSettings, "/* comment \r\n * / * /*/0", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("multi-line comment not allowed (4)", DefaultSettings, "/* comment \r\n * / * /*/\r\n0", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_SUCCESS_TEST("single-line comment (1)", AllowComments, "0 //", FINAL, UTF8, "#(0):0,0,0,0")
+PARSE_SUCCESS_TEST("single-line comment (2)", AllowComments, "0 // comment", FINAL, UTF8, "#(0):0,0,0,0")
+PARSE_SUCCESS_TEST("single-line comment (3)", AllowComments, "// comment\r\n0", FINAL, UTF8, "#(0):12,1,0,0")
+PARSE_SUCCESS_TEST("single-line comment with extra slashes", AllowComments, "0 ////////////", FINAL, UTF8, "#(0):0,0,0,0")
+PARSE_SUCCESS_TEST("multi-line comment (1)", AllowComments, "0 /**/", FINAL, UTF8, "#(0):0,0,0,0")
+PARSE_SUCCESS_TEST("multi-line comment (2)", AllowComments, "0 /* comment */", FINAL, UTF8, "#(0):0,0,0,0")
+PARSE_SUCCESS_TEST("multi-line comment (3)", AllowComments, "/* comment */0", FINAL, UTF8, "#(0):13,0,13,0")
+PARSE_SUCCESS_TEST("multi-line comment (4)", AllowComments, "/* comment \r\n * / * /*/0", FINAL, UTF8, "#(0):23,1,10,0")
+PARSE_SUCCESS_TEST("multi-line comment (5)", AllowComments, "/* comment \r\n * / * /*/\r\n0", FINAL, UTF8, "#(0):25,2,0,0")
+PARSE_SUCCESS_TEST("multi-line comment with extra stars", AllowComments, "0 /************/", FINAL, UTF8, "#(0):0,0,0,0")
+PARSE_FAILURE_TEST("unclosed multi-line comment (1)", AllowComments, "/*", FINAL, IncompleteToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("unclosed multi-line comment (2)", AllowComments, "/* comment", FINAL, IncompleteToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("just a comment (1)", AllowComments, "//", FINAL, ExpectedMoreTokens, 2, 0, 2, 0, UTF8)
+PARSE_FAILURE_TEST("just a comment (2)", AllowComments, "/**/", FINAL, ExpectedMoreTokens, 4, 0, 4, 0, UTF8)
+PARSE_SUCCESS_TEST("comment between tokens (1)", AllowComments, "[//\n]", FINAL, UTF8, "[:0,0,0,0 ]:4,1,0,0")
+PARSE_SUCCESS_TEST("comment between tokens (2)", AllowComments, "[/**/]", FINAL, UTF8, "[:0,0,0,0 ]:5,0,5,0")
+PARSE_FAILURE_TEST("lone forward slash (1)", AllowComments, "/", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("lone forward slash (2)", AllowComments, "/ ", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
 
 /* random tokens */
 
-PARSE_FAILURE_TEST("random ]", DefaultParserFactory, "]", FINAL, UnexpectedToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("random }", DefaultParserFactory, "}", FINAL, UnexpectedToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("random :", DefaultParserFactory, ":", FINAL, UnexpectedToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("random ,", DefaultParserFactory, ",", FINAL, UnexpectedToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("single-quoted strings not allowed", DefaultParserFactory, "'abc'", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("random \\", DefaultParserFactory, "\\n", FINAL, UnknownToken, 0, 0, 0, UTF8)
-PARSE_FAILURE_TEST("random /", DefaultParserFactory, "/", FINAL, UnknownToken, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("random ]", DefaultSettings, "]", FINAL, UnexpectedToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("random }", DefaultSettings, "}", FINAL, UnexpectedToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("random :", DefaultSettings, ":", FINAL, UnexpectedToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("random ,", DefaultSettings, ",", FINAL, UnexpectedToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("single-quoted strings not allowed", DefaultSettings, "'abc'", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("random \\", DefaultSettings, "\\n", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
+PARSE_FAILURE_TEST("random /", DefaultSettings, "/", FINAL, UnknownToken, 0, 0, 0, 0, UTF8)
 
 /* multi-line input */
 
-PARSE_SUCCESS_TEST("multi-line input", DefaultParserFactory, "[\r 1,\n  2,\r\n\r\n   3]", FINAL, UTF8, "[:0,0,0;item:3,1,1;#(1):3,1,1;item:8,2,2;#(2):8,2,2;item:17,4,3;#(3):17,4,3;]:18,4,4;")
-PARSE_FAILURE_TEST("multi-line input error (1)", DefaultParserFactory, "[\r1", FINAL, ExpectedMoreTokens, 3, 1, 1, UTF8)
-PARSE_FAILURE_TEST("multi-line input error (2)", DefaultParserFactory, "[\n1", FINAL, ExpectedMoreTokens, 3, 1, 1, UTF8)
-PARSE_FAILURE_TEST("multi-line input error (3)", DefaultParserFactory, "[\r\n1", FINAL, ExpectedMoreTokens, 4, 1, 1, UTF8)
-PARSE_FAILURE_TEST("multi-line input error (4)", DefaultParserFactory, "[\r1,\n2\r\n", FINAL, ExpectedMoreTokens, 8, 3, 0, UTF8)
-PARSE_FAILURE_TEST("multi-line input error (5)", DefaultParserFactory, "[\r\"x\n", FINAL, UnescapedControlCharacter, 4, 1, 2, UTF8)
-PARSE_FAILURE_TEST("multi-line input error (6)", DefaultParserFactory, "[\n\"x\n", FINAL, UnescapedControlCharacter, 4, 1, 2, UTF8)
-PARSE_FAILURE_TEST("multi-line input error (7)", DefaultParserFactory, "[\r\n\"x\r\n", FINAL, UnescapedControlCharacter, 5, 1, 2, UTF8)
+PARSE_SUCCESS_TEST("multi-line input", DefaultSettings, "[\r 1,\n  2,\r\n\r\n   3]", FINAL, UTF8, "[:0,0,0,0 i:3,1,1,1 #(1):3,1,1,1 i:8,2,2,1 #(2):8,2,2,1 i:17,4,3,1 #(3):17,4,3,1 ]:18,4,4,0")
+PARSE_FAILURE_TEST("multi-line input error (1)", DefaultSettings, "[\r1", FINAL, ExpectedMoreTokens, 3, 1, 1, 1, UTF8)
+PARSE_FAILURE_TEST("multi-line input error (2)", DefaultSettings, "[\n1", FINAL, ExpectedMoreTokens, 3, 1, 1, 1, UTF8)
+PARSE_FAILURE_TEST("multi-line input error (3)", DefaultSettings, "[\r\n1", FINAL, ExpectedMoreTokens, 4, 1, 1, 1, UTF8)
+PARSE_FAILURE_TEST("multi-line input error (4)", DefaultSettings, "[\r1,\n2\r\n", FINAL, ExpectedMoreTokens, 8, 3, 0, 1, UTF8)
+PARSE_FAILURE_TEST("multi-line input error (5)", DefaultSettings, "[\r\"x\n", FINAL, UnescapedControlCharacter, 4, 1, 2, 1, UTF8)
+PARSE_FAILURE_TEST("multi-line input error (6)", DefaultSettings, "[\n\"x\n", FINAL, UnescapedControlCharacter, 4, 1, 2, 1, UTF8)
+PARSE_FAILURE_TEST("multi-line input error (7)", DefaultSettings, "[\r\n\"x\r\n", FINAL, UnescapedControlCharacter, 5, 1, 2, 1, UTF8)
 
 };
 
