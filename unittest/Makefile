@@ -45,7 +45,7 @@ build_tests : $(BUILDDIR)/jsonsaxtest $(BUILDDIR)/jsonsaxtest_static $(BUILDDIR)
 
 .PHONY : run_tests
 run_tests : build_tests
-	echo "Testing dnamically-linked library ..."
+	echo "Testing dynamically-linked library ..."
 	$(DLIB_PATH)=$(BUILDDIR) $(BUILDDIR)/jsonsaxtest
 	echo "Testing statically-linked library ..."
 	$(BUILDDIR)/jsonsaxtest_static
