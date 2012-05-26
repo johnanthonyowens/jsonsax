@@ -519,7 +519,7 @@ JSON_API(JSON_Status) JSON_SetEndObjectHandler(JSON_Parser parser, JSON_EndObjec
  * incurring the additional memory overhead associated with enabling the
  * TrackObjectMembers setting.
  */
-typedef JSON_HandlerResult (JSON_CALL * JSON_ObjectMemberHandler)(JSON_Parser parser, const char* pBytes, size_t length, JSON_StringAttributes attributes);
+typedef JSON_HandlerResult (JSON_CALL * JSON_ObjectMemberHandler)(JSON_Parser parser, JSON_Boolean isFirstMember, const char* pBytes, size_t length, JSON_StringAttributes attributes);
 JSON_API(JSON_ObjectMemberHandler) JSON_GetObjectMemberHandler(JSON_Parser parser);
 JSON_API(JSON_Status) JSON_SetObjectMemberHandler(JSON_Parser parser, JSON_ObjectMemberHandler handler);
 
@@ -540,7 +540,7 @@ JSON_API(JSON_Status) JSON_SetEndArrayHandler(JSON_Parser parser, JSON_EndArrayH
 /* Get and set the handler that is called when a parser instance encounters
  * an array item.
  */
-typedef JSON_HandlerResult (JSON_CALL * JSON_ArrayItemHandler)(JSON_Parser parser);
+typedef JSON_HandlerResult (JSON_CALL * JSON_ArrayItemHandler)(JSON_Parser parser, JSON_Boolean isFirstItem);
 JSON_API(JSON_ArrayItemHandler) JSON_GetArrayItemHandler(JSON_Parser parser);
 JSON_API(JSON_Status) JSON_SetArrayItemHandler(JSON_Parser parser, JSON_ArrayItemHandler handler);
 

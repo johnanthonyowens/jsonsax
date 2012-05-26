@@ -233,6 +233,7 @@ struct JSON_ParserData
     unsigned char             outputEncoding;    /* real type is JSON_Encoding */
     unsigned char             lexerState;        /* real type is LexerState */
     unsigned char             token;             /* real type is Symbol */
+    unsigned char             previousToken;     /* real type is Symbol */
     unsigned char             decoderState;      /* real type is DecoderState */
     unsigned char             error;             /* real type is JSON_Error */
     unsigned char             errorOffset;
@@ -345,41 +346,54 @@ static void SetErrorAtToken(JSON_Parser parser, JSON_Error error)
     parser->errorOffset = ERROR_LOCATION_IS_TOKEN_START;
 }
 
-static JSON_Status PushObject(JSON_Parser parser)
+static JSON_Status PushMemberNameList(JSON_Parser parser)
 {
-    if (parser->parserStatus & PARSER_TRACK_OBJECT_MEMBERS)
+    MemberNames* pNames = (MemberNames*)CallMalloc(parser, sizeof(MemberNames));
+    if (!pNames)
     {
-        MemberNames* pNames;
-        pNames = (MemberNames*)CallMalloc(parser, sizeof(MemberNames));
-        if (!pNames)
-        {
-            SetErrorAtCodepoint(parser, JSON_Error_OutOfMemory);
-            return JSON_Failure;
-        }
-        pNames->pAncestor = parser->pMemberNames;
-        pNames->pFirstName = NULL;
-        parser->pMemberNames = pNames;
+        SetErrorAtCodepoint(parser, JSON_Error_OutOfMemory);
+        return JSON_Failure;
     }
+    pNames->pAncestor = parser->pMemberNames;
+    pNames->pFirstName = NULL;
+    parser->pMemberNames = pNames;
     return JSON_Success;
 }
 
-static void PopObject(JSON_Parser parser)
+static void PopMemberNameList(JSON_Parser parser)
 {
-    if (parser->parserStatus & PARSER_TRACK_OBJECT_MEMBERS)
+    MemberNames* pAncestor = parser->pMemberNames->pAncestor;
+    while (parser->pMemberNames->pFirstName)
     {
-        MemberNames* pAncestor = parser->pMemberNames->pAncestor;
-        while (parser->pMemberNames->pFirstName)
-        {
-            MemberName* pNextName = parser->pMemberNames->pFirstName->pNextName;
-            CallFree(parser, parser->pMemberNames->pFirstName);
-            parser->pMemberNames->pFirstName = pNextName;
-        }
-        CallFree(parser, parser->pMemberNames);
-        parser->pMemberNames = pAncestor;
+        MemberName* pNextName = parser->pMemberNames->pFirstName->pNextName;
+        CallFree(parser, parser->pMemberNames->pFirstName);
+        parser->pMemberNames->pFirstName = pNextName;
+    }
+    CallFree(parser, parser->pMemberNames);
+    parser->pMemberNames = pAncestor;
+}
+
+static JSON_Status StartContainer(JSON_Parser parser, int isObject)
+{
+    if (isObject && (parser->parserStatus & PARSER_TRACK_OBJECT_MEMBERS) &&
+        !PushMemberNameList(parser))
+    {
+        return JSON_Failure;
+    }
+    parser->depth++;
+    return JSON_Success;
+}
+
+static void EndContainer(JSON_Parser parser, int isObject)
+{
+    parser->depth--;
+    if (isObject && (parser->parserStatus & PARSER_TRACK_OBJECT_MEMBERS))
+    {
+        PopMemberNameList(parser);
     }
 }
 
-static JSON_Status AddMemberNameToObject(JSON_Parser parser)
+static JSON_Status AddMemberNameToList(JSON_Parser parser)
 {
     if (parser->parserStatus & PARSER_TRACK_OBJECT_MEMBERS)
     {
@@ -427,6 +441,7 @@ static void ResetParserData(JSON_Parser parser, int isInitialized)
     parser->lexerState = LEXER_IDLE;
     parser->lexerBits = 0;
     parser->token = TOKEN_NULL;
+    parser->previousToken = TOKEN_NULL;
     parser->decoderState = DECODER_PROCESSED_0_OF_1;
     parser->decoderBits = 0;
     parser->codepointLocationByte = 0;
@@ -455,7 +470,7 @@ static void ResetParserData(JSON_Parser parser, int isInitialized)
            freed, however, since they are not reusable. */
         while (parser->pMemberNames)
         {
-            PopObject(parser);
+            PopMemberNameList(parser);
         }
     }
     parser->outputBufferUsed = 0;
@@ -916,13 +931,13 @@ static JSON_Status CallSimpleHandler(JSON_Parser parser, JSON_NullHandler handle
     return JSON_Success;
 }
 
-static JSON_Status CallBooleanHandler(JSON_Parser parser, JSON_BooleanHandler handler)
+static JSON_Status CallBooleanHandler(JSON_Parser parser)
 {
-    if (handler)
+    if (parser->booleanHandler)
     {
         JSON_HandlerResult result;
         parser->parserStatus |= PARSER_IN_PARSE_HANDLER;
-        result = handler(parser, parser->token == TOKEN_TRUE ? JSON_True : JSON_False);
+        result = parser->booleanHandler(parser, parser->token == TOKEN_TRUE ? JSON_True : JSON_False);
         parser->parserStatus &= ~PARSER_IN_PARSE_HANDLER;
         if (result != JSON_ContinueParsing)
         {
@@ -933,9 +948,9 @@ static JSON_Status CallBooleanHandler(JSON_Parser parser, JSON_BooleanHandler ha
     return JSON_Success;
 }
 
-static JSON_Status CallStringHandler(JSON_Parser parser, JSON_StringHandler handler, int handleDuplicateMemberResult)
+static JSON_Status CallStringHandler(JSON_Parser parser)
 {
-    if (handler)
+    if (parser->stringHandler)
     {
         /* Strings should be null-terminated in the appropriate output encoding
            before being passed to parse handlers. Note that the length passed
@@ -948,22 +963,20 @@ static JSON_Status CallStringHandler(JSON_Parser parser, JSON_StringHandler hand
             return JSON_Failure;
         }
         parser->parserStatus |= PARSER_IN_PARSE_HANDLER;
-        result = handler(parser, (const char*)parser->pOutputBuffer, lengthNotIncludingNullTerminator, parser->outputAttributes);
+        result = parser->stringHandler(parser, (const char*)parser->pOutputBuffer, lengthNotIncludingNullTerminator, parser->outputAttributes);
         parser->parserStatus &= ~PARSER_IN_PARSE_HANDLER;
         if (result != JSON_ContinueParsing)
         {
-            SetErrorAtToken(parser, (handleDuplicateMemberResult && result == JSON_TreatAsDuplicateObjectMember)
-                            ? JSON_Error_DuplicateObjectMember
-                            : JSON_Error_AbortedByHandler);
+            SetErrorAtToken(parser, JSON_Error_AbortedByHandler);
             return JSON_Failure;
         }
     }
     return JSON_Success;
 }
 
-static JSON_Status CallNumberHandler(JSON_Parser parser, JSON_RawNumberHandler rawHandler, JSON_NumberHandler handler)
+static JSON_Status CallNumberHandler(JSON_Parser parser)
 {
-    if (rawHandler || handler)
+    if (parser->rawNumberHandler || parser->numberHandler)
     {
         /* Numbers should be null-terminated with a single null terminator byte
            before being converted to a double and/or passed to handlers. */
@@ -971,13 +984,13 @@ static JSON_Status CallNumberHandler(JSON_Parser parser, JSON_RawNumberHandler r
         size_t lengthNotIncludingNullTerminator = parser->outputBufferUsed;
         NullTerminateNumberOutput(parser);
         parser->parserStatus |= PARSER_IN_PARSE_HANDLER;
-        if (rawHandler)
+        if (parser->rawNumberHandler)
         {
-            result = rawHandler(parser, (const char*)parser->pOutputBuffer, lengthNotIncludingNullTerminator);
+            result = parser->rawNumberHandler(parser, (const char*)parser->pOutputBuffer, lengthNotIncludingNullTerminator);
         }
         else
         {
-            result = handler(parser, InterpretNumber(parser));
+            result = parser->numberHandler(parser, InterpretNumber(parser));
         }
         parser->parserStatus &= ~PARSER_IN_PARSE_HANDLER;
         if (result != JSON_ContinueParsing)
@@ -989,14 +1002,62 @@ static JSON_Status CallNumberHandler(JSON_Parser parser, JSON_RawNumberHandler r
     return JSON_Success;
 }
 
-static JSON_Status CallSpecialNumberHandler(JSON_Parser parser, JSON_SpecialNumberHandler handler)
+static JSON_Status CallSpecialNumberHandler(JSON_Parser parser)
 {
-    if (handler)
+    if (parser->specialNumberHandler)
     {
         JSON_HandlerResult result;
         parser->parserStatus |= PARSER_IN_PARSE_HANDLER;
-        result = handler(parser, parser->token == TOKEN_NAN ? JSON_NaN :
-                         (parser->token == TOKEN_INFINITY ? JSON_Infinity : JSON_NegativeInfinity));
+        result = parser->specialNumberHandler(parser, parser->token == TOKEN_NAN ? JSON_NaN :
+                                              (parser->token == TOKEN_INFINITY ? JSON_Infinity : JSON_NegativeInfinity));
+        parser->parserStatus &= ~PARSER_IN_PARSE_HANDLER;
+        if (result != JSON_ContinueParsing)
+        {
+            SetErrorAtToken(parser, JSON_Error_AbortedByHandler);
+            return JSON_Failure;
+        }
+    }
+    return JSON_Success;
+}
+
+static JSON_Status CallObjectMemberHandler(JSON_Parser parser)
+{
+    if (parser->objectMemberHandler)
+    {
+        /* Strings should be null-terminated in the appropriate output encoding
+           before being passed to parse handlers. Note that the length passed
+           to the handler does not include the null terminator, so we need to
+           save the length before we null-terminate the string. */
+        JSON_HandlerResult result;
+        size_t lengthNotIncludingNullTerminator = parser->outputBufferUsed;
+        if (!NullTerminateStringOutput(parser))
+        {
+            return JSON_Failure;
+        }
+        parser->parserStatus |= PARSER_IN_PARSE_HANDLER;
+        result = parser->objectMemberHandler(
+            parser, (parser->previousToken == TOKEN_LEFT_CURLY) ? JSON_True : JSON_False,
+            (const char*)parser->pOutputBuffer, lengthNotIncludingNullTerminator,
+            parser->outputAttributes);
+        parser->parserStatus &= ~PARSER_IN_PARSE_HANDLER;
+        if (result != JSON_ContinueParsing)
+        {
+            SetErrorAtToken(parser, (result == JSON_TreatAsDuplicateObjectMember)
+                            ? JSON_Error_DuplicateObjectMember
+                            : JSON_Error_AbortedByHandler);
+            return JSON_Failure;
+        }
+    }
+    return JSON_Success;
+}
+
+static JSON_Status CallArrayItemHandler(JSON_Parser parser)
+{
+    if (parser->arrayItemHandler)
+    {
+        JSON_HandlerResult result;
+        parser->parserStatus |= PARSER_IN_PARSE_HANDLER;
+        result = parser->arrayItemHandler(parser, (parser->previousToken == TOKEN_LEFT_SQUARE) ? JSON_True : JSON_False);
         parser->parserStatus &= ~PARSER_IN_PARSE_HANDLER;
         if (result != JSON_ContinueParsing)
         {
@@ -1164,14 +1225,14 @@ static JSON_Status ProcessToken(JSON_Parser parser)
 
                 case 2: /* VALUE => true */
                 case 3: /* VALUE => false */
-                    if (!CallBooleanHandler(parser, parser->booleanHandler))
+                    if (!CallBooleanHandler(parser))
                     {
                         return JSON_Failure;
                     }
                     break;
 
                 case 4: /* VALUE => string */
-                    if (!CallStringHandler(parser, parser->stringHandler, 0/* handleDuplicateMemberResult */))
+                    if (!CallStringHandler(parser))
                     {
                         return JSON_Failure;
                     }
@@ -1180,14 +1241,14 @@ static JSON_Status ProcessToken(JSON_Parser parser)
                 case 5: /* VALUE => number */
                     if (parser->token == TOKEN_NUMBER)
                     {
-                        if (!CallNumberHandler(parser, parser->rawNumberHandler, parser->numberHandler))
+                        if (!CallNumberHandler(parser))
                         {
                             return JSON_Failure;
                         }
                     }
                     else
                     {
-                        if (!CallSpecialNumberHandler(parser, parser->specialNumberHandler))
+                        if (!CallSpecialNumberHandler(parser))
                         {
                             return JSON_Failure;
                         }
@@ -1196,28 +1257,27 @@ static JSON_Status ProcessToken(JSON_Parser parser)
 
                 case 6: /* VALUE => { MEMBERS } */
                     if (!CallSimpleHandler(parser, parser->startObjectHandler) ||
-                        !PushObject(parser))
+                        !StartContainer(parser, 1/*isObject*/))
                     {
                         return JSON_Failure;
                     }
-                    parser->depth++;
                     symbolsToPush[0] = TOKEN_RIGHT_CURLY;
                     symbolsToPush[1] = NT_MEMBERS;
                     numberOfSymbolsToPush = 2;
                     break;
 
                 case 7: /* VALUE => [ ITEMS ] */
-                    if (!CallSimpleHandler(parser, parser->startArrayHandler))
+                    if (!CallSimpleHandler(parser, parser->startArrayHandler) ||
+                        !StartContainer(parser, 0/*isObject*/))
                     {
                         return JSON_Failure;
                     }
-                    parser->depth++;
                     symbolsToPush[0] = TOKEN_RIGHT_SQUARE;
                     symbolsToPush[1] = NT_ITEMS;
                     numberOfSymbolsToPush = 2;
                     break;
 
-                case 8: /* MEMBERS => MEMBER MORE_MEMBERS */
+                case 8:  /* MEMBERS => MEMBER MORE_MEMBERS */
                 case 13: /* MEMBERS_AFTER_COMMA => MEMBER MORE_MEMBERS */
                     symbolsToPush[0] = NT_MORE_MEMBERS;
                     symbolsToPush[1] = NT_MEMBER;
@@ -1237,8 +1297,7 @@ static JSON_Status ProcessToken(JSON_Parser parser)
                     }
                 case 9:  /* MEMBERS => e */
                 case 12: /* MORE_MEMBERS => e */
-                    parser->depth--;
-                    PopObject(parser);
+                    EndContainer(parser, 1/*isObject*/);
                     if (!CallSimpleHandler(parser, parser->endObjectHandler))
                     {
                         return JSON_Failure;
@@ -1247,8 +1306,8 @@ static JSON_Status ProcessToken(JSON_Parser parser)
                     break;
 
                 case 10: /* MEMBER => string : VALUE */
-                    if (!AddMemberNameToObject(parser) || /* will fail if member is duplicate */
-                        !CallStringHandler(parser, parser->objectMemberHandler, 1/* handleDuplicateMemberResult */))
+                    if (!AddMemberNameToList(parser) || /* will fail if member is duplicate */
+                        !CallObjectMemberHandler(parser))
                     {
                         return JSON_Failure;
                     }
@@ -1282,7 +1341,7 @@ static JSON_Status ProcessToken(JSON_Parser parser)
                     }
                 case 16: /* ITEMS => e */
                 case 19: /* MORE_ITEMS => e */
-                    parser->depth--;
+                    EndContainer(parser, 0/*isObject*/);
                     if (!CallSimpleHandler(parser, parser->endArrayHandler))
                     {
                         return JSON_Failure;
@@ -1291,7 +1350,7 @@ static JSON_Status ProcessToken(JSON_Parser parser)
                     break;
 
                 case 17: /* ITEM => VALUE */
-                    if (!CallSimpleHandler(parser, parser->arrayItemHandler))
+                    if (!CallArrayItemHandler(parser))
                     {
                         return JSON_Failure;
                     }
@@ -1315,6 +1374,7 @@ static JSON_Status ProcessToken(JSON_Parser parser)
                 return JSON_Failure;
             }
         } while (processTopSymbol);
+        parser->previousToken = parser->token;
     }
 
     /* Reset the lexer to prepare for the next token. */
@@ -2838,7 +2898,7 @@ JSON_Status JSON_CALL JSON_FreeParser(JSON_Parser parser)
     }
     while (parser->pMemberNames)
     {
-        PopObject(parser);
+        PopMemberNameList(parser);
     }
     parser->parserStatus |= PARSER_IN_MEMORY_HANDLER;
     parser->memorySuite.free(NULL, parser);
