@@ -230,8 +230,6 @@ typedef enum tag_JSON_SpecialNumber
 } JSON_SpecialNumber;
 
 /* Information identifying a location in a parser instance's input stream.
- * All parse handlers receive the location of the token that triggered the
- * handler.
  */
 typedef struct tag_JSON_Location
 {
