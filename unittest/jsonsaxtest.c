@@ -58,17 +58,17 @@ static void InitParserState(ParserState* pState)
 
 static void GetParserState(JSON_Parser parser, ParserState* pState)
 {
-    pState->error = JSON_GetError(parser);
-    if (JSON_GetErrorLocation(parser, &pState->errorLocation) != JSON_Success)
+    pState->error = JSON_Parser_GetError(parser);
+    if (JSON_Parser_GetErrorLocation(parser, &pState->errorLocation) != JSON_Success)
     {
         pState->errorLocation.byte = 0;
         pState->errorLocation.line = 0;
         pState->errorLocation.column = 0;
         pState->errorLocation.depth = 0;
     }
-    pState->startedParsing = JSON_StartedParsing(parser);
-    pState->finishedParsing = JSON_FinishedParsing(parser);
-    pState->inputEncoding = JSON_GetInputEncoding(parser);
+    pState->startedParsing = JSON_Parser_StartedParsing(parser);
+    pState->finishedParsing = JSON_Parser_FinishedParsing(parser);
+    pState->inputEncoding = JSON_Parser_GetInputEncoding(parser);
 }
 
 static int ParserStatesAreIdentical(const ParserState* pState1, const ParserState* pState2)
@@ -92,15 +92,15 @@ static int CheckParserState(JSON_Parser parser, const ParserState* pExpectedStat
     if (!isValid)
     {
         printf("FAILURE: parser state does not match\n"
-               "  STATE                          EXPECTED     ACTUAL\n"
-               "  JSON_GetError()                %8d   %8d\n"
-               "  JSON_GetErrorLocation().byte   %8d   %8d\n"
-               "  JSON_GetErrorLocation().line   %8d   %8d\n"
-               "  JSON_GetErrorLocation().column %8d   %8d\n"
-               "  JSON_GetErrorLocation().depth  %8d   %8d\n"
-               "  JSON_StartedParsing()          %8d   %8d\n"
-               "  JSON_FinishedParsing()         %8d   %8d\n"
-               "  JSON_GetInputEncoding()        %8d   %8d\n"
+               "  STATE                                 EXPECTED     ACTUAL\n"
+               "  JSON_Parser_GetError()                %8d   %8d\n"
+               "  JSON_Parser_GetErrorLocation().byte   %8d   %8d\n"
+               "  JSON_Parser_GetErrorLocation().line   %8d   %8d\n"
+               "  JSON_Parser_GetErrorLocation().column %8d   %8d\n"
+               "  JSON_Parser_GetErrorLocation().depth  %8d   %8d\n"
+               "  JSON_Parser_StartedParsing()          %8d   %8d\n"
+               "  JSON_Parser_FinishedParsing()         %8d   %8d\n"
+               "  JSON_Parser_GetInputEncoding()        %8d   %8d\n"
                ,
                (int)pExpectedState->error, (int)actualState.error,
                (int)pExpectedState->errorLocation.byte, (int)actualState.errorLocation.byte,
@@ -147,17 +147,17 @@ static void InitParserSettings(ParserSettings* pSettings)
 
 static void GetParserSettings(JSON_Parser parser, ParserSettings* pSettings)
 {
-    pSettings->userData = JSON_GetUserData(parser);
-    pSettings->inputEncoding = JSON_GetInputEncoding(parser);
-    pSettings->outputEncoding = JSON_GetOutputEncoding(parser);
-    pSettings->maxOutputStringLength = JSON_GetMaxOutputStringLength(parser);
-    pSettings->allowBOM = JSON_GetAllowBOM(parser);
-    pSettings->allowComments = JSON_GetAllowComments(parser);
-    pSettings->allowTrailingCommas = JSON_GetAllowTrailingCommas(parser);
-    pSettings->allowSpecialNumbers = JSON_GetAllowSpecialNumbers(parser);
-    pSettings->allowHexNumbers = JSON_GetAllowHexNumbers(parser);
-    pSettings->replaceInvalidEncodingSequences = JSON_GetReplaceInvalidEncodingSequences(parser);
-    pSettings->trackObjectMembers = JSON_GetTrackObjectMembers(parser);
+    pSettings->userData = JSON_Parser_GetUserData(parser);
+    pSettings->inputEncoding = JSON_Parser_GetInputEncoding(parser);
+    pSettings->outputEncoding = JSON_Parser_GetOutputEncoding(parser);
+    pSettings->maxOutputStringLength = JSON_Parser_GetMaxOutputStringLength(parser);
+    pSettings->allowBOM = JSON_Parser_GetAllowBOM(parser);
+    pSettings->allowComments = JSON_Parser_GetAllowComments(parser);
+    pSettings->allowTrailingCommas = JSON_Parser_GetAllowTrailingCommas(parser);
+    pSettings->allowSpecialNumbers = JSON_Parser_GetAllowSpecialNumbers(parser);
+    pSettings->allowHexNumbers = JSON_Parser_GetAllowHexNumbers(parser);
+    pSettings->replaceInvalidEncodingSequences = JSON_Parser_GetReplaceInvalidEncodingSequences(parser);
+    pSettings->trackObjectMembers = JSON_Parser_GetTrackObjectMembers(parser);
 }
 
 static int ParserSettingsAreIdentical(const ParserSettings* pSettings1, const ParserSettings* pSettings2)
@@ -184,24 +184,24 @@ static int CheckParserSettings(JSON_Parser parser, const ParserSettings* pExpect
     if (!identical)
     {
         printf("FAILURE: parser settings do not match\n"
-               "  SETTINGS                               EXPECTED     ACTUAL\n"
-               "  JSON_GetUserData()                     %8p   %8p\n"
-               "  JSON_GetInputEncoding()                %8d   %8d\n"
-               "  JSON_GetOutputEncoding()               %8d   %8d\n"
-               "  JSON_GetMaxOutputStringLength()        %8d   %8d\n"
+               "  SETTINGS                                         EXPECTED     ACTUAL\n"
+               "  JSON_Parser_GetUserData()                        %8p   %8p\n"
+               "  JSON_Parser_GetInputEncoding()                   %8d   %8d\n"
+               "  JSON_Parser_GetOutputEncoding()                  %8d   %8d\n"
+               "  JSON_Parser_GetMaxOutputStringLength()           %8d   %8d\n"
                ,
                pExpectedSettings->userData, actualSettings.userData,
                (int)pExpectedSettings->inputEncoding, (int)actualSettings.inputEncoding,
                (int)pExpectedSettings->outputEncoding, (int)actualSettings.outputEncoding,
                (int)pExpectedSettings->maxOutputStringLength, (int)actualSettings.maxOutputStringLength
             );
-        printf("  JSON_GetAllowBOM()                     %8d   %8d\n"
-               "  JSON_GetAllowComments()                %8d   %8d\n"
-               "  JSON_GetAllowTrailingCommas()          %8d   %8d\n"
-               "  JSON_GetAllowSpecialNumbers()          %8d   %8d\n"
-               "  JSON_GetAllowHexNumbers()              %8d   %8d\n"
-               "  JSON_ReplaceInvalidEncodingSequences() %8d   %8d\n"
-               "  JSON_GetTrackObjectMembers()           %8d   %8d\n"
+        printf("  JSON_Parser_GetAllowBOM()                        %8d   %8d\n"
+               "  JSON_Parser_GetAllowComments()                   %8d   %8d\n"
+               "  JSON_Parser_GetAllowTrailingCommas()             %8d   %8d\n"
+               "  JSON_Parser_GetAllowSpecialNumbers()             %8d   %8d\n"
+               "  JSON_Parser_GetAllowHexNumbers()                 %8d   %8d\n"
+               "  JSON_Parser_GetReplaceInvalidEncodingSequences() %8d   %8d\n"
+               "  JSON_Parser_GetTrackObjectMembers()              %8d   %8d\n"
                ,
                (int)pExpectedSettings->allowBOM, (int)actualSettings.allowBOM,
                (int)pExpectedSettings->allowComments, (int)actualSettings.allowComments,
@@ -217,18 +217,18 @@ static int CheckParserSettings(JSON_Parser parser, const ParserSettings* pExpect
 
 typedef struct tag_ParserHandlers
 {
-    JSON_NullHandler          nullHandler;
-    JSON_BooleanHandler       booleanHandler;
-    JSON_StringHandler        stringHandler;
-    JSON_NumberHandler        numberHandler;
-    JSON_RawNumberHandler     rawNumberHandler;
-    JSON_SpecialNumberHandler specialNumberHandler;
-    JSON_StartObjectHandler   startObjectHandler;
-    JSON_EndObjectHandler     endObjectHandler;
-    JSON_ObjectMemberHandler  objectMemberHandler;
-    JSON_StartArrayHandler    startArrayHandler;
-    JSON_EndArrayHandler      endArrayHandler;
-    JSON_ArrayItemHandler     arrayItemHandler;
+    JSON_Parser_NullHandler          nullHandler;
+    JSON_Parser_BooleanHandler       booleanHandler;
+    JSON_Parser_StringHandler        stringHandler;
+    JSON_Parser_NumberHandler        numberHandler;
+    JSON_Parser_RawNumberHandler     rawNumberHandler;
+    JSON_Parser_SpecialNumberHandler specialNumberHandler;
+    JSON_Parser_StartObjectHandler   startObjectHandler;
+    JSON_Parser_EndObjectHandler     endObjectHandler;
+    JSON_Parser_ObjectMemberHandler  objectMemberHandler;
+    JSON_Parser_StartArrayHandler    startArrayHandler;
+    JSON_Parser_EndArrayHandler      endArrayHandler;
+    JSON_Parser_ArrayItemHandler     arrayItemHandler;
 } ParserHandlers;
 
 static void InitParserHandlers(ParserHandlers* pHandlers)
@@ -249,18 +249,18 @@ static void InitParserHandlers(ParserHandlers* pHandlers)
 
 static void GetParserHandlers(JSON_Parser parser, ParserHandlers* pHandlers)
 {
-    pHandlers->nullHandler = JSON_GetNullHandler(parser);
-    pHandlers->booleanHandler = JSON_GetBooleanHandler(parser);
-    pHandlers->stringHandler = JSON_GetStringHandler(parser);
-    pHandlers->numberHandler = JSON_GetNumberHandler(parser);
-    pHandlers->rawNumberHandler = JSON_GetRawNumberHandler(parser);
-    pHandlers->specialNumberHandler = JSON_GetSpecialNumberHandler(parser);
-    pHandlers->startObjectHandler = JSON_GetStartObjectHandler(parser);
-    pHandlers->endObjectHandler = JSON_GetEndObjectHandler(parser);
-    pHandlers->objectMemberHandler = JSON_GetObjectMemberHandler(parser);
-    pHandlers->startArrayHandler = JSON_GetStartArrayHandler(parser);
-    pHandlers->endArrayHandler = JSON_GetEndArrayHandler(parser);
-    pHandlers->arrayItemHandler = JSON_GetArrayItemHandler(parser);
+    pHandlers->nullHandler = JSON_Parser_GetNullHandler(parser);
+    pHandlers->booleanHandler = JSON_Parser_GetBooleanHandler(parser);
+    pHandlers->stringHandler = JSON_Parser_GetStringHandler(parser);
+    pHandlers->numberHandler = JSON_Parser_GetNumberHandler(parser);
+    pHandlers->rawNumberHandler = JSON_Parser_GetRawNumberHandler(parser);
+    pHandlers->specialNumberHandler = JSON_Parser_GetSpecialNumberHandler(parser);
+    pHandlers->startObjectHandler = JSON_Parser_GetStartObjectHandler(parser);
+    pHandlers->endObjectHandler = JSON_Parser_GetEndObjectHandler(parser);
+    pHandlers->objectMemberHandler = JSON_Parser_GetObjectMemberHandler(parser);
+    pHandlers->startArrayHandler = JSON_Parser_GetStartArrayHandler(parser);
+    pHandlers->endArrayHandler = JSON_Parser_GetEndArrayHandler(parser);
+    pHandlers->arrayItemHandler = JSON_Parser_GetArrayItemHandler(parser);
 }
 
 static int ParserHandlersAreIdentical(const ParserHandlers* pHandlers1, const ParserHandlers* pHandlers2)
@@ -290,13 +290,13 @@ static int CheckParserHandlers(JSON_Parser parser, const ParserHandlers* pExpect
     if (!identical)
     {
         printf("FAILURE: parser handlers do not match\n"
-               "  HANDLERS                      EXPECTED     ACTUAL\n"
-               "  JSON_GetNullHandler()         %8s   %8s\n"
-               "  JSON_GetBooleanHandler()      %8s   %8s\n"
-               "  JSON_GetStringHandler()       %8s   %8s\n"
-               "  JSON_GetNumberHandler()       %8s   %8s\n"
-               "  JSON_GetRawNumberHandler()    %8s   %8s\n"
-               "  JSON_GetSpecialNumberHandler()%8s   %8s\n"
+               "  HANDLERS                             EXPECTED     ACTUAL\n"
+               "  JSON_Parser_GetNullHandler()         %8s   %8s\n"
+               "  JSON_Parser_GetBooleanHandler()      %8s   %8s\n"
+               "  JSON_Parser_GetStringHandler()       %8s   %8s\n"
+               "  JSON_Parser_GetNumberHandler()       %8s   %8s\n"
+               "  JSON_Parser_GetRawNumberHandler()    %8s   %8s\n"
+               "  JSON_Parser_GetSpecialNumberHandler()%8s   %8s\n"
                ,
                HANDLER_STRING(pExpectedHandlers->nullHandler), HANDLER_STRING(actualHandlers.nullHandler),
                HANDLER_STRING(pExpectedHandlers->booleanHandler), HANDLER_STRING(actualHandlers.booleanHandler),
@@ -305,12 +305,12 @@ static int CheckParserHandlers(JSON_Parser parser, const ParserHandlers* pExpect
                HANDLER_STRING(pExpectedHandlers->rawNumberHandler), HANDLER_STRING(actualHandlers.rawNumberHandler),
                HANDLER_STRING(pExpectedHandlers->specialNumberHandler), HANDLER_STRING(actualHandlers.specialNumberHandler)
             );
-        printf("  JSON_GetStartObjectHandler()  %8s   %8s\n"
-               "  JSON_GetEndObjectHandler()    %8s   %8s\n"
-               "  JSON_GetObjectMemberHandler() %8s   %8s\n"
-               "  JSON_GetStartArrayHandler()   %8s   %8s\n"
-               "  JSON_GetEndArrayHandler()     %8s   %8s\n"
-               "  JSON_GetArrayItemHandler()    %8s   %8s\n"
+        printf("  JSON_Parser_GetStartObjectHandler()  %8s   %8s\n"
+               "  JSON_Parser_GetEndObjectHandler()    %8s   %8s\n"
+               "  JSON_Parser_GetObjectMemberHandler() %8s   %8s\n"
+               "  JSON_Parser_GetStartArrayHandler()   %8s   %8s\n"
+               "  JSON_Parser_GetEndArrayHandler()     %8s   %8s\n"
+               "  JSON_Parser_GetArrayItemHandler()    %8s   %8s\n"
                ,
                HANDLER_STRING(pExpectedHandlers->startObjectHandler), HANDLER_STRING(actualHandlers.startObjectHandler),
                HANDLER_STRING(pExpectedHandlers->endObjectHandler), HANDLER_STRING(actualHandlers.endObjectHandler),
@@ -336,27 +336,27 @@ static int CheckParserHasDefaultValues(JSON_Parser parser)
            CheckParserHandlers(parser, &handlers);
 }
 
-static int CheckCreateParser(const JSON_MemorySuite* pMemorySuite, JSON_Status expectedStatus, JSON_Parser* pParser)
+static int CheckCreateParser(const JSON_Parser_MemorySuite* pMemorySuite, JSON_Status expectedStatus, JSON_Parser* pParser)
 {
-    *pParser = JSON_CreateParser(pMemorySuite);
+    *pParser = JSON_Parser_Create(pMemorySuite);
     if (expectedStatus == JSON_Success && !*pParser)
     {
-        printf("FAILURE: expected JSON_CreateParser() to return a parser instance\n");
+        printf("FAILURE: expected JSON_Parser_Create() to return a parser instance\n");
         return 0;
     }
     if (expectedStatus == JSON_Failure && *pParser)
     {
-        printf("FAILURE: expected JSON_CreateParser() to return NULL\n");
-        JSON_FreeParser(*pParser);
+        printf("FAILURE: expected JSON_Parser_Create() to return NULL\n");
+        JSON_Parser_Free(*pParser);
         *pParser = NULL;
         return 0;
     }
     return 1;
 }
 
-static int CheckCreateParserWithCustomMemorySuite(JSON_MallocHandler m, JSON_ReallocHandler r, JSON_FreeHandler f, JSON_Status expectedStatus, JSON_Parser* pParser)
+static int CheckCreateParserWithCustomMemorySuite(JSON_Parser_MallocHandler m, JSON_Parser_ReallocHandler r, JSON_Parser_FreeHandler f, JSON_Status expectedStatus, JSON_Parser* pParser)
 {
-    JSON_MemorySuite memorySuite;
+    JSON_Parser_MemorySuite memorySuite;
     memorySuite.malloc = m;
     memorySuite.realloc = r;
     memorySuite.free = f;
@@ -365,9 +365,9 @@ static int CheckCreateParserWithCustomMemorySuite(JSON_MallocHandler m, JSON_Rea
 
 static int CheckResetParser(JSON_Parser parser, JSON_Status expectedStatus)
 {
-    if (JSON_ResetParser(parser) != expectedStatus)
+    if (JSON_Parser_Reset(parser) != expectedStatus)
     {
-        printf("FAILURE: expected JSON_ResetParser() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
+        printf("FAILURE: expected JSON_Parser_Reset() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
         return 0;
     }
     return 1;
@@ -375,9 +375,9 @@ static int CheckResetParser(JSON_Parser parser, JSON_Status expectedStatus)
 
 static int CheckFreeParser(JSON_Parser parser, JSON_Status expectedStatus)
 {
-    if (JSON_FreeParser(parser) != expectedStatus)
+    if (JSON_Parser_Free(parser) != expectedStatus)
     {
-        printf("FAILURE: expected JSON_FreeParser() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
+        printf("FAILURE: expected JSON_Parser_Free() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
         return 0;
     }
     return 1;
@@ -385,9 +385,9 @@ static int CheckFreeParser(JSON_Parser parser, JSON_Status expectedStatus)
 
 static int CheckGetErrorLocation(JSON_Parser parser, JSON_Location* pLocation, JSON_Status expectedStatus)
 {
-    if (JSON_GetErrorLocation(parser, pLocation) != expectedStatus)
+    if (JSON_Parser_GetErrorLocation(parser, pLocation) != expectedStatus)
     {
-        printf("FAILURE: expected JSON_GetErrorLocation() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
+        printf("FAILURE: expected JSON_Parser_GetErrorLocation() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
         return 0;
     }
     return 1;
@@ -395,9 +395,9 @@ static int CheckGetErrorLocation(JSON_Parser parser, JSON_Location* pLocation, J
 
 static int CheckGetTokenLocation(JSON_Parser parser, JSON_Location* pLocation, JSON_Status expectedStatus)
 {
-    if (JSON_GetTokenLocation(parser, pLocation) != expectedStatus)
+    if (JSON_Parser_GetTokenLocation(parser, pLocation) != expectedStatus)
     {
-        printf("FAILURE: expected JSON_GetTokenLocation() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
+        printf("FAILURE: expected JSON_Parser_GetTokenLocation() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
         return 0;
     }
     return 1;
@@ -405,9 +405,9 @@ static int CheckGetTokenLocation(JSON_Parser parser, JSON_Location* pLocation, J
 
 static int CheckSetUserData(JSON_Parser parser, void* userData, JSON_Status expectedStatus)
 {
-    if (JSON_SetUserData(parser, userData) != expectedStatus)
+    if (JSON_Parser_SetUserData(parser, userData) != expectedStatus)
     {
-        printf("FAILURE: expected JSON_SetUserData() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
+        printf("FAILURE: expected JSON_Parser_SetUserData() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
         return 0;
     }
     return 1;
@@ -415,9 +415,9 @@ static int CheckSetUserData(JSON_Parser parser, void* userData, JSON_Status expe
 
 static int CheckSetInputEncoding(JSON_Parser parser, JSON_Encoding encoding, JSON_Status expectedStatus)
 {
-    if (JSON_SetInputEncoding(parser, encoding) != expectedStatus)
+    if (JSON_Parser_SetInputEncoding(parser, encoding) != expectedStatus)
     {
-        printf("FAILURE: expected JSON_SetInputEncoding() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
+        printf("FAILURE: expected JSON_Parser_SetInputEncoding() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
         return 0;
     }
     return 1;
@@ -425,9 +425,9 @@ static int CheckSetInputEncoding(JSON_Parser parser, JSON_Encoding encoding, JSO
 
 static int CheckSetOutputEncoding(JSON_Parser parser, JSON_Encoding encoding, JSON_Status expectedStatus)
 {
-    if (JSON_SetOutputEncoding(parser, encoding) != expectedStatus)
+    if (JSON_Parser_SetOutputEncoding(parser, encoding) != expectedStatus)
     {
-        printf("FAILURE: expected JSON_SetOutputEncoding() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
+        printf("FAILURE: expected JSON_Parser_SetOutputEncoding() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
         return 0;
     }
     return 1;
@@ -435,9 +435,9 @@ static int CheckSetOutputEncoding(JSON_Parser parser, JSON_Encoding encoding, JS
 
 static int CheckSetMaxOutputStringLength(JSON_Parser parser, size_t maxLength, JSON_Status expectedStatus)
 {
-    if (JSON_SetMaxOutputStringLength(parser, maxLength) != expectedStatus)
+    if (JSON_Parser_SetMaxOutputStringLength(parser, maxLength) != expectedStatus)
     {
-        printf("FAILURE: expected JSON_SetMaxOutputStringLength() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
+        printf("FAILURE: expected JSON_Parser_SetMaxOutputStringLength() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
         return 0;
     }
     return 1;
@@ -445,9 +445,9 @@ static int CheckSetMaxOutputStringLength(JSON_Parser parser, size_t maxLength, J
 
 static int CheckSetAllowBOM(JSON_Parser parser, JSON_Boolean allowBOM, JSON_Status expectedStatus)
 {
-    if (JSON_SetAllowBOM(parser, allowBOM) != expectedStatus)
+    if (JSON_Parser_SetAllowBOM(parser, allowBOM) != expectedStatus)
     {
-        printf("FAILURE: expected JSON_SetAllowBOM() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
+        printf("FAILURE: expected JSON_Parser_SetAllowBOM() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
         return 0;
     }
     return 1;
@@ -455,9 +455,9 @@ static int CheckSetAllowBOM(JSON_Parser parser, JSON_Boolean allowBOM, JSON_Stat
 
 static int CheckSetAllowComments(JSON_Parser parser, JSON_Boolean allowComments, JSON_Status expectedStatus)
 {
-    if (JSON_SetAllowComments(parser, allowComments) != expectedStatus)
+    if (JSON_Parser_SetAllowComments(parser, allowComments) != expectedStatus)
     {
-        printf("FAILURE: expected JSON_SetAllowComments() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
+        printf("FAILURE: expected JSON_Parser_SetAllowComments() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
         return 0;
     }
     return 1;
@@ -465,9 +465,9 @@ static int CheckSetAllowComments(JSON_Parser parser, JSON_Boolean allowComments,
 
 static int CheckSetAllowTrailingCommas(JSON_Parser parser, JSON_Boolean allowTrailingCommas, JSON_Status expectedStatus)
 {
-    if (JSON_SetAllowTrailingCommas(parser, allowTrailingCommas) != expectedStatus)
+    if (JSON_Parser_SetAllowTrailingCommas(parser, allowTrailingCommas) != expectedStatus)
     {
-        printf("FAILURE: expected JSON_SetAllowTrailingCommas() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
+        printf("FAILURE: expected JSON_Parser_SetAllowTrailingCommas() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
         return 0;
     }
     return 1;
@@ -475,9 +475,9 @@ static int CheckSetAllowTrailingCommas(JSON_Parser parser, JSON_Boolean allowTra
 
 static int CheckSetAllowSpecialNumbers(JSON_Parser parser, JSON_Boolean allowSpecialNumbers, JSON_Status expectedStatus)
 {
-    if (JSON_SetAllowSpecialNumbers(parser, allowSpecialNumbers) != expectedStatus)
+    if (JSON_Parser_SetAllowSpecialNumbers(parser, allowSpecialNumbers) != expectedStatus)
     {
-        printf("FAILURE: expected JSON_SetAllowSpecialNumbers() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
+        printf("FAILURE: expected JSON_Parser_SetAllowSpecialNumbers() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
         return 0;
     }
     return 1;
@@ -485,9 +485,9 @@ static int CheckSetAllowSpecialNumbers(JSON_Parser parser, JSON_Boolean allowSpe
 
 static int CheckSetAllowHexNumbers(JSON_Parser parser, JSON_Boolean allowHexNumbers, JSON_Status expectedStatus)
 {
-    if (JSON_SetAllowHexNumbers(parser, allowHexNumbers) != expectedStatus)
+    if (JSON_Parser_SetAllowHexNumbers(parser, allowHexNumbers) != expectedStatus)
     {
-        printf("FAILURE: expected JSON_SetAllowHexNumbers() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
+        printf("FAILURE: expected JSON_Parser_SetAllowHexNumbers() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
         return 0;
     }
     return 1;
@@ -495,9 +495,9 @@ static int CheckSetAllowHexNumbers(JSON_Parser parser, JSON_Boolean allowHexNumb
 
 static int CheckSetReplaceInvalidEncodingSequences(JSON_Parser parser, JSON_Boolean replaceInvalidEncodingSequences, JSON_Status expectedStatus)
 {
-    if (JSON_SetReplaceInvalidEncodingSequences(parser, replaceInvalidEncodingSequences) != expectedStatus)
+    if (JSON_Parser_SetReplaceInvalidEncodingSequences(parser, replaceInvalidEncodingSequences) != expectedStatus)
     {
-        printf("FAILURE: expected JSON_SetReplaceInvalidEncodingSequences() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
+        printf("FAILURE: expected JSON_Parser_SetReplaceInvalidEncodingSequences() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
         return 0;
     }
     return 1;
@@ -505,129 +505,129 @@ static int CheckSetReplaceInvalidEncodingSequences(JSON_Parser parser, JSON_Bool
 
 static int CheckSetTrackObjectMembers(JSON_Parser parser, JSON_Boolean trackObjectMembers, JSON_Status expectedStatus)
 {
-    if (JSON_SetTrackObjectMembers(parser, trackObjectMembers) != expectedStatus)
+    if (JSON_Parser_SetTrackObjectMembers(parser, trackObjectMembers) != expectedStatus)
     {
-        printf("FAILURE: expected JSON_SetTrackObjectMembers() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
+        printf("FAILURE: expected JSON_Parser_SetTrackObjectMembers() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
         return 0;
     }
     return 1;
 }
 
-static int CheckSetNullHandler(JSON_Parser parser, JSON_NullHandler handler, JSON_Status expectedStatus)
+static int CheckSetNullHandler(JSON_Parser parser, JSON_Parser_NullHandler handler, JSON_Status expectedStatus)
 {
-    if (JSON_SetNullHandler(parser, handler) != expectedStatus)
+    if (JSON_Parser_SetNullHandler(parser, handler) != expectedStatus)
     {
-        printf("FAILURE: expected JSON_SetNullHandler() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
+        printf("FAILURE: expected JSON_Parser_SetNullHandler() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
         return 0;
     }
     return 1;
 }
 
-static int CheckSetBooleanHandler(JSON_Parser parser, JSON_BooleanHandler handler, JSON_Status expectedStatus)
+static int CheckSetBooleanHandler(JSON_Parser parser, JSON_Parser_BooleanHandler handler, JSON_Status expectedStatus)
 {
-    if (JSON_SetBooleanHandler(parser, handler) != expectedStatus)
+    if (JSON_Parser_SetBooleanHandler(parser, handler) != expectedStatus)
     {
-        printf("FAILURE: expected JSON_SetBooleanHandler() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
+        printf("FAILURE: expected JSON_Parser_SetBooleanHandler() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
         return 0;
     }
     return 1;
 }
 
-static int CheckSetStringHandler(JSON_Parser parser, JSON_StringHandler handler, JSON_Status expectedStatus)
+static int CheckSetStringHandler(JSON_Parser parser, JSON_Parser_StringHandler handler, JSON_Status expectedStatus)
 {
-    if (JSON_SetStringHandler(parser, handler) != expectedStatus)
+    if (JSON_Parser_SetStringHandler(parser, handler) != expectedStatus)
     {
-        printf("FAILURE: expected JSON_SetStringHandler() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
+        printf("FAILURE: expected JSON_Parser_SetStringHandler() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
         return 0;
     }
     return 1;
 }
 
-static int CheckSetNumberHandler(JSON_Parser parser, JSON_NumberHandler handler, JSON_Status expectedStatus)
+static int CheckSetNumberHandler(JSON_Parser parser, JSON_Parser_NumberHandler handler, JSON_Status expectedStatus)
 {
-    if (JSON_SetNumberHandler(parser, handler) != expectedStatus)
+    if (JSON_Parser_SetNumberHandler(parser, handler) != expectedStatus)
     {
-        printf("FAILURE: expected JSON_SetNumberHandler() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
+        printf("FAILURE: expected JSON_Parser_SetNumberHandler() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
         return 0;
     }
     return 1;
 }
 
-static int CheckSetRawNumberHandler(JSON_Parser parser, JSON_RawNumberHandler handler, JSON_Status expectedStatus)
+static int CheckSetRawNumberHandler(JSON_Parser parser, JSON_Parser_RawNumberHandler handler, JSON_Status expectedStatus)
 {
-    if (JSON_SetRawNumberHandler(parser, handler) != expectedStatus)
+    if (JSON_Parser_SetRawNumberHandler(parser, handler) != expectedStatus)
     {
-        printf("FAILURE: expected JSON_SetRawNumberHandler() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
+        printf("FAILURE: expected JSON_Parser_SetRawNumberHandler() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
         return 0;
     }
     return 1;
 }
 
-static int CheckSetSpecialNumberHandler(JSON_Parser parser, JSON_SpecialNumberHandler handler, JSON_Status expectedStatus)
+static int CheckSetSpecialNumberHandler(JSON_Parser parser, JSON_Parser_SpecialNumberHandler handler, JSON_Status expectedStatus)
 {
-    if (JSON_SetSpecialNumberHandler(parser, handler) != expectedStatus)
+    if (JSON_Parser_SetSpecialNumberHandler(parser, handler) != expectedStatus)
     {
-        printf("FAILURE: expected JSON_SetSpecialNumberHandler() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
+        printf("FAILURE: expected JSON_Parser_SetSpecialNumberHandler() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
         return 0;
     }
     return 1;
 }
 
-static int CheckSetStartObjectHandler(JSON_Parser parser, JSON_StartObjectHandler handler, JSON_Status expectedStatus)
+static int CheckSetStartObjectHandler(JSON_Parser parser, JSON_Parser_StartObjectHandler handler, JSON_Status expectedStatus)
 {
-    if (JSON_SetStartObjectHandler(parser, handler) != expectedStatus)
+    if (JSON_Parser_SetStartObjectHandler(parser, handler) != expectedStatus)
     {
-        printf("FAILURE: expected JSON_SetStartObjectHandler() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
+        printf("FAILURE: expected JSON_Parser_SetStartObjectHandler() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
         return 0;
     }
     return 1;
 }
 
-static int CheckSetEndObjectHandler(JSON_Parser parser, JSON_EndObjectHandler handler, JSON_Status expectedStatus)
+static int CheckSetEndObjectHandler(JSON_Parser parser, JSON_Parser_EndObjectHandler handler, JSON_Status expectedStatus)
 {
-    if (JSON_SetEndObjectHandler(parser, handler) != expectedStatus)
+    if (JSON_Parser_SetEndObjectHandler(parser, handler) != expectedStatus)
     {
-        printf("FAILURE: expected JSON_SetEndObjectHandler() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
+        printf("FAILURE: expected JSON_Parser_SetEndObjectHandler() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
         return 0;
     }
     return 1;
 }
 
-static int CheckSetObjectMemberHandler(JSON_Parser parser, JSON_ObjectMemberHandler handler, JSON_Status expectedStatus)
+static int CheckSetObjectMemberHandler(JSON_Parser parser, JSON_Parser_ObjectMemberHandler handler, JSON_Status expectedStatus)
 {
-    if (JSON_SetObjectMemberHandler(parser, handler) != expectedStatus)
+    if (JSON_Parser_SetObjectMemberHandler(parser, handler) != expectedStatus)
     {
-        printf("FAILURE: expected JSON_SetObjectMemberHandler() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
+        printf("FAILURE: expected JSON_Parser_SetObjectMemberHandler() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
         return 0;
     }
     return 1;
 }
 
-static int CheckSetStartArrayHandler(JSON_Parser parser, JSON_StartArrayHandler handler, JSON_Status expectedStatus)
+static int CheckSetStartArrayHandler(JSON_Parser parser, JSON_Parser_StartArrayHandler handler, JSON_Status expectedStatus)
 {
-    if (JSON_SetStartArrayHandler(parser, handler) != expectedStatus)
+    if (JSON_Parser_SetStartArrayHandler(parser, handler) != expectedStatus)
     {
-        printf("FAILURE: expected JSON_SetStartArrayHandler() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
+        printf("FAILURE: expected JSON_Parser_SetStartArrayHandler() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
         return 0;
     }
     return 1;
 }
 
-static int CheckSetEndArrayHandler(JSON_Parser parser, JSON_EndArrayHandler handler, JSON_Status expectedStatus)
+static int CheckSetEndArrayHandler(JSON_Parser parser, JSON_Parser_EndArrayHandler handler, JSON_Status expectedStatus)
 {
-    if (JSON_SetEndArrayHandler(parser, handler) != expectedStatus)
+    if (JSON_Parser_SetEndArrayHandler(parser, handler) != expectedStatus)
     {
-        printf("FAILURE: expected JSON_SetEndArrayHandler() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
+        printf("FAILURE: expected JSON_Parser_SetEndArrayHandler() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
         return 0;
     }
     return 1;
 }
 
-static int CheckSetArrayItemHandler(JSON_Parser parser, JSON_ArrayItemHandler handler, JSON_Status expectedStatus)
+static int CheckSetArrayItemHandler(JSON_Parser parser, JSON_Parser_ArrayItemHandler handler, JSON_Status expectedStatus)
 {
-    if (JSON_SetArrayItemHandler(parser, handler) != expectedStatus)
+    if (JSON_Parser_SetArrayItemHandler(parser, handler) != expectedStatus)
     {
-        printf("FAILURE: expected JSON_SetArrayItemHandler() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
+        printf("FAILURE: expected JSON_Parser_SetArrayItemHandler() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
         return 0;
     }
     return 1;
@@ -635,9 +635,9 @@ static int CheckSetArrayItemHandler(JSON_Parser parser, JSON_ArrayItemHandler ha
 
 static int CheckParse(JSON_Parser parser, const char* pBytes, size_t length, JSON_Boolean isFinal, JSON_Status expectedStatus)
 {
-    if (JSON_Parse(parser, pBytes, length, isFinal) != expectedStatus)
+    if (JSON_Parser_Parse(parser, pBytes, length, isFinal) != expectedStatus)
     {
-        printf("FAILURE: expected JSON_Parse() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
+        printf("FAILURE: expected JSON_Parser_Parse() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
         return 0;
     }
     return 1;
@@ -831,7 +831,7 @@ static int TryToMisbehaveInCallback(JSON_Parser parser)
     return 0;
 }
 
-static JSON_HandlerResult JSON_CALL NullHandler(JSON_Parser parser)
+static JSON_Parser_HandlerResult JSON_CALL NullHandler(JSON_Parser parser)
 {
     JSON_Location location;
     if (s_failParseCallback)
@@ -842,7 +842,7 @@ static JSON_HandlerResult JSON_CALL NullHandler(JSON_Parser parser)
     {
         return JSON_AbortParsing;
     }
-    if (JSON_GetTokenLocation(parser, &location) != JSON_Success)
+    if (JSON_Parser_GetTokenLocation(parser, &location) != JSON_Success)
     {
         return JSON_AbortParsing;
     }
@@ -852,7 +852,7 @@ static JSON_HandlerResult JSON_CALL NullHandler(JSON_Parser parser)
     return JSON_ContinueParsing;
 }
 
-static JSON_HandlerResult JSON_CALL BooleanHandler(JSON_Parser parser, JSON_Boolean value)
+static JSON_Parser_HandlerResult JSON_CALL BooleanHandler(JSON_Parser parser, JSON_Boolean value)
 {
     JSON_Location location;
     if (s_failParseCallback)
@@ -863,7 +863,7 @@ static JSON_HandlerResult JSON_CALL BooleanHandler(JSON_Parser parser, JSON_Bool
     {
         return JSON_AbortParsing;
     }
-    if (JSON_GetTokenLocation(parser, &location) != JSON_Success)
+    if (JSON_Parser_GetTokenLocation(parser, &location) != JSON_Success)
     {
         return JSON_AbortParsing;
     }
@@ -873,7 +873,7 @@ static JSON_HandlerResult JSON_CALL BooleanHandler(JSON_Parser parser, JSON_Bool
     return JSON_ContinueParsing;
 }
 
-static JSON_HandlerResult JSON_CALL StringHandler(JSON_Parser parser, const char* pBytes, size_t length, JSON_StringAttributes attributes)
+static JSON_Parser_HandlerResult JSON_CALL StringHandler(JSON_Parser parser, const char* pBytes, size_t length, JSON_StringAttributes attributes)
 {
     JSON_Location location;
     if (s_failParseCallback)
@@ -884,7 +884,7 @@ static JSON_HandlerResult JSON_CALL StringHandler(JSON_Parser parser, const char
     {
         return JSON_AbortParsing;
     }
-    if (JSON_GetTokenLocation(parser, &location) != JSON_Success)
+    if (JSON_Parser_GetTokenLocation(parser, &location) != JSON_Success)
     {
         return JSON_AbortParsing;
     }
@@ -896,7 +896,7 @@ static JSON_HandlerResult JSON_CALL StringHandler(JSON_Parser parser, const char
     return JSON_ContinueParsing;
 }
 
-static JSON_HandlerResult JSON_CALL NumberHandler(JSON_Parser parser, double value)
+static JSON_Parser_HandlerResult JSON_CALL NumberHandler(JSON_Parser parser, double value)
 {
     JSON_Location location;
     (void)value; /* unused */
@@ -908,14 +908,14 @@ static JSON_HandlerResult JSON_CALL NumberHandler(JSON_Parser parser, double val
     {
         return JSON_AbortParsing;
     }
-    if (JSON_GetTokenLocation(parser, &location) != JSON_Success)
+    if (JSON_Parser_GetTokenLocation(parser, &location) != JSON_Success)
     {
         return JSON_AbortParsing;
     }
     return JSON_ContinueParsing;
 }
 
-static JSON_HandlerResult JSON_CALL RawNumberHandler(JSON_Parser parser, const char* pValue, size_t length)
+static JSON_Parser_HandlerResult JSON_CALL RawNumberHandler(JSON_Parser parser, const char* pValue, size_t length)
 {
     JSON_Location location;
     if (s_failParseCallback)
@@ -930,7 +930,7 @@ static JSON_HandlerResult JSON_CALL RawNumberHandler(JSON_Parser parser, const c
     {
         return JSON_AbortParsing;
     }
-    if (JSON_GetTokenLocation(parser, &location) != JSON_Success)
+    if (JSON_Parser_GetTokenLocation(parser, &location) != JSON_Success)
     {
         return JSON_AbortParsing;
     }
@@ -940,7 +940,7 @@ static JSON_HandlerResult JSON_CALL RawNumberHandler(JSON_Parser parser, const c
     return JSON_ContinueParsing;
 }
 
-static JSON_HandlerResult JSON_CALL SpecialNumberHandler(JSON_Parser parser, JSON_SpecialNumber value)
+static JSON_Parser_HandlerResult JSON_CALL SpecialNumberHandler(JSON_Parser parser, JSON_SpecialNumber value)
 {
     JSON_Location location;
     const char* pValue;
@@ -952,7 +952,7 @@ static JSON_HandlerResult JSON_CALL SpecialNumberHandler(JSON_Parser parser, JSO
     {
         return JSON_AbortParsing;
     }
-    if (JSON_GetTokenLocation(parser, &location) != JSON_Success)
+    if (JSON_Parser_GetTokenLocation(parser, &location) != JSON_Success)
     {
         return JSON_AbortParsing;
     }
@@ -977,7 +977,7 @@ static JSON_HandlerResult JSON_CALL SpecialNumberHandler(JSON_Parser parser, JSO
     return JSON_ContinueParsing;
 }
 
-static JSON_HandlerResult JSON_CALL StartObjectHandler(JSON_Parser parser)
+static JSON_Parser_HandlerResult JSON_CALL StartObjectHandler(JSON_Parser parser)
 {
     JSON_Location location;
     if (s_failParseCallback)
@@ -988,7 +988,7 @@ static JSON_HandlerResult JSON_CALL StartObjectHandler(JSON_Parser parser)
     {
         return JSON_AbortParsing;
     }
-    if (JSON_GetTokenLocation(parser, &location) != JSON_Success)
+    if (JSON_Parser_GetTokenLocation(parser, &location) != JSON_Success)
     {
         return JSON_AbortParsing;
     }
@@ -998,7 +998,7 @@ static JSON_HandlerResult JSON_CALL StartObjectHandler(JSON_Parser parser)
     return JSON_ContinueParsing;
 }
 
-static JSON_HandlerResult JSON_CALL EndObjectHandler(JSON_Parser parser)
+static JSON_Parser_HandlerResult JSON_CALL EndObjectHandler(JSON_Parser parser)
 {
     JSON_Location location;
     if (s_failParseCallback)
@@ -1009,7 +1009,7 @@ static JSON_HandlerResult JSON_CALL EndObjectHandler(JSON_Parser parser)
     {
         return JSON_AbortParsing;
     }
-    if (JSON_GetTokenLocation(parser, &location) != JSON_Success)
+    if (JSON_Parser_GetTokenLocation(parser, &location) != JSON_Success)
     {
         return JSON_AbortParsing;
     }
@@ -1019,7 +1019,7 @@ static JSON_HandlerResult JSON_CALL EndObjectHandler(JSON_Parser parser)
     return JSON_ContinueParsing;
 }
 
-static JSON_HandlerResult JSON_CALL ObjectMemberHandler(JSON_Parser parser, JSON_Boolean isFirstMember, const char* pBytes, size_t length, JSON_StringAttributes attributes)
+static JSON_Parser_HandlerResult JSON_CALL ObjectMemberHandler(JSON_Parser parser, JSON_Boolean isFirstMember, const char* pBytes, size_t length, JSON_StringAttributes attributes)
 {
     JSON_Location location;
     if (s_failParseCallback)
@@ -1034,7 +1034,7 @@ static JSON_HandlerResult JSON_CALL ObjectMemberHandler(JSON_Parser parser, JSON
     {
         return JSON_TreatAsDuplicateObjectMember;
     }
-    if (JSON_GetTokenLocation(parser, &location) != JSON_Success)
+    if (JSON_Parser_GetTokenLocation(parser, &location) != JSON_Success)
     {
         return JSON_AbortParsing;
     }
@@ -1046,7 +1046,7 @@ static JSON_HandlerResult JSON_CALL ObjectMemberHandler(JSON_Parser parser, JSON
     return JSON_ContinueParsing;
 }
 
-static JSON_HandlerResult JSON_CALL StartArrayHandler(JSON_Parser parser)
+static JSON_Parser_HandlerResult JSON_CALL StartArrayHandler(JSON_Parser parser)
 {
     JSON_Location location;
     if (s_failParseCallback)
@@ -1057,7 +1057,7 @@ static JSON_HandlerResult JSON_CALL StartArrayHandler(JSON_Parser parser)
     {
         return JSON_AbortParsing;
     }
-    if (JSON_GetTokenLocation(parser, &location) != JSON_Success)
+    if (JSON_Parser_GetTokenLocation(parser, &location) != JSON_Success)
     {
         return JSON_AbortParsing;
     }
@@ -1067,7 +1067,7 @@ static JSON_HandlerResult JSON_CALL StartArrayHandler(JSON_Parser parser)
     return JSON_ContinueParsing;
 }
 
-static JSON_HandlerResult JSON_CALL EndArrayHandler(JSON_Parser parser)
+static JSON_Parser_HandlerResult JSON_CALL EndArrayHandler(JSON_Parser parser)
 {
     JSON_Location location;
     if (s_failParseCallback)
@@ -1078,7 +1078,7 @@ static JSON_HandlerResult JSON_CALL EndArrayHandler(JSON_Parser parser)
     {
         return JSON_AbortParsing;
     }
-    if (JSON_GetTokenLocation(parser, &location) != JSON_Success)
+    if (JSON_Parser_GetTokenLocation(parser, &location) != JSON_Success)
     {
         return JSON_AbortParsing;
     }
@@ -1088,7 +1088,7 @@ static JSON_HandlerResult JSON_CALL EndArrayHandler(JSON_Parser parser)
     return JSON_ContinueParsing;
 }
 
-static JSON_HandlerResult JSON_CALL ArrayItemHandler(JSON_Parser parser, JSON_Boolean isFirstItem)
+static JSON_Parser_HandlerResult JSON_CALL ArrayItemHandler(JSON_Parser parser, JSON_Boolean isFirstItem)
 {
     JSON_Location location;
     if (s_failParseCallback)
@@ -1099,7 +1099,7 @@ static JSON_HandlerResult JSON_CALL ArrayItemHandler(JSON_Parser parser, JSON_Bo
     {
         return JSON_AbortParsing;
     }
-    if (JSON_GetTokenLocation(parser, &location) != JSON_Success)
+    if (JSON_Parser_GetTokenLocation(parser, &location) != JSON_Success)
     {
         return JSON_AbortParsing;
     }
@@ -1236,13 +1236,13 @@ static void RunParseTest(const ParseTest* pTest)
         CheckSetReplaceInvalidEncodingSequences(parser, settings.replaceInvalidEncodingSequences, JSON_Success) &&
         CheckSetTrackObjectMembers(parser, settings.trackObjectMembers, JSON_Success))
     {
-        if (JSON_Parse(parser, pTest->pInput, pTest->length, pTest->isFinal) != JSON_Success ||
+        if (JSON_Parser_Parse(parser, pTest->pInput, pTest->length, pTest->isFinal) != JSON_Success ||
             pTest->isFinal)
         {
             state.finishedParsing = JSON_True;
         }
-        state.error = JSON_GetError(parser);
-        JSON_GetErrorLocation(parser, &state.errorLocation);
+        state.error = JSON_Parser_GetError(parser);
+        JSON_Parser_GetErrorLocation(parser, &state.errorLocation);
         if (state.error != JSON_Error_None)
         {
             OutputSeparator();
@@ -1262,7 +1262,7 @@ static void RunParseTest(const ParseTest* pTest)
     {
         s_failureCount++;
     }
-    JSON_FreeParser(parser);
+    JSON_Parser_Free(parser);
     ResetOutput();
 }
 
@@ -1279,7 +1279,7 @@ static void TestParserCreation()
     {
         s_failureCount++;
     }
-    JSON_FreeParser(parser);
+    JSON_Parser_Free(parser);
 }
 
 static void TestParserCreationWithCustomMemorySuite()
@@ -1302,7 +1302,7 @@ static void TestParserCreationWithCustomMemorySuite()
     {
         s_failureCount++;
     }
-    JSON_FreeParser(parser);
+    JSON_Parser_Free(parser);
 }
 
 static void TestParserCreationMallocFailure()
@@ -1319,7 +1319,7 @@ static void TestParserCreationMallocFailure()
         s_failureCount++;
     }
     s_failMalloc = 0;
-    JSON_FreeParser(parser);
+    JSON_Parser_Free(parser);
 }
 
 static void TestSetParserSettings()
@@ -1358,7 +1358,7 @@ static void TestSetParserSettings()
     {
         s_failureCount++;
     }
-    JSON_FreeParser(parser);
+    JSON_Parser_Free(parser);
 }
 
 static void TestSetInvalidParserSettings()
@@ -1381,7 +1381,7 @@ static void TestSetInvalidParserSettings()
     {
         s_failureCount++;
     }
-    JSON_FreeParser(parser);
+    JSON_Parser_Free(parser);
 }
 
 static void TestSetParserHandlers()
@@ -1423,7 +1423,7 @@ static void TestSetParserHandlers()
     {
         s_failureCount++;
     }
-    JSON_FreeParser(parser);
+    JSON_Parser_Free(parser);
 }
 
 static void TestResetParser()
@@ -1472,7 +1472,7 @@ static void TestResetParser()
     {
         s_failureCount++;
     }
-    JSON_FreeParser(parser);
+    JSON_Parser_Free(parser);
 }
 
 static void TestMisbehaveInCallbacks()
@@ -1536,7 +1536,7 @@ static void TestMisbehaveInCallbacks()
         s_failureCount++;
     }
     s_misbehaveInCallback = 0;
-    JSON_FreeParser(parser);
+    JSON_Parser_Free(parser);
 }
 
 static void TestAbortInCallbacks()
@@ -1624,7 +1624,7 @@ static void TestAbortInCallbacks()
         s_failureCount++;
     }
     s_failParseCallback = 0;
-    JSON_FreeParser(parser);
+    JSON_Parser_Free(parser);
 }
 
 static void TestStringMallocFailure()
@@ -1644,12 +1644,12 @@ static void TestStringMallocFailure()
         s_failMalloc = 1;
         for (;;)
         {
-            if (JSON_Parse(parser, "a", 1, JSON_False) == JSON_Failure)
+            if (JSON_Parser_Parse(parser, "a", 1, JSON_False) == JSON_Failure)
             {
                 break;
             }
         }
-        JSON_GetErrorLocation(parser, &state.errorLocation);
+        JSON_Parser_GetErrorLocation(parser, &state.errorLocation);
         if (CheckParserState(parser, &state))
         {
             succeeded = 1;
@@ -1664,7 +1664,7 @@ static void TestStringMallocFailure()
     {
         s_failureCount++;
     }
-    JSON_FreeParser(parser);
+    JSON_Parser_Free(parser);
 }
 
 static void TestStringReallocFailure()
@@ -1684,12 +1684,12 @@ static void TestStringReallocFailure()
         s_failRealloc = 1;
         for (;;)
         {
-            if (JSON_Parse(parser, "a", 1, JSON_False) == JSON_Failure)
+            if (JSON_Parser_Parse(parser, "a", 1, JSON_False) == JSON_Failure)
             {
                 break;
             }
         }
-        JSON_GetErrorLocation(parser, &state.errorLocation);
+        JSON_Parser_GetErrorLocation(parser, &state.errorLocation);
         if (CheckParserState(parser, &state))
         {
             succeeded = 1;
@@ -1704,7 +1704,7 @@ static void TestStringReallocFailure()
     {
         s_failureCount++;
     }
-    JSON_FreeParser(parser);
+    JSON_Parser_Free(parser);
 }
 
 static void TestStackMallocFailure()
@@ -1723,12 +1723,12 @@ static void TestStackMallocFailure()
         s_failMalloc = 1;
         for (;;)
         {
-            if (JSON_Parse(parser, "{\"a\":", 5, JSON_False) == JSON_Failure)
+            if (JSON_Parser_Parse(parser, "{\"a\":", 5, JSON_False) == JSON_Failure)
             {
                 break;
             }
         }
-        JSON_GetErrorLocation(parser, &state.errorLocation);
+        JSON_Parser_GetErrorLocation(parser, &state.errorLocation);
         if (CheckParserState(parser, &state))
         {
             succeeded = 1;
@@ -1743,7 +1743,7 @@ static void TestStackMallocFailure()
     {
         s_failureCount++;
     }
-    JSON_FreeParser(parser);
+    JSON_Parser_Free(parser);
 }
 
 static void TestStackReallocFailure()
@@ -1762,12 +1762,12 @@ static void TestStackReallocFailure()
         s_failRealloc = 1;
         for (;;)
         {
-            if (JSON_Parse(parser, "{\"a\":", 5, JSON_False) == JSON_Failure)
+            if (JSON_Parser_Parse(parser, "{\"a\":", 5, JSON_False) == JSON_Failure)
             {
                 break;
             }
         }
-        JSON_GetErrorLocation(parser, &state.errorLocation);
+        JSON_Parser_GetErrorLocation(parser, &state.errorLocation);
         if (CheckParserState(parser, &state))
         {
             succeeded = 1;
@@ -1782,7 +1782,7 @@ static void TestStackReallocFailure()
     {
         s_failureCount++;
     }
-    JSON_FreeParser(parser);
+    JSON_Parser_Free(parser);
 }
 
 static void TestDuplicateMemberTrackingMallocFailure()
@@ -1815,7 +1815,7 @@ static void TestDuplicateMemberTrackingMallocFailure()
     {
         s_failureCount++;
     }
-    JSON_FreeParser(parser);
+    JSON_Parser_Free(parser);
 }
 
 static void TestMissingParser()
@@ -1874,7 +1874,7 @@ static void TestGetErrorLocationNullLocation()
     {
         s_failureCount++;
     }
-    JSON_FreeParser(parser);
+    JSON_Parser_Free(parser);
 }
 
 static void TestGetErrorLocationNoError()
@@ -1888,7 +1888,7 @@ static void TestGetErrorLocationNoError()
     {
         if (location.byte != 100 || location.line != 200 || location.column != 300 || location.depth != 400)
         {
-            printf("FAILURE: JSON_GetErrorLocation() modified the location when it shouldn't have\n");
+            printf("FAILURE: JSON_Parser_GetErrorLocation() modified the location when it shouldn't have\n");
             s_failureCount++;
         }
         else
@@ -1900,7 +1900,7 @@ static void TestGetErrorLocationNoError()
     {
         s_failureCount++;
     }
-    JSON_FreeParser(parser);
+    JSON_Parser_Free(parser);
 }
 
 static void TestGetTokenLocationOutsideHandler()
@@ -1914,7 +1914,7 @@ static void TestGetTokenLocationOutsideHandler()
     {
         if (location.byte != 100 || location.line != 200 || location.column != 300 || location.depth != 400)
         {
-            printf("FAILURE: JSON_GetTokenLocation() modified the location when it shouldn't have\n");
+            printf("FAILURE: JSON_Parser_GetTokenLocation() modified the location when it shouldn't have\n");
             s_failureCount++;
         }
         else
@@ -1926,7 +1926,7 @@ static void TestGetTokenLocationOutsideHandler()
     {
         s_failureCount++;
     }
-    JSON_FreeParser(parser);
+    JSON_Parser_Free(parser);
 }
 
 static void TestErrorStrings()
@@ -2027,9 +2027,9 @@ static const IEEE754Test s_IEEE754Tests[] =
     IEEE754_TEST("0x1ffffffffffffff", 144115188075855870.0) /* 11...11 | 1111 */
 };
 
-static JSON_HandlerResult JSON_CALL CheckIEEE754InterpretationNumberHandler(JSON_Parser parser, double value)
+static JSON_Parser_HandlerResult JSON_CALL CheckIEEE754InterpretationNumberHandler(JSON_Parser parser, double value)
 {
-    const IEEE754Test* pTest = (const IEEE754Test*)JSON_GetUserData(parser);
+    const IEEE754Test* pTest = (const IEEE754Test*)JSON_Parser_GetUserData(parser);
     if (value != pTest->expectedValue)
     {
         printf("FAILURE: expected value to be %f instead of %f\n", pTest->expectedValue, value);
@@ -2048,7 +2048,7 @@ static void RunIEEE754Test(const IEEE754Test* pTest)
         CheckSetAllowHexNumbers(parser, JSON_True, JSON_Success) &&
         CheckSetUserData(parser, (void*)pTest, JSON_Success))
     {
-        if (JSON_Parse(parser, pTest->pInput, pTest->length, JSON_True) == JSON_Success)
+        if (JSON_Parser_Parse(parser, pTest->pInput, pTest->length, JSON_True) == JSON_Success)
         {
             printf("OK\n");
         }
@@ -2057,7 +2057,7 @@ static void RunIEEE754Test(const IEEE754Test* pTest)
     {
         s_failureCount++;
     }
-    JSON_FreeParser(parser);
+    JSON_Parser_Free(parser);
 }
 
 static void TestIEEE754NumberInterpretation()

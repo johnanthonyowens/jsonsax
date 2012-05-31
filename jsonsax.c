@@ -582,50 +582,50 @@ typedef struct tag_MemberNames
 } MemberNames;
 
 /* A parser instance. */
-struct JSON_ParserData
+struct JSON_Parser_Data
 {
-    JSON_MemorySuite          memorySuite;
-    void*                     userData;
-    JSON_NullHandler          nullHandler;
-    JSON_BooleanHandler       booleanHandler;
-    JSON_StringHandler        stringHandler;
-    JSON_NumberHandler        numberHandler;
-    JSON_RawNumberHandler     rawNumberHandler;
-    JSON_SpecialNumberHandler specialNumberHandler;
-    JSON_StartObjectHandler   startObjectHandler;
-    JSON_EndObjectHandler     endObjectHandler;
-    JSON_ObjectMemberHandler  objectMemberHandler;
-    JSON_StartArrayHandler    startArrayHandler;
-    JSON_EndArrayHandler      endArrayHandler;
-    JSON_ArrayItemHandler     arrayItemHandler;
-    Decoder                   decoder;
-    ParserStatus              parserStatus;
-    unsigned char             inputEncoding;     /* real type is JSON_Encoding */
-    unsigned char             outputEncoding;    /* real type is JSON_Encoding */
-    unsigned char             lexerState;        /* real type is LexerState */
-    unsigned char             token;             /* real type is Symbol */
-    unsigned char             previousToken;     /* real type is Symbol */
-    unsigned char             error;             /* real type is JSON_Error */
-    unsigned char             errorOffset;
-    unsigned char             outputAttributes;
-    JSON_UInt32               lexerBits;
-    size_t                    codepointLocationByte;
-    size_t                    codepointLocationLine;
-    size_t                    codepointLocationColumn;
-    size_t                    tokenLocationByte;
-    size_t                    tokenLocationLine;
-    size_t                    tokenLocationColumn;
-    size_t                    depth;
-    unsigned char*            pOutputBuffer;     /* initially set to defaultOutputBuffer */
-    size_t                    outputBufferLength;
-    size_t                    outputBufferUsed;
-    size_t                    maxOutputStringLength;
-    unsigned char*            pSymbolStack;      /* initially set to defaultSymbolStack */
-    size_t                    symbolStackSize;
-    size_t                    symbolStackUsed;
-    MemberNames*              pMemberNames;
-    unsigned char             defaultOutputBuffer[DEFAULT_OUTPUT_BUFFER_LENGTH];
-    unsigned char             defaultSymbolStack[DEFAULT_SYMBOL_STACK_SIZE];
+    JSON_Parser_MemorySuite          memorySuite;
+    void*                            userData;
+    JSON_Parser_NullHandler          nullHandler;
+    JSON_Parser_BooleanHandler       booleanHandler;
+    JSON_Parser_StringHandler        stringHandler;
+    JSON_Parser_NumberHandler        numberHandler;
+    JSON_Parser_RawNumberHandler     rawNumberHandler;
+    JSON_Parser_SpecialNumberHandler specialNumberHandler;
+    JSON_Parser_StartObjectHandler   startObjectHandler;
+    JSON_Parser_EndObjectHandler     endObjectHandler;
+    JSON_Parser_ObjectMemberHandler  objectMemberHandler;
+    JSON_Parser_StartArrayHandler    startArrayHandler;
+    JSON_Parser_EndArrayHandler      endArrayHandler;
+    JSON_Parser_ArrayItemHandler     arrayItemHandler;
+    Decoder                          decoder;
+    ParserStatus                     parserStatus;
+    unsigned char                    inputEncoding;     /* real type is JSON_Encoding */
+    unsigned char                    outputEncoding;    /* real type is JSON_Encoding */
+    unsigned char                    lexerState;        /* real type is LexerState */
+    unsigned char                    token;             /* real type is Symbol */
+    unsigned char                    previousToken;     /* real type is Symbol */
+    unsigned char                    error;             /* real type is JSON_Error */
+    unsigned char                    errorOffset;
+    unsigned char                    outputAttributes;
+    JSON_UInt32                      lexerBits;
+    size_t                           codepointLocationByte;
+    size_t                           codepointLocationLine;
+    size_t                           codepointLocationColumn;
+    size_t                           tokenLocationByte;
+    size_t                           tokenLocationLine;
+    size_t                           tokenLocationColumn;
+    size_t                           depth;
+    unsigned char*                   pOutputBuffer;     /* initially set to defaultOutputBuffer */
+    size_t                           outputBufferLength;
+    size_t                           outputBufferUsed;
+    size_t                           maxOutputStringLength;
+    unsigned char*                   pSymbolStack;      /* initially set to defaultSymbolStack */
+    size_t                           symbolStackSize;
+    size_t                           symbolStackUsed;
+    MemberNames*                     pMemberNames;
+    unsigned char                    defaultOutputBuffer[DEFAULT_OUTPUT_BUFFER_LENGTH];
+    unsigned char                    defaultSymbolStack[DEFAULT_SYMBOL_STACK_SIZE];
 };
 
 static void* JSON_CALL DefaultMallocHandler(JSON_Parser parser, size_t size)
@@ -1267,8 +1267,8 @@ static double InterpretNumber(JSON_Parser parser)
            locale. To ensure correctness, we cannot cache the character, since
            we must account for the valid albeit extraordinarily unlikely
            scenario wherein the client changes the locale between calls to
-           JSON_Parse() or (even more unlikely) changes the locale from inside
-           a handler. */
+           JSON_Parser_Parse() or (even more unlikely) changes the locale from
+           inside a handler. */
         if (parser->outputAttributes)
         {
             /* Note that because the first character of a JSON number cannot
@@ -1282,11 +1282,11 @@ static double InterpretNumber(JSON_Parser parser)
     return value;
 }
 
-static JSON_Status CallSimpleHandler(JSON_Parser parser, JSON_NullHandler handler)
+static JSON_Status CallSimpleHandler(JSON_Parser parser, JSON_Parser_NullHandler handler)
 {
     if (handler)
     {
-        JSON_HandlerResult result;
+        JSON_Parser_HandlerResult result;
         parser->parserStatus |= PARSER_IN_PARSE_HANDLER;
         result = handler(parser);
         parser->parserStatus &= ~PARSER_IN_PARSE_HANDLER;
@@ -1303,7 +1303,7 @@ static JSON_Status CallBooleanHandler(JSON_Parser parser)
 {
     if (parser->booleanHandler)
     {
-        JSON_HandlerResult result;
+        JSON_Parser_HandlerResult result;
         parser->parserStatus |= PARSER_IN_PARSE_HANDLER;
         result = parser->booleanHandler(parser, parser->token == TOKEN_TRUE ? JSON_True : JSON_False);
         parser->parserStatus &= ~PARSER_IN_PARSE_HANDLER;
@@ -1324,7 +1324,7 @@ static JSON_Status CallStringHandler(JSON_Parser parser)
            before being passed to parse handlers. Note that the length passed
            to the handler does not include the null terminator, so we need to
            save the length before we null-terminate the string. */
-        JSON_HandlerResult result;
+        JSON_Parser_HandlerResult result;
         size_t lengthNotIncludingNullTerminator = parser->outputBufferUsed;
         if (!NullTerminateStringOutput(parser))
         {
@@ -1348,7 +1348,7 @@ static JSON_Status CallNumberHandler(JSON_Parser parser)
     {
         /* Numbers should be null-terminated with a single null terminator byte
            before being converted to a double and/or passed to handlers. */
-        JSON_HandlerResult result;
+        JSON_Parser_HandlerResult result;
         size_t lengthNotIncludingNullTerminator = parser->outputBufferUsed;
         NullTerminateNumberOutput(parser);
         parser->parserStatus |= PARSER_IN_PARSE_HANDLER;
@@ -1374,7 +1374,7 @@ static JSON_Status CallSpecialNumberHandler(JSON_Parser parser)
 {
     if (parser->specialNumberHandler)
     {
-        JSON_HandlerResult result;
+        JSON_Parser_HandlerResult result;
         parser->parserStatus |= PARSER_IN_PARSE_HANDLER;
         result = parser->specialNumberHandler(parser, parser->token == TOKEN_NAN ? JSON_NaN :
                                               (parser->token == TOKEN_INFINITY ? JSON_Infinity : JSON_NegativeInfinity));
@@ -1396,7 +1396,7 @@ static JSON_Status CallObjectMemberHandler(JSON_Parser parser)
            before being passed to parse handlers. Note that the length passed
            to the handler does not include the null terminator, so we need to
            save the length before we null-terminate the string. */
-        JSON_HandlerResult result;
+        JSON_Parser_HandlerResult result;
         size_t lengthNotIncludingNullTerminator = parser->outputBufferUsed;
         if (!NullTerminateStringOutput(parser))
         {
@@ -1423,7 +1423,7 @@ static JSON_Status CallArrayItemHandler(JSON_Parser parser)
 {
     if (parser->arrayItemHandler)
     {
-        JSON_HandlerResult result;
+        JSON_Parser_HandlerResult result;
         parser->parserStatus |= PARSER_IN_PARSE_HANDLER;
         result = parser->arrayItemHandler(parser, (parser->previousToken == TOKEN_LEFT_SQUARE) ? JSON_True : JSON_False);
         parser->parserStatus &= ~PARSER_IN_PARSE_HANDLER;
@@ -2787,10 +2787,10 @@ static JSON_Status FlushDecoder(JSON_Parser parser)
 
 /* Library API functions. */
 
-JSON_Parser JSON_CALL JSON_CreateParser(const JSON_MemorySuite* pMemorySuite)
+JSON_Parser JSON_CALL JSON_Parser_Create(const JSON_Parser_MemorySuite* pMemorySuite)
 {
     JSON_Parser parser;
-    JSON_MemorySuite memorySuite;
+    JSON_Parser_MemorySuite memorySuite;
     if (pMemorySuite)
     {
         memorySuite = *pMemorySuite;
@@ -2806,7 +2806,7 @@ JSON_Parser JSON_CALL JSON_CreateParser(const JSON_MemorySuite* pMemorySuite)
         memorySuite.realloc = &DefaultReallocHandler;
         memorySuite.free = &DefaultFreeHandler;
     }
-    parser = (JSON_Parser)memorySuite.malloc(NULL, sizeof(struct JSON_ParserData));
+    parser = (JSON_Parser)memorySuite.malloc(NULL, sizeof(struct JSON_Parser_Data));
     if (!parser)
     {
         return NULL;
@@ -2816,7 +2816,7 @@ JSON_Parser JSON_CALL JSON_CreateParser(const JSON_MemorySuite* pMemorySuite)
     return parser;
 }
 
-JSON_Status JSON_CALL JSON_FreeParser(JSON_Parser parser)
+JSON_Status JSON_CALL JSON_Parser_Free(JSON_Parser parser)
 {
     if (!parser || (parser->parserStatus & PARSER_IN_HANDLER))
     {
@@ -2839,7 +2839,7 @@ JSON_Status JSON_CALL JSON_FreeParser(JSON_Parser parser)
     return JSON_Success;
 }
 
-JSON_Status JSON_CALL JSON_ResetParser(JSON_Parser parser)
+JSON_Status JSON_CALL JSON_Parser_Reset(JSON_Parser parser)
 {
     if (!parser || (parser->parserStatus & PARSER_IN_HANDLER))
     {
@@ -2849,12 +2849,12 @@ JSON_Status JSON_CALL JSON_ResetParser(JSON_Parser parser)
     return JSON_Success;
 }
 
-JSON_Error JSON_CALL JSON_GetError(JSON_Parser parser)
+JSON_Error JSON_CALL JSON_Parser_GetError(JSON_Parser parser)
 {
     return parser ? (JSON_Error)parser->error : JSON_Error_None;
 }
 
-JSON_Status JSON_CALL JSON_GetErrorLocation(JSON_Parser parser, JSON_Location* pLocation)
+JSON_Status JSON_CALL JSON_Parser_GetErrorLocation(JSON_Parser parser, JSON_Location* pLocation)
 {
     if (!pLocation || !parser || parser->error == JSON_Error_None)
     {
@@ -2876,40 +2876,12 @@ JSON_Status JSON_CALL JSON_GetErrorLocation(JSON_Parser parser, JSON_Location* p
     return JSON_Success;
 }
 
-/* This array must match the order and number of the JSON_Error enum. */
-static const char* errorStrings[] =
-{
-    /* JSON_Error_None */                            "no error",
-    /* JSON_Error_OutOfMemory */                     "the parser could not allocate enough memory",
-    /* JSON_Error_AbortedByHandler */                "parsing was aborted by a handler",
-    /* JSON_Error_BOMNotAllowed */                   "the input begins with a byte-order mark (BOM), which is not allowed by RFC 4627",
-    /* JSON_Error_InvalidEncodingSequence */         "the input contains a byte or sequence of bytes that is not valid for the input encoding",
-    /* JSON_Error_UnknownToken */                    "the input contains an unknown token",
-    /* JSON_Error_UnexpectedToken */                 "the input contains an unexpected token",
-    /* JSON_Error_IncompleteToken */                 "the input ends in the middle of a token",
-    /* JSON_Error_MoreTokensExpected */              "the input ends when more tokens are expected",
-    /* JSON_Error_UnescapedControlCharacter */       "the input contains a string containing an unescaped control character (U+0000 - U+001F)",
-    /* JSON_Error_InvalidEscapeSequence */           "the input contains a string containing an invalid escape sequence",
-    /* JSON_Error_UnpairedSurrogateEscapeSequence */ "the input contains a string containing an unmatched UTF-16 surrogate codepoint",
-    /* JSON_Error_TooLongString */                   "the input contains a string that is too long",
-    /* JSON_Error_InvalidNumber */                   "the input contains an invalid number",
-    /* JSON_Error_TooLongNumber */                   "the input contains a number that is too long",
-    /* JSON_Error_DuplicateObjectMember */           "the input contains an object with duplicate members"
-};
-
-const char* JSON_CALL JSON_ErrorString(JSON_Error error)
-{
-    return ((unsigned int)error < (sizeof(errorStrings) / sizeof(errorStrings[0])))
-        ? errorStrings[error]
-        : "";
-}
-
-void* JSON_CALL JSON_GetUserData(JSON_Parser parser)
+void* JSON_CALL JSON_Parser_GetUserData(JSON_Parser parser)
 {
     return parser ? parser->userData : NULL;
 }
 
-JSON_Status JSON_CALL JSON_SetUserData(JSON_Parser parser, void* userData)
+JSON_Status JSON_CALL JSON_Parser_SetUserData(JSON_Parser parser, void* userData)
 {
     if (!parser)
     {
@@ -2919,7 +2891,7 @@ JSON_Status JSON_CALL JSON_SetUserData(JSON_Parser parser, void* userData)
     return JSON_Success;
 }
 
-JSON_Status JSON_CALL JSON_GetTokenLocation(JSON_Parser parser, JSON_Location* pLocation)
+JSON_Status JSON_CALL JSON_Parser_GetTokenLocation(JSON_Parser parser, JSON_Location* pLocation)
 {
     if (!parser || !pLocation || !(parser->parserStatus & PARSER_IN_PARSE_HANDLER))
     {
@@ -2932,12 +2904,12 @@ JSON_Status JSON_CALL JSON_GetTokenLocation(JSON_Parser parser, JSON_Location* p
     return JSON_Success;
 }
 
-JSON_NullHandler JSON_CALL JSON_GetNullHandler(JSON_Parser parser)
+JSON_Parser_NullHandler JSON_CALL JSON_Parser_GetNullHandler(JSON_Parser parser)
 {
     return parser ? parser->nullHandler : NULL;
 }
 
-JSON_Status JSON_CALL JSON_SetNullHandler(JSON_Parser parser, JSON_NullHandler handler)
+JSON_Status JSON_CALL JSON_Parser_SetNullHandler(JSON_Parser parser, JSON_Parser_NullHandler handler)
 {
     if (!parser)
     {
@@ -2947,12 +2919,12 @@ JSON_Status JSON_CALL JSON_SetNullHandler(JSON_Parser parser, JSON_NullHandler h
     return JSON_Success;
 }
 
-JSON_BooleanHandler JSON_CALL JSON_GetBooleanHandler(JSON_Parser parser)
+JSON_Parser_BooleanHandler JSON_CALL JSON_Parser_GetBooleanHandler(JSON_Parser parser)
 {
     return parser ? parser->booleanHandler : NULL;
 }
 
-JSON_Status JSON_CALL JSON_SetBooleanHandler(JSON_Parser parser, JSON_BooleanHandler handler)
+JSON_Status JSON_CALL JSON_Parser_SetBooleanHandler(JSON_Parser parser, JSON_Parser_BooleanHandler handler)
 {
     if (!parser)
     {
@@ -2962,12 +2934,12 @@ JSON_Status JSON_CALL JSON_SetBooleanHandler(JSON_Parser parser, JSON_BooleanHan
     return JSON_Success;
 }
 
-JSON_StringHandler JSON_CALL JSON_GetStringHandler(JSON_Parser parser)
+JSON_Parser_StringHandler JSON_CALL JSON_Parser_GetStringHandler(JSON_Parser parser)
 {
     return parser ? parser->stringHandler : NULL;
 }
 
-JSON_Status JSON_CALL JSON_SetStringHandler(JSON_Parser parser, JSON_StringHandler handler)
+JSON_Status JSON_CALL JSON_Parser_SetStringHandler(JSON_Parser parser, JSON_Parser_StringHandler handler)
 {
     if (!parser)
     {
@@ -2977,12 +2949,12 @@ JSON_Status JSON_CALL JSON_SetStringHandler(JSON_Parser parser, JSON_StringHandl
     return JSON_Success;
 }
 
-JSON_NumberHandler JSON_CALL JSON_GetNumberHandler(JSON_Parser parser)
+JSON_Parser_NumberHandler JSON_CALL JSON_Parser_GetNumberHandler(JSON_Parser parser)
 {
     return parser ? parser->numberHandler : NULL;
 }
 
-JSON_Status JSON_CALL JSON_SetNumberHandler(JSON_Parser parser, JSON_NumberHandler handler)
+JSON_Status JSON_CALL JSON_Parser_SetNumberHandler(JSON_Parser parser, JSON_Parser_NumberHandler handler)
 {
     if (!parser)
     {
@@ -2992,12 +2964,12 @@ JSON_Status JSON_CALL JSON_SetNumberHandler(JSON_Parser parser, JSON_NumberHandl
     return JSON_Success;
 }
 
-JSON_RawNumberHandler JSON_CALL JSON_GetRawNumberHandler(JSON_Parser parser)
+JSON_Parser_RawNumberHandler JSON_CALL JSON_Parser_GetRawNumberHandler(JSON_Parser parser)
 {
     return parser ? parser->rawNumberHandler : NULL;
 }
 
-JSON_Status JSON_CALL JSON_SetRawNumberHandler(JSON_Parser parser, JSON_RawNumberHandler handler)
+JSON_Status JSON_CALL JSON_Parser_SetRawNumberHandler(JSON_Parser parser, JSON_Parser_RawNumberHandler handler)
 {
     if (!parser)
     {
@@ -3007,12 +2979,12 @@ JSON_Status JSON_CALL JSON_SetRawNumberHandler(JSON_Parser parser, JSON_RawNumbe
     return JSON_Success;
 }
 
-JSON_SpecialNumberHandler JSON_CALL JSON_GetSpecialNumberHandler(JSON_Parser parser)
+JSON_Parser_SpecialNumberHandler JSON_CALL JSON_Parser_GetSpecialNumberHandler(JSON_Parser parser)
 {
     return parser ? parser->specialNumberHandler : NULL;
 }
 
-JSON_Status JSON_CALL JSON_SetSpecialNumberHandler(JSON_Parser parser, JSON_SpecialNumberHandler handler)
+JSON_Status JSON_CALL JSON_Parser_SetSpecialNumberHandler(JSON_Parser parser, JSON_Parser_SpecialNumberHandler handler)
 {
     if (!parser)
     {
@@ -3022,12 +2994,12 @@ JSON_Status JSON_CALL JSON_SetSpecialNumberHandler(JSON_Parser parser, JSON_Spec
     return JSON_Success;
 }
 
-JSON_StartObjectHandler JSON_CALL JSON_GetStartObjectHandler(JSON_Parser parser)
+JSON_Parser_StartObjectHandler JSON_CALL JSON_Parser_GetStartObjectHandler(JSON_Parser parser)
 {
     return parser ? parser->startObjectHandler : NULL;
 }
 
-JSON_Status JSON_CALL JSON_SetStartObjectHandler(JSON_Parser parser, JSON_StartObjectHandler handler)
+JSON_Status JSON_CALL JSON_Parser_SetStartObjectHandler(JSON_Parser parser, JSON_Parser_StartObjectHandler handler)
 {
     if (!parser)
     {
@@ -3037,12 +3009,12 @@ JSON_Status JSON_CALL JSON_SetStartObjectHandler(JSON_Parser parser, JSON_StartO
     return JSON_Success;
 }
 
-JSON_EndObjectHandler JSON_CALL JSON_GetEndObjectHandler(JSON_Parser parser)
+JSON_Parser_EndObjectHandler JSON_CALL JSON_Parser_GetEndObjectHandler(JSON_Parser parser)
 {
     return parser ? parser->endObjectHandler : NULL;
 }
 
-JSON_Status JSON_CALL JSON_SetEndObjectHandler(JSON_Parser parser, JSON_EndObjectHandler handler)
+JSON_Status JSON_CALL JSON_Parser_SetEndObjectHandler(JSON_Parser parser, JSON_Parser_EndObjectHandler handler)
 {
     if (!parser)
     {
@@ -3052,12 +3024,12 @@ JSON_Status JSON_CALL JSON_SetEndObjectHandler(JSON_Parser parser, JSON_EndObjec
     return JSON_Success;
 }
 
-JSON_ObjectMemberHandler JSON_CALL JSON_GetObjectMemberHandler(JSON_Parser parser)
+JSON_Parser_ObjectMemberHandler JSON_CALL JSON_Parser_GetObjectMemberHandler(JSON_Parser parser)
 {
     return parser ? parser->objectMemberHandler : NULL;
 }
 
-JSON_Status JSON_CALL JSON_SetObjectMemberHandler(JSON_Parser parser, JSON_ObjectMemberHandler handler)
+JSON_Status JSON_CALL JSON_Parser_SetObjectMemberHandler(JSON_Parser parser, JSON_Parser_ObjectMemberHandler handler)
 {
     if (!parser)
     {
@@ -3067,12 +3039,12 @@ JSON_Status JSON_CALL JSON_SetObjectMemberHandler(JSON_Parser parser, JSON_Objec
     return JSON_Success;
 }
 
-JSON_StartArrayHandler JSON_CALL JSON_GetStartArrayHandler(JSON_Parser parser)
+JSON_Parser_StartArrayHandler JSON_CALL JSON_Parser_GetStartArrayHandler(JSON_Parser parser)
 {
     return parser ? parser->startArrayHandler : NULL;
 }
 
-JSON_Status JSON_CALL JSON_SetStartArrayHandler(JSON_Parser parser, JSON_StartArrayHandler handler)
+JSON_Status JSON_CALL JSON_Parser_SetStartArrayHandler(JSON_Parser parser, JSON_Parser_StartArrayHandler handler)
 {
     if (!parser)
     {
@@ -3082,12 +3054,12 @@ JSON_Status JSON_CALL JSON_SetStartArrayHandler(JSON_Parser parser, JSON_StartAr
     return JSON_Success;
 }
 
-JSON_EndArrayHandler JSON_CALL JSON_GetEndArrayHandler(JSON_Parser parser)
+JSON_Parser_EndArrayHandler JSON_CALL JSON_Parser_GetEndArrayHandler(JSON_Parser parser)
 {
     return parser ? parser->endArrayHandler : NULL;
 }
 
-JSON_Status JSON_CALL JSON_SetEndArrayHandler(JSON_Parser parser, JSON_EndArrayHandler handler)
+JSON_Status JSON_CALL JSON_Parser_SetEndArrayHandler(JSON_Parser parser, JSON_Parser_EndArrayHandler handler)
 {
     if (!parser)
     {
@@ -3097,12 +3069,12 @@ JSON_Status JSON_CALL JSON_SetEndArrayHandler(JSON_Parser parser, JSON_EndArrayH
     return JSON_Success;
 }
 
-JSON_ArrayItemHandler JSON_CALL JSON_GetArrayItemHandler(JSON_Parser parser)
+JSON_Parser_ArrayItemHandler JSON_CALL JSON_Parser_GetArrayItemHandler(JSON_Parser parser)
 {
     return parser ? parser->arrayItemHandler : NULL;
 }
 
-JSON_Status JSON_CALL JSON_SetArrayItemHandler(JSON_Parser parser, JSON_ArrayItemHandler handler)
+JSON_Status JSON_CALL JSON_Parser_SetArrayItemHandler(JSON_Parser parser, JSON_Parser_ArrayItemHandler handler)
 {
     if (!parser)
     {
@@ -3112,22 +3084,22 @@ JSON_Status JSON_CALL JSON_SetArrayItemHandler(JSON_Parser parser, JSON_ArrayIte
     return JSON_Success;
 }
 
-JSON_Boolean JSON_CALL JSON_StartedParsing(JSON_Parser parser)
+JSON_Boolean JSON_CALL JSON_Parser_StartedParsing(JSON_Parser parser)
 {
     return (parser && (parser->parserStatus & PARSER_STARTED)) ? JSON_True : JSON_False;
 }
 
-JSON_Boolean JSON_CALL JSON_FinishedParsing(JSON_Parser parser)
+JSON_Boolean JSON_CALL JSON_Parser_FinishedParsing(JSON_Parser parser)
 {
     return (parser && (parser->parserStatus & PARSER_FINISHED)) ? JSON_True : JSON_False;
 }
 
-JSON_Encoding JSON_CALL JSON_GetInputEncoding(JSON_Parser parser)
+JSON_Encoding JSON_CALL JSON_Parser_GetInputEncoding(JSON_Parser parser)
 {
     return parser ? (JSON_Encoding)parser->inputEncoding : JSON_UnknownEncoding;
 }
 
-JSON_Status JSON_CALL JSON_SetInputEncoding(JSON_Parser parser, JSON_Encoding encoding)
+JSON_Status JSON_CALL JSON_Parser_SetInputEncoding(JSON_Parser parser, JSON_Encoding encoding)
 {
     if (!parser || (parser->parserStatus & PARSER_STARTED) || encoding < JSON_UnknownEncoding || encoding > JSON_UTF32BE)
     {
@@ -3137,12 +3109,12 @@ JSON_Status JSON_CALL JSON_SetInputEncoding(JSON_Parser parser, JSON_Encoding en
     return JSON_Success;
 }
 
-JSON_Encoding JSON_CALL JSON_GetOutputEncoding(JSON_Parser parser)
+JSON_Encoding JSON_CALL JSON_Parser_GetOutputEncoding(JSON_Parser parser)
 {
     return parser ? (JSON_Encoding)parser->outputEncoding : JSON_UTF8;
 }
 
-JSON_Status JSON_CALL JSON_SetOutputEncoding(JSON_Parser parser, JSON_Encoding encoding)
+JSON_Status JSON_CALL JSON_Parser_SetOutputEncoding(JSON_Parser parser, JSON_Encoding encoding)
 {
     if (!parser || (parser->parserStatus & PARSER_STARTED) || encoding <= JSON_UnknownEncoding || encoding > JSON_UTF32BE)
     {
@@ -3152,12 +3124,12 @@ JSON_Status JSON_CALL JSON_SetOutputEncoding(JSON_Parser parser, JSON_Encoding e
     return JSON_Success;
 }
 
-size_t JSON_CALL JSON_GetMaxOutputStringLength(JSON_Parser parser)
+size_t JSON_CALL JSON_Parser_GetMaxOutputStringLength(JSON_Parser parser)
 {
     return parser ? parser->maxOutputStringLength : (size_t)-1;
 }
 
-JSON_Status JSON_CALL JSON_SetMaxOutputStringLength(JSON_Parser parser, size_t maxLength)
+JSON_Status JSON_CALL JSON_Parser_SetMaxOutputStringLength(JSON_Parser parser, size_t maxLength)
 {
     if (!parser || (parser->parserStatus & PARSER_STARTED))
     {
@@ -3167,12 +3139,12 @@ JSON_Status JSON_CALL JSON_SetMaxOutputStringLength(JSON_Parser parser, size_t m
     return JSON_Success;
 }
 
-JSON_Boolean JSON_CALL JSON_GetAllowBOM(JSON_Parser parser)
+JSON_Boolean JSON_CALL JSON_Parser_GetAllowBOM(JSON_Parser parser)
 {
     return (parser && (parser->parserStatus & PARSER_ALLOW_BOM)) ? JSON_True : JSON_False;
 }
 
-JSON_Status JSON_CALL JSON_SetAllowBOM(JSON_Parser parser, JSON_Boolean allowBOM)
+JSON_Status JSON_CALL JSON_Parser_SetAllowBOM(JSON_Parser parser, JSON_Boolean allowBOM)
 {
     if (!parser || (parser->parserStatus & PARSER_STARTED))
     {
@@ -3189,12 +3161,12 @@ JSON_Status JSON_CALL JSON_SetAllowBOM(JSON_Parser parser, JSON_Boolean allowBOM
     return JSON_Success;
 }
 
-JSON_Boolean JSON_CALL JSON_GetAllowComments(JSON_Parser parser)
+JSON_Boolean JSON_CALL JSON_Parser_GetAllowComments(JSON_Parser parser)
 {
     return (parser && (parser->parserStatus & PARSER_ALLOW_COMMENTS)) ? JSON_True : JSON_False;
 }
 
-JSON_Status JSON_CALL JSON_SetAllowComments(JSON_Parser parser, JSON_Boolean allowComments)
+JSON_Status JSON_CALL JSON_Parser_SetAllowComments(JSON_Parser parser, JSON_Boolean allowComments)
 {
     if (!parser || (parser->parserStatus & PARSER_STARTED))
     {
@@ -3211,12 +3183,12 @@ JSON_Status JSON_CALL JSON_SetAllowComments(JSON_Parser parser, JSON_Boolean all
     return JSON_Success;
 }
 
-JSON_Boolean JSON_CALL JSON_GetAllowTrailingCommas(JSON_Parser parser)
+JSON_Boolean JSON_CALL JSON_Parser_GetAllowTrailingCommas(JSON_Parser parser)
 {
     return (parser && (parser->parserStatus & PARSER_ALLOW_TRAILING_COMMAS)) ? JSON_True : JSON_False;
 }
 
-JSON_Status JSON_CALL JSON_SetAllowTrailingCommas(JSON_Parser parser, JSON_Boolean allowTrailingCommas)
+JSON_Status JSON_CALL JSON_Parser_SetAllowTrailingCommas(JSON_Parser parser, JSON_Boolean allowTrailingCommas)
 {
     if (!parser || (parser->parserStatus & PARSER_STARTED))
     {
@@ -3233,12 +3205,12 @@ JSON_Status JSON_CALL JSON_SetAllowTrailingCommas(JSON_Parser parser, JSON_Boole
     return JSON_Success;
 }
 
-JSON_Boolean JSON_CALL JSON_GetAllowSpecialNumbers(JSON_Parser parser)
+JSON_Boolean JSON_CALL JSON_Parser_GetAllowSpecialNumbers(JSON_Parser parser)
 {
     return (parser && (parser->parserStatus & PARSER_ALLOW_SPECIAL_NUMBERS)) ? JSON_True : JSON_False;
 }
 
-JSON_Status JSON_CALL JSON_SetAllowSpecialNumbers(JSON_Parser parser, JSON_Boolean allowSpecialNumbers)
+JSON_Status JSON_CALL JSON_Parser_SetAllowSpecialNumbers(JSON_Parser parser, JSON_Boolean allowSpecialNumbers)
 {
     if (!parser || (parser->parserStatus & PARSER_STARTED))
     {
@@ -3255,12 +3227,12 @@ JSON_Status JSON_CALL JSON_SetAllowSpecialNumbers(JSON_Parser parser, JSON_Boole
     return JSON_Success;
 }
 
-JSON_Boolean JSON_CALL JSON_GetAllowHexNumbers(JSON_Parser parser)
+JSON_Boolean JSON_CALL JSON_Parser_GetAllowHexNumbers(JSON_Parser parser)
 {
     return (parser && (parser->parserStatus & PARSER_ALLOW_HEX_NUMBERS)) ? JSON_True : JSON_False;
 }
 
-JSON_Status JSON_CALL JSON_SetAllowHexNumbers(JSON_Parser parser, JSON_Boolean allowHexNumbers)
+JSON_Status JSON_CALL JSON_Parser_SetAllowHexNumbers(JSON_Parser parser, JSON_Boolean allowHexNumbers)
 {
     if (!parser || (parser->parserStatus & PARSER_STARTED))
     {
@@ -3277,12 +3249,12 @@ JSON_Status JSON_CALL JSON_SetAllowHexNumbers(JSON_Parser parser, JSON_Boolean a
     return JSON_Success;
 }
 
-JSON_Boolean JSON_CALL JSON_GetReplaceInvalidEncodingSequences(JSON_Parser parser)
+JSON_Boolean JSON_CALL JSON_Parser_GetReplaceInvalidEncodingSequences(JSON_Parser parser)
 {
     return (parser && (parser->parserStatus & PARSER_REPLACE_INVALID_ENCODING_SEQUENCES)) ? JSON_True : JSON_False;
 }
 
-JSON_Status JSON_CALL JSON_SetReplaceInvalidEncodingSequences(JSON_Parser parser, JSON_Boolean replaceInvalidEncodingSequences)
+JSON_Status JSON_CALL JSON_Parser_SetReplaceInvalidEncodingSequences(JSON_Parser parser, JSON_Boolean replaceInvalidEncodingSequences)
 {
     if (!parser || (parser->parserStatus & PARSER_STARTED))
     {
@@ -3299,12 +3271,12 @@ JSON_Status JSON_CALL JSON_SetReplaceInvalidEncodingSequences(JSON_Parser parser
     return JSON_Success;
 }
 
-JSON_Boolean JSON_CALL JSON_GetTrackObjectMembers(JSON_Parser parser)
+JSON_Boolean JSON_CALL JSON_Parser_GetTrackObjectMembers(JSON_Parser parser)
 {
     return (parser && (parser->parserStatus & PARSER_TRACK_OBJECT_MEMBERS)) ? JSON_True : JSON_False;
 }
 
-JSON_Status JSON_CALL JSON_SetTrackObjectMembers(JSON_Parser parser, JSON_Boolean trackObjectMembers)
+JSON_Status JSON_CALL JSON_Parser_SetTrackObjectMembers(JSON_Parser parser, JSON_Boolean trackObjectMembers)
 {
     if (!parser || (parser->parserStatus & PARSER_STARTED))
     {
@@ -3321,7 +3293,7 @@ JSON_Status JSON_CALL JSON_SetTrackObjectMembers(JSON_Parser parser, JSON_Boolea
     return JSON_Success;
 }
 
-JSON_Status JSON_CALL JSON_Parse(JSON_Parser parser, const char* pBytes, size_t length, JSON_Boolean isFinal)
+JSON_Status JSON_CALL JSON_Parser_Parse(JSON_Parser parser, const char* pBytes, size_t length, JSON_Boolean isFinal)
 {
     JSON_Status status = JSON_Failure;
     if (parser && !(parser->parserStatus & (PARSER_FINISHED | PARSER_IN_HANDLER)))
@@ -3356,4 +3328,32 @@ JSON_Status JSON_CALL JSON_Parse(JSON_Parser parser, const char* pBytes, size_t 
         }
     }
     return status;
+}
+
+/* This array must match the order and number of the JSON_Error enum. */
+static const char* errorStrings[] =
+{
+    /* JSON_Error_None */                            "no error",
+    /* JSON_Error_OutOfMemory */                     "the parser could not allocate enough memory",
+    /* JSON_Error_AbortedByHandler */                "parsing was aborted by a handler",
+    /* JSON_Error_BOMNotAllowed */                   "the input begins with a byte-order mark (BOM), which is not allowed by RFC 4627",
+    /* JSON_Error_InvalidEncodingSequence */         "the input contains a byte or sequence of bytes that is not valid for the input encoding",
+    /* JSON_Error_UnknownToken */                    "the input contains an unknown token",
+    /* JSON_Error_UnexpectedToken */                 "the input contains an unexpected token",
+    /* JSON_Error_IncompleteToken */                 "the input ends in the middle of a token",
+    /* JSON_Error_MoreTokensExpected */              "the input ends when more tokens are expected",
+    /* JSON_Error_UnescapedControlCharacter */       "the input contains a string containing an unescaped control character (U+0000 - U+001F)",
+    /* JSON_Error_InvalidEscapeSequence */           "the input contains a string containing an invalid escape sequence",
+    /* JSON_Error_UnpairedSurrogateEscapeSequence */ "the input contains a string containing an unmatched UTF-16 surrogate codepoint",
+    /* JSON_Error_TooLongString */                   "the input contains a string that is too long",
+    /* JSON_Error_InvalidNumber */                   "the input contains an invalid number",
+    /* JSON_Error_TooLongNumber */                   "the input contains a number that is too long",
+    /* JSON_Error_DuplicateObjectMember */           "the input contains an object with duplicate members"
+};
+
+const char* JSON_CALL JSON_ErrorString(JSON_Error error)
+{
+    return ((unsigned int)error < (sizeof(errorStrings) / sizeof(errorStrings[0])))
+        ? errorStrings[error]
+        : "";
 }
