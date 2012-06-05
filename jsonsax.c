@@ -88,24 +88,49 @@ typedef uint64_t JSON_UInt64;
 #define CODEPOINT_FROM_SURROGATES(hi_lo) ((((hi_lo) >> 16) << 10) + ((hi_lo) & 0xFFFF) + 0xFCA02400)
 #define SURROGATES_FROM_CODEPOINT(c)     ((((c) << 6) & 0x3FF0000) + ((c) & 0x3FF) + 0xD7C0DC00)
 
+/******************** Default Memory Suite ********************/
+
+static void* JSON_CALL DefaultMallocHandler(void* userData, size_t size)
+{
+    (void)userData; /* unused */
+    return malloc(size);
+}
+
+static void* JSON_CALL DefaultReallocHandler(void* userData, void* ptr, size_t size)
+{
+    (void)userData; /* unused */
+    return realloc(ptr, size);
+}
+
+static void JSON_CALL DefaultFreeHandler(void* userData, void* ptr)
+{
+    (void)userData; /* unused */
+    free(ptr);
+}
+
+static const JSON_MemorySuite defaultMemorySuite = { NULL, &DefaultMallocHandler, &DefaultReallocHandler, &DefaultFreeHandler };
+
+/******************** Unicode Decoder ********************/
+
 /* Mutually-exclusive decoder states. */
 typedef enum tag_DecoderState
 {
-    DECODER_RESET            = 0,
-    DECODER_PROCESSED_1_OF_2 = 1,
-    DECODER_PROCESSED_1_OF_3 = 2,
-    DECODER_PROCESSED_2_OF_3 = 3,
-    DECODER_PROCESSED_1_OF_4 = 4,
-    DECODER_PROCESSED_2_OF_4 = 5,
-    DECODER_PROCESSED_3_OF_4 = 6
+    DECODER_RESET  = 0,
+    DECODED_1_OF_2 = 1,
+    DECODED_1_OF_3 = 2,
+    DECODED_2_OF_3 = 3,
+    DECODED_1_OF_4 = 4,
+    DECODED_2_OF_4 = 5,
+    DECODED_3_OF_4 = 6
 } DecoderState;
 
 /* Decoder data. */
-typedef struct tag_Decoder
+typedef struct tag_DecoderData
 {
     unsigned char state;
     JSON_UInt32   bits;
-} Decoder;
+} DecoderData;
+typedef DecoderData* Decoder;
 
 /* The bits of DecoderOutput are layed out as follows:
 
@@ -130,15 +155,15 @@ typedef JSON_UInt32 DecoderOutput;
 #define DECODER_SEQUENCE_LENGTH(o) (((o) >> 24) & 0x7)
 #define DECODER_CODEPOINT(o)       ((o) & 0x001FFFFF)
 
-/* General-purpose decoder functions. */
+/* Decoder functions. */
 
-static void ResetDecoder(Decoder* pDecoder)
+static void Decoder_Reset(Decoder decoder)
 {
-    pDecoder->state = DECODER_RESET;
-    pDecoder->bits = 0;
+    decoder->state = DECODER_RESET;
+    decoder->bits = 0;
 }
 
-static DecoderOutput DecodeByte(Decoder* pDecoder, JSON_Encoding encoding, unsigned char b)
+static DecoderOutput Decoder_DecodeByte(Decoder decoder, JSON_Encoding encoding, unsigned char b)
 {
     DecoderOutput output;
     switch (encoding)
@@ -148,7 +173,7 @@ static DecoderOutput DecodeByte(Decoder* pDecoder, JSON_Encoding encoding, unsig
         /* When the input encoding is UTF-8, the decoded codepoint's bits are
            recorded in the bottom 3 bytes of bits as they are decoded.
            The top byte is not used. */
-        switch (pDecoder->state)
+        switch (decoder->state)
         {
         case DECODER_RESET:
             if (IS_UTF8_SINGLE_BYTE(b))
@@ -159,35 +184,35 @@ static DecoderOutput DecodeByte(Decoder* pDecoder, JSON_Encoding encoding, unsig
             {
                 /* UTF-8 2-byte sequences that are overlong encodings can be
                    detected from just the first byte (C0 or C1). */
-                pDecoder->bits = BOTTOM_5_BITS(b) << 6;
-                if (pDecoder->bits < FIRST_2_BYTE_UTF8_CODEPOINT)
+                decoder->bits = BOTTOM_5_BITS(b) << 6;
+                if (decoder->bits < FIRST_2_BYTE_UTF8_CODEPOINT)
                 {
                     output = DECODER_OUTPUT(SEQUENCE_INVALID_INCLUSIVE, 1, 0);
                 }
                 else
                 {
-                    pDecoder->state = DECODER_PROCESSED_1_OF_2;
+                    decoder->state = DECODED_1_OF_2;
                     return DECODER_OUTPUT(SEQUENCE_PENDING, 0, 0);
                 }
             }
             else if (IS_UTF8_FIRST_BYTE_OF_3(b))
             {
-                pDecoder->bits = BOTTOM_4_BITS(b) << 12;
-                pDecoder->state = DECODER_PROCESSED_1_OF_3;
+                decoder->bits = BOTTOM_4_BITS(b) << 12;
+                decoder->state = DECODED_1_OF_3;
                 return DECODER_OUTPUT(SEQUENCE_PENDING, 0, 0);
             }
             else if (IS_UTF8_FIRST_BYTE_OF_4(b))
             {
                 /* Some UTF-8 4-byte sequences that encode out-of-range
                    codepoints can be detected from the first byte (F5 - FF). */
-                pDecoder->bits = BOTTOM_3_BITS(b) << 18;
-                if (pDecoder->bits > MAX_CODEPOINT)
+                decoder->bits = BOTTOM_3_BITS(b) << 18;
+                if (decoder->bits > MAX_CODEPOINT)
                 {
                     output = DECODER_OUTPUT(SEQUENCE_INVALID_INCLUSIVE, 1, 0);
                 }
                 else
                 {
-                    pDecoder->state = DECODER_PROCESSED_1_OF_4;
+                    decoder->state = DECODED_1_OF_4;
                     return DECODER_OUTPUT(SEQUENCE_PENDING, 0, 0);
                 }
             }
@@ -199,10 +224,10 @@ static DecoderOutput DecodeByte(Decoder* pDecoder, JSON_Encoding encoding, unsig
             }
             break;
 
-        case DECODER_PROCESSED_1_OF_2:
+        case DECODED_1_OF_2:
             if (IS_UTF8_CONTINUATION_BYTE(b))
             {
-                output = DECODER_OUTPUT(SEQUENCE_COMPLETE, 2, pDecoder->bits |= BOTTOM_6_BITS(b));
+                output = DECODER_OUTPUT(SEQUENCE_COMPLETE, 2, decoder->bits |= BOTTOM_6_BITS(b));
             }
             else
             {
@@ -211,19 +236,19 @@ static DecoderOutput DecodeByte(Decoder* pDecoder, JSON_Encoding encoding, unsig
             }
             break;
 
-        case DECODER_PROCESSED_1_OF_3:
+        case DECODED_1_OF_3:
             if (IS_UTF8_CONTINUATION_BYTE(b))
             {
                 /* UTF-8 3-byte sequences that are overlong encodings or encode
                    surrogate codepoints can be detected after 2 bytes. */
-                pDecoder->bits |= BOTTOM_6_BITS(b) << 6;
-                if ((pDecoder->bits < FIRST_3_BYTE_UTF8_CODEPOINT) || IS_SURROGATE(pDecoder->bits))
+                decoder->bits |= BOTTOM_6_BITS(b) << 6;
+                if ((decoder->bits < FIRST_3_BYTE_UTF8_CODEPOINT) || IS_SURROGATE(decoder->bits))
                 {
                     output = DECODER_OUTPUT(SEQUENCE_INVALID_EXCLUSIVE, 1, 0);
                 }
                 else
                 {
-                    pDecoder->state = DECODER_PROCESSED_2_OF_3;
+                    decoder->state = DECODED_2_OF_3;
                     return DECODER_OUTPUT(SEQUENCE_PENDING, 0, 0);
                 }
             }
@@ -233,10 +258,10 @@ static DecoderOutput DecodeByte(Decoder* pDecoder, JSON_Encoding encoding, unsig
             }
             break;
 
-        case DECODER_PROCESSED_2_OF_3:
+        case DECODED_2_OF_3:
             if (IS_UTF8_CONTINUATION_BYTE(b))
             {
-                output = DECODER_OUTPUT(SEQUENCE_COMPLETE, 3, pDecoder->bits |= BOTTOM_6_BITS(b));
+                output = DECODER_OUTPUT(SEQUENCE_COMPLETE, 3, decoder->bits |= BOTTOM_6_BITS(b));
             }
             else
             {
@@ -244,19 +269,19 @@ static DecoderOutput DecodeByte(Decoder* pDecoder, JSON_Encoding encoding, unsig
             }
             break;
 
-        case DECODER_PROCESSED_1_OF_4:
+        case DECODED_1_OF_4:
             if (IS_UTF8_CONTINUATION_BYTE(b))
             {
                 /* UTF-8 4-byte sequences that are overlong encodings or encode
                    out-of-range codepoints can be detected after 2 bytes. */
-                pDecoder->bits |= BOTTOM_6_BITS(b) << 12;
-                if ((pDecoder->bits < FIRST_4_BYTE_UTF8_CODEPOINT) || (pDecoder->bits > MAX_CODEPOINT))
+                decoder->bits |= BOTTOM_6_BITS(b) << 12;
+                if ((decoder->bits < FIRST_4_BYTE_UTF8_CODEPOINT) || (decoder->bits > MAX_CODEPOINT))
                 {
                     output = DECODER_OUTPUT(SEQUENCE_INVALID_EXCLUSIVE, 1, 0);
                 }
                 else
                 {
-                    pDecoder->state = DECODER_PROCESSED_2_OF_4;
+                    decoder->state = DECODED_2_OF_4;
                     return DECODER_OUTPUT(SEQUENCE_PENDING, 0, 0);
                 }
             }
@@ -266,11 +291,11 @@ static DecoderOutput DecodeByte(Decoder* pDecoder, JSON_Encoding encoding, unsig
             }
             break;
 
-        case DECODER_PROCESSED_2_OF_4:
+        case DECODED_2_OF_4:
             if (IS_UTF8_CONTINUATION_BYTE(b))
             {
-                pDecoder->bits |= BOTTOM_6_BITS(b) << 6;
-                pDecoder->state = DECODER_PROCESSED_3_OF_4;
+                decoder->bits |= BOTTOM_6_BITS(b) << 6;
+                decoder->state = DECODED_3_OF_4;
                 return DECODER_OUTPUT(SEQUENCE_PENDING, 0, 0);
             }
             else
@@ -279,10 +304,10 @@ static DecoderOutput DecodeByte(Decoder* pDecoder, JSON_Encoding encoding, unsig
             }
             break;
 
-        case DECODER_PROCESSED_3_OF_4:
+        case DECODED_3_OF_4:
             if (IS_UTF8_CONTINUATION_BYTE(b))
             {
-                output = DECODER_OUTPUT(SEQUENCE_COMPLETE, 4, pDecoder->bits |= BOTTOM_6_BITS(b));
+                output = DECODER_OUTPUT(SEQUENCE_COMPLETE, 4, decoder->bits |= BOTTOM_6_BITS(b));
             }
             else
             {
@@ -299,52 +324,52 @@ static DecoderOutput DecodeByte(Decoder* pDecoder, JSON_Encoding encoding, unsig
            surrogate pair as a single 4-byte sequence, shifts the leading
            surrogate into the high 2 bytes of bits, and decodes the
            trailing surrogate's bits in the bottom 2 bytes of bits. */
-        switch (pDecoder->state)
+        switch (decoder->state)
         {
         case DECODER_RESET:
-            pDecoder->bits = b;
-            pDecoder->state = DECODER_PROCESSED_1_OF_2;
+            decoder->bits = b;
+            decoder->state = DECODED_1_OF_2;
             return DECODER_OUTPUT(SEQUENCE_PENDING, 0, 0);
 
-        case DECODER_PROCESSED_1_OF_2:
-            pDecoder->bits |= b << 8;
-            if (IS_TRAILING_SURROGATE(pDecoder->bits))
+        case DECODED_1_OF_2:
+            decoder->bits |= b << 8;
+            if (IS_TRAILING_SURROGATE(decoder->bits))
             {
                 /* A trailing surrogate cannot appear on its own. */
                 output = DECODER_OUTPUT(SEQUENCE_INVALID_INCLUSIVE, 2, 0);
             }
-            else if (IS_LEADING_SURROGATE(pDecoder->bits))
+            else if (IS_LEADING_SURROGATE(decoder->bits))
             {
                 /* A leading surrogate implies a 4-byte surrogate pair. */
-                pDecoder->bits <<= 16;
-                pDecoder->state = DECODER_PROCESSED_2_OF_4;
+                decoder->bits <<= 16;
+                decoder->state = DECODED_2_OF_4;
                 return DECODER_OUTPUT(SEQUENCE_PENDING, 0, 0);
             }
             else
             {
-                output = DECODER_OUTPUT(SEQUENCE_COMPLETE, 2, pDecoder->bits);
+                output = DECODER_OUTPUT(SEQUENCE_COMPLETE, 2, decoder->bits);
             }
             break;
 
-        case DECODER_PROCESSED_2_OF_4:
-            pDecoder->bits |= b;
-            pDecoder->state = DECODER_PROCESSED_3_OF_4;
+        case DECODED_2_OF_4:
+            decoder->bits |= b;
+            decoder->state = DECODED_3_OF_4;
             return DECODER_OUTPUT(SEQUENCE_PENDING, 0, 0);
 
-        case DECODER_PROCESSED_3_OF_4:
-            pDecoder->bits |= b << 8;
-            if (!IS_TRAILING_SURROGATE(pDecoder->bits & 0xFFFF))
+        case DECODED_3_OF_4:
+            decoder->bits |= b << 8;
+            if (!IS_TRAILING_SURROGATE(decoder->bits & 0xFFFF))
             {
                 /* A leading surrogate must be followed by a trailing one.
                    Treat the previous 3 bytes as an invalid 2-byte sequence
                    followed by the first byte of a new sequence. */
-                pDecoder->bits &= 0xFF;
-                pDecoder->state = DECODER_PROCESSED_1_OF_2;
+                decoder->bits &= 0xFF;
+                decoder->state = DECODED_1_OF_2;
                 return DECODER_OUTPUT(SEQUENCE_INVALID_EXCLUSIVE, 2, 0);
             }
             else
             {
-                output = DECODER_OUTPUT(SEQUENCE_COMPLETE, 4, CODEPOINT_FROM_SURROGATES(pDecoder->bits));
+                output = DECODER_OUTPUT(SEQUENCE_COMPLETE, 4, CODEPOINT_FROM_SURROGATES(decoder->bits));
             }
             break;
         }
@@ -357,52 +382,52 @@ static DecoderOutput DecodeByte(Decoder* pDecoder, JSON_Encoding encoding, unsig
            surrogate pair as a single 4-byte sequence, shifts the leading
            surrogate into the high 2 bytes of bits, and decodes the
            trailing surrogate's bits in the bottom 2 bytes of bits. */
-        switch (pDecoder->state)
+        switch (decoder->state)
         {
         case DECODER_RESET:
-            pDecoder->bits = b << 8;
-            pDecoder->state = DECODER_PROCESSED_1_OF_2;
+            decoder->bits = b << 8;
+            decoder->state = DECODED_1_OF_2;
             return DECODER_OUTPUT(SEQUENCE_PENDING, 0, 0);
 
-        case DECODER_PROCESSED_1_OF_2:
-            pDecoder->bits |= b;
-            if (IS_TRAILING_SURROGATE(pDecoder->bits))
+        case DECODED_1_OF_2:
+            decoder->bits |= b;
+            if (IS_TRAILING_SURROGATE(decoder->bits))
             {
                 /* A trailing surrogate cannot appear on its own. */
                 output = DECODER_OUTPUT(SEQUENCE_INVALID_INCLUSIVE, 2, 0);
             }
-            else if (IS_LEADING_SURROGATE(pDecoder->bits))
+            else if (IS_LEADING_SURROGATE(decoder->bits))
             {
                 /* A leading surrogate implies a 4-byte surrogate pair. */
-                pDecoder->bits <<= 16;
-                pDecoder->state = DECODER_PROCESSED_2_OF_4;
+                decoder->bits <<= 16;
+                decoder->state = DECODED_2_OF_4;
                 return DECODER_OUTPUT(SEQUENCE_PENDING, 0, 0);
             }
             else
             {
-                output = DECODER_OUTPUT(SEQUENCE_COMPLETE, 2, pDecoder->bits);
+                output = DECODER_OUTPUT(SEQUENCE_COMPLETE, 2, decoder->bits);
             }
             break;
 
-        case DECODER_PROCESSED_2_OF_4:
-            pDecoder->bits |= b << 8;
-            pDecoder->state = DECODER_PROCESSED_3_OF_4;
+        case DECODED_2_OF_4:
+            decoder->bits |= b << 8;
+            decoder->state = DECODED_3_OF_4;
             return DECODER_OUTPUT(SEQUENCE_PENDING, 0, 0);
 
-        case DECODER_PROCESSED_3_OF_4:
-            pDecoder->bits |= b;
-            if (!IS_TRAILING_SURROGATE(pDecoder->bits & 0xFFFF))
+        case DECODED_3_OF_4:
+            decoder->bits |= b;
+            if (!IS_TRAILING_SURROGATE(decoder->bits & 0xFFFF))
             {
                 /* A leading surrogate must be followed by a trailing one.
                    Treat the previous 3 bytes as an invalid 2-byte sequence
                    followed by the first byte of a new sequence. */
-                pDecoder->bits &= 0xFF00;
-                pDecoder->state = DECODER_PROCESSED_1_OF_2;
+                decoder->bits &= 0xFF00;
+                decoder->state = DECODED_1_OF_2;
                 return DECODER_OUTPUT(SEQUENCE_INVALID_EXCLUSIVE, 2, 0);
             }
             else
             {
-                output = DECODER_OUTPUT(SEQUENCE_COMPLETE, 4, CODEPOINT_FROM_SURROGATES(pDecoder->bits));
+                output = DECODER_OUTPUT(SEQUENCE_COMPLETE, 4, CODEPOINT_FROM_SURROGATES(decoder->bits));
             }
             break;
         }
@@ -411,28 +436,28 @@ static DecoderOutput DecodeByte(Decoder* pDecoder, JSON_Encoding encoding, unsig
     case JSON_UTF32LE:
         /* When the input encoding is UTF-32, the decoded codepoint's bits are
            recorded in bits as they are decoded. */
-        switch (pDecoder->state)
+        switch (decoder->state)
         {
         case DECODER_RESET:
-            pDecoder->state = DECODER_PROCESSED_1_OF_4;
-            pDecoder->bits = b;
+            decoder->state = DECODED_1_OF_4;
+            decoder->bits = b;
             return DECODER_OUTPUT(SEQUENCE_PENDING, 0, 0);
 
-        case DECODER_PROCESSED_1_OF_4:
-            pDecoder->state = DECODER_PROCESSED_2_OF_4;
-            pDecoder->bits |= b << 8;
+        case DECODED_1_OF_4:
+            decoder->state = DECODED_2_OF_4;
+            decoder->bits |= b << 8;
             return DECODER_OUTPUT(SEQUENCE_PENDING, 0, 0);
 
-        case DECODER_PROCESSED_2_OF_4:
-            pDecoder->state = DECODER_PROCESSED_3_OF_4;
-            pDecoder->bits |= b << 16;
+        case DECODED_2_OF_4:
+            decoder->state = DECODED_3_OF_4;
+            decoder->bits |= b << 16;
             return DECODER_OUTPUT(SEQUENCE_PENDING, 0, 0);
 
-        case DECODER_PROCESSED_3_OF_4:
-            pDecoder->bits |= b << 24;
-            output = (IS_SURROGATE(pDecoder->bits) || (pDecoder->bits > MAX_CODEPOINT))
+        case DECODED_3_OF_4:
+            decoder->bits |= b << 24;
+            output = (IS_SURROGATE(decoder->bits) || (decoder->bits > MAX_CODEPOINT))
                 ? DECODER_OUTPUT(SEQUENCE_INVALID_INCLUSIVE, 4, 0)
-                : DECODER_OUTPUT(SEQUENCE_COMPLETE, 4, pDecoder->bits);
+                : DECODER_OUTPUT(SEQUENCE_COMPLETE, 4, decoder->bits);
             break;
         }
         break;
@@ -440,93 +465,79 @@ static DecoderOutput DecodeByte(Decoder* pDecoder, JSON_Encoding encoding, unsig
     case JSON_UTF32BE:
         /* When the input encoding is UTF-32, the decoded codepoint's bits are
            recorded in bits as they are decoded. */
-        switch (pDecoder->state)
+        switch (decoder->state)
         {
         case DECODER_RESET:
-            pDecoder->state = DECODER_PROCESSED_1_OF_4;
-            pDecoder->bits = b << 24;
+            decoder->state = DECODED_1_OF_4;
+            decoder->bits = b << 24;
             return DECODER_OUTPUT(SEQUENCE_PENDING, 0, 0);
 
-        case DECODER_PROCESSED_1_OF_4:
-            pDecoder->state = DECODER_PROCESSED_2_OF_4;
-            pDecoder->bits |= b << 16;
+        case DECODED_1_OF_4:
+            decoder->state = DECODED_2_OF_4;
+            decoder->bits |= b << 16;
             return DECODER_OUTPUT(SEQUENCE_PENDING, 0, 0);
 
-        case DECODER_PROCESSED_2_OF_4:
-            pDecoder->state = DECODER_PROCESSED_3_OF_4;
-            pDecoder->bits |= b << 8;
+        case DECODED_2_OF_4:
+            decoder->state = DECODED_3_OF_4;
+            decoder->bits |= b << 8;
             return DECODER_OUTPUT(SEQUENCE_PENDING, 0, 0);
 
-        case DECODER_PROCESSED_3_OF_4:
-            pDecoder->bits |= b;
-            output = (IS_SURROGATE(pDecoder->bits) || (pDecoder->bits > MAX_CODEPOINT))
+        case DECODED_3_OF_4:
+            decoder->bits |= b;
+            output = (IS_SURROGATE(decoder->bits) || (decoder->bits > MAX_CODEPOINT))
                 ? DECODER_OUTPUT(SEQUENCE_INVALID_INCLUSIVE, 4, 0)
-                : DECODER_OUTPUT(SEQUENCE_COMPLETE, 4, pDecoder->bits);
+                : DECODER_OUTPUT(SEQUENCE_COMPLETE, 4, decoder->bits);
             break;
         }
         break;
     }
 
     /* Reset the decoder for the next sequence. */
-    ResetDecoder(pDecoder);
+    Decoder_Reset(decoder);
     return output;
 }
 
-/* Combinable parser status bits. */
-typedef enum tag_ParserStatus
-{
-    PARSER_RESET                               = 0,
-    PARSER_STARTED                             = 1 << 0,
-    PARSER_FINISHED                            = 1 << 1,
-    PARSER_IN_MEMORY_HANDLER                   = 1 << 2,
-    PARSER_IN_PARSE_HANDLER                    = 1 << 3,
-    PARSER_AFTER_CARRIAGE_RETURN               = 1 << 4,
-    PARSER_ALLOW_BOM                           = 1 << 5,
-    PARSER_ALLOW_COMMENTS                      = 1 << 6,
-    PARSER_ALLOW_TRAILING_COMMAS               = 1 << 7,
-    PARSER_ALLOW_SPECIAL_NUMBERS               = 1 << 8,
-    PARSER_ALLOW_HEX_NUMBERS                   = 1 << 9,
-    PARSER_REPLACE_INVALID_ENCODING_SEQUENCES  = 1 << 10,
-    PARSER_TRACK_OBJECT_MEMBERS                = 1 << 11,
-    PARSER_IN_HANDLER                          = PARSER_IN_MEMORY_HANDLER | PARSER_IN_PARSE_HANDLER
-} ParserStatus;
+/******************** JSON Grammarian ********************/
 
-/* Mutually-exclusive lexer states. */
-typedef enum tag_LexerState
-{
-    LEXER_IDLE                                              = 0,
-    LEXER_IN_LITERAL                                        = 1,
-    LEXER_IN_STRING                                         = 2,
-    LEXER_IN_STRING_ESCAPE                                  = 3,
-    LEXER_IN_STRING_HEX_ESCAPE_BYTE_1                       = 4,
-    LEXER_IN_STRING_HEX_ESCAPE_BYTE_2                       = 5,
-    LEXER_IN_STRING_HEX_ESCAPE_BYTE_3                       = 6,
-    LEXER_IN_STRING_HEX_ESCAPE_BYTE_4                       = 7,
-    LEXER_IN_STRING_HEX_ESCAPE_BYTE_5                       = 8,
-    LEXER_IN_STRING_HEX_ESCAPE_BYTE_6                       = 9,
-    LEXER_IN_STRING_HEX_ESCAPE_BYTE_7                       = 10,
-    LEXER_IN_STRING_HEX_ESCAPE_BYTE_8                       = 11,
-    LEXER_IN_STRING_TRAILING_SURROGATE_HEX_ESCAPE_BACKSLASH = 12,
-    LEXER_IN_STRING_TRAILING_SURROGATE_HEX_ESCAPE_U         = 13,
-    LEXER_IN_NUMBER_AFTER_MINUS                             = 14,
-    LEXER_IN_NUMBER_AFTER_LEADING_ZERO                      = 15,
-    LEXER_IN_NUMBER_AFTER_X                                 = 16,
-    LEXER_IN_NUMBER_HEX_DIGITS                              = 17,
-    LEXER_IN_NUMBER_DECIMAL_DIGITS                          = 18,
-    LEXER_IN_NUMBER_AFTER_DOT                               = 19,
-    LEXER_IN_NUMBER_FRACTIONAL_DIGITS                       = 20,
-    LEXER_IN_NUMBER_AFTER_E                                 = 21,
-    LEXER_IN_NUMBER_AFTER_EXPONENT_SIGN                     = 22,
-    LEXER_IN_NUMBER_EXPONENT_DIGITS                         = 23,
-    LEXER_IN_COMMENT_AFTER_SLASH                            = 24,
-    LEXER_IN_SINGLE_LINE_COMMENT                            = 25,
-    LEXER_IN_MULTI_LINE_COMMENT                             = 26,
-    LEXER_IN_MULTI_LINE_COMMENT_AFTER_STAR                  = 27
-} LexerState;
+/* The JSON grammar comprises the following productions:
 
-/* Mutually-exclusive parser tokens and non-terminals. The values are defined
+   1.  VALUE => null
+   2.  VALUE => true
+   3.  VALUE => false
+   4.  VALUE => string
+   5.  VALUE => number
+   6.  VALUE => { MEMBERS }
+   7.  VALUE => [ ITEMS ]
+
+   8.  MEMBERS => MEMBER MORE_MEMBERS
+   9.  MEMBERS => e
+
+   10. MEMBER => string : VALUE
+
+   11. MORE_MEMBERS => , MEMBERS_AFTER_COMMA
+   12. MORE_MEMBERS => e
+
+   13. MEMBERS_AFTER_COMMA => MEMBER MORE_MEMBERS
+   14. MEMBERS_AFTER_COMMA => e (only if AllowTrailingCommas is enabled)
+
+   15. ITEMS => ITEM MORE_ITEMS
+   16. ITEMS => e
+
+   17. ITEM => VALUE
+
+   18. MORE_ITEMS => , ITEMS_AFTER_COMMA
+   19. MORE_ITEMS => e
+
+   20. ITEMS_AFTER_COMMA => ITEM MORE_ITEMS
+   21. ITEMS_AFTER_COMMA => e (only if AllowTrailingCommas is enabled)
+
+   We implement a simple LL(1) parser based on this grammar, with events
+   emitted when certain non-terminals are replaced.
+*/
+
+/* Mutually-exclusive grammar tokens and non-terminals. The values are defined
    so that the bottom 4 bits of a value can be used as an index into the
-   parser's production rule table, and the 5th bit is 0 for tokens and 1
+   grammarian's production rule table, and the 5th bit is 0 for tokens and 1
    for non-terminals. */
 typedef enum tag_Symbol
 {
@@ -562,6 +573,320 @@ typedef enum tag_Symbol
 #define IS_NONTERMINAL(s) ((s) & 0x10)
 #define IS_TOKEN(s)       !IS_NONTERMINAL(s)
 
+/* Grammarian data. */
+typedef struct tag_GrammarianData
+{
+    unsigned char* pSymbolStack; /* initially set to defaultSymbolStack */
+    size_t         symbolStackSize;
+    size_t         symbolStackUsed;
+    unsigned char  defaultSymbolStack[DEFAULT_SYMBOL_STACK_SIZE];
+} GrammarianData;
+typedef GrammarianData* Grammarian;
+
+/* Mutually-exclusive result codes returned by the grammarian
+   after processing a token. */
+typedef enum tag_GrammarianResultCode
+{
+    ACCEPTED_TOKEN    = 0,
+    REJECTED_TOKEN    = 1,
+    SYMBOL_STACK_FULL = 2
+} GrammarianResultCode;
+
+/* Events emitted by the grammarian as a result of processing
+   a token. */
+typedef enum tag_GrammarianEvent
+{
+    EMIT_NOTHING       = 0x0,
+    EMIT_NULL          = 0x1,
+    EMIT_BOOLEAN       = 0x2,
+    EMIT_STRING        = 0x3,
+    EMIT_NUMBER        = 0x4,
+    EMIT_START_OBJECT  = 0x5,
+    EMIT_END_OBJECT    = 0x6,
+    EMIT_OBJECT_MEMBER = 0x7,
+    EMIT_START_ARRAY   = 0x8,
+    EMIT_END_ARRAY     = 0x9,
+
+    /* This value may be combined with other values. */
+    EMIT_ARRAY_ITEM    = 0x10
+} GrammarianEvent;
+
+/* The bits of GrammarianOutput are layed out as follows:
+
+     rr-eeeee
+
+     r = result code (2 bits)
+     e = event (5 bits)
+     - = unused (1 bit)
+ */
+typedef unsigned char GrammarianOutput;
+
+#define GRAMMARIAN_OUTPUT(r, e)   (((r) << 6) | (e))
+#define GRAMMARIAN_RESULT_CODE(o) ((o) >> 6)
+#define GRAMMARIAN_EVENT(o)       ((o) & 0x1F)
+
+/* The bits of GrammarAction are layed out as follows:
+
+     r--eeeee
+
+     r = reprocess token (1 bit)
+     e = event (5 bits)
+     - = unused (1 bit)
+ */
+typedef unsigned char GrammarAction;
+
+#define GRAMMAR_ACTION(r, e)        (((r) << 7) | (e))
+#define GRAMMAR_ACTION_REPROCESS(a) ((a) >> 7)
+#define GRAMMAR_ACTION_EVENT(a)     ((a) & 0x1F)
+
+/* Grammar rule used by the grammarian to process a token. */
+typedef struct tag_GrammarRule
+{
+    unsigned char symbolToPush1;
+    unsigned char symbolToPush2;
+    unsigned char numberOfSymbolsToPush;
+    GrammarAction action;
+} GrammarRule;
+
+/* Grammarian functions. */
+
+static void Grammarian_Reset(Grammarian grammarian, int isInitialized)
+{
+    /* When we reset the grammarian, we keep the symbol stack that has
+       already been allocated, if any. If the client wants to reclaim the
+       memory used by the that buffer, he needs to free the grammarian
+       and create a new one. */
+    if (!isInitialized)
+    {
+        grammarian->pSymbolStack = grammarian->defaultSymbolStack;
+        grammarian->symbolStackSize = sizeof(grammarian->defaultSymbolStack);
+    }
+
+    /* The grammarian always starts with NT_VALUE on the symbol stack. */
+    grammarian->pSymbolStack[0] = NT_VALUE;
+    grammarian->symbolStackUsed = 1;
+}
+
+static void Grammarian_FreeAllocations(Grammarian grammarian, const JSON_MemorySuite* pMemorySuite)
+{
+    if (grammarian->pSymbolStack != grammarian->defaultSymbolStack)
+    {
+        pMemorySuite->free(pMemorySuite->userData, grammarian->pSymbolStack);
+    }
+}
+
+static int Grammarian_FinishedDocument(Grammarian grammarian)
+{
+    return !grammarian->symbolStackUsed;
+}
+
+static JSON_Status Grammarian_EnsureSymbolStackSlotAvailable(Grammarian grammarian, const JSON_MemorySuite* pMemorySuite)
+{
+    /* Make sure the symbol stack has enough space for one more symbol. */
+    if (grammarian->symbolStackUsed < grammarian->symbolStackSize)
+    {
+        /* The current stack is big enough. */
+    }
+    else if (grammarian->symbolStackSize == (size_t)-1)
+    {
+        /* Required size is greater than the maximum allocatable size. */
+        return JSON_Failure;
+    }
+    else
+    {
+        /* We're going to need a bigger boat. */
+        size_t newSize = grammarian->symbolStackSize * 2;
+        unsigned char* pSymbolStack;
+        if (grammarian->pSymbolStack == grammarian->defaultSymbolStack)
+        {
+            pSymbolStack = (unsigned char*)pMemorySuite->malloc(pMemorySuite->userData, newSize);
+            if (pSymbolStack)
+            {
+                memcpy(pSymbolStack, grammarian->defaultSymbolStack, grammarian->symbolStackUsed);
+            }
+        }
+        else
+        {
+            pSymbolStack = (unsigned char*)pMemorySuite->realloc(pMemorySuite->userData, grammarian->pSymbolStack, newSize);
+        }
+        if (!pSymbolStack)
+        {
+            return JSON_Failure;
+        }
+        grammarian->pSymbolStack = pSymbolStack;
+        grammarian->symbolStackSize = newSize;
+    }
+    return JSON_Success;
+}
+
+static GrammarianOutput Grammarian_ProcessToken(Grammarian grammarian, Symbol token, const JSON_MemorySuite* pMemorySuite)
+{
+    /* The order and number of the rows and columns in this table must
+       match the token and non-terminal enum values in the Symbol enum. */
+    static const unsigned char ruleLookup[14][9] =
+    {
+        /*             V     MS    M     MM   MAC    IS    I     MI   IAC  */
+        /*  null  */ { 1,    0,    0,    0,    0,    15,   17,   0,    20 },
+        /*  true  */ { 2,    0,    0,    0,    0,    15,   17,   0,    20 },
+        /* false  */ { 3,    0,    0,    0,    0,    15,   17,   0,    20 },
+        /* string */ { 4,    8,    10,   0,    13,   15,   17,   0,    20 },
+        /* number */ { 5,    0,    0,    0,    0,    15,   17,   0,    20 },
+        /*  NaN   */ { 5,    0,    0,    0,    0,    15,   17,   0,    20 },
+        /*  Inf   */ { 5,    0,    0,    0,    0,    15,   17,   0,    20 },
+        /* -Inf   */ { 5,    0,    0,    0,    0,    15,   17,   0,    20 },
+        /*   {    */ { 6,    0,    0,    0,    0,    15,   17,   0,    20 },
+        /*   }    */ { 0,    9,    0,    12,   14,   0,    0,    0,    0  },
+        /*   [    */ { 7,    0,    0,    0,    0,    15,   17,   0,    20 },
+        /*   ]    */ { 0,    0,    0,    0,    0,    16,   0,    19,   21 },
+        /*   :    */ { 0,    0,    0,    0,    0,    0,    0,    0,    0  },
+        /*   ,    */ { 0,    0,    0,    11,   0,    0,    0,    18,   0  }
+    };
+
+    static const GrammarRule rules[21] =
+    {
+        /* 1.  */ { 0, 0, 0, GRAMMAR_ACTION(0, EMIT_NULL) },
+        /* 2.  */ { 0, 0, 0, GRAMMAR_ACTION(0, EMIT_BOOLEAN) },
+        /* 3.  */ { 0, 0, 0, GRAMMAR_ACTION(0, EMIT_BOOLEAN) },
+        /* 4.  */ { 0, 0, 0, GRAMMAR_ACTION(0, EMIT_STRING) },
+        /* 5.  */ { 0, 0, 0, GRAMMAR_ACTION(0, EMIT_NUMBER) },
+        /* 6.  */ { TOKEN_RIGHT_CURLY, NT_MEMBERS, 2, GRAMMAR_ACTION(0, EMIT_START_OBJECT) },
+        /* 7.  */ { TOKEN_RIGHT_SQUARE, NT_ITEMS, 2, GRAMMAR_ACTION(0, EMIT_START_ARRAY) },
+        /* 8.  */ { NT_MORE_MEMBERS, NT_MEMBER, 2, GRAMMAR_ACTION(1, EMIT_NOTHING) },
+        /* 9.  */ { 0, 0, 0, GRAMMAR_ACTION(1, EMIT_END_OBJECT) },
+        /* 10. */ { NT_VALUE, TOKEN_COLON, 2, GRAMMAR_ACTION(0, EMIT_OBJECT_MEMBER) },
+        /* 11. */ { NT_MEMBERS_AFTER_COMMA, 0, 1, GRAMMAR_ACTION(0, EMIT_NOTHING) },
+        /* 12. */ { 0, 0, 0, GRAMMAR_ACTION(1, EMIT_END_OBJECT) },
+        /* 13. */ { NT_MORE_MEMBERS, NT_MEMBER, 2, GRAMMAR_ACTION(1, EMIT_NOTHING) },
+        /* 14. */ { 0, 0, 0, GRAMMAR_ACTION(1, EMIT_END_OBJECT) },
+        /* 15. */ { NT_MORE_ITEMS, NT_ITEM, 2, GRAMMAR_ACTION(1, EMIT_NOTHING) },
+        /* 16. */ { 0, 0, 0, GRAMMAR_ACTION(1, EMIT_END_ARRAY) },
+        /* 17. */ { NT_VALUE, 0, 1, GRAMMAR_ACTION(1, EMIT_ARRAY_ITEM) },
+        /* 18. */ { NT_ITEMS_AFTER_COMMA, 0, 1, GRAMMAR_ACTION(0, EMIT_NOTHING) },
+        /* 19. */ { 0, 0, 0, GRAMMAR_ACTION(1, EMIT_END_ARRAY) },
+        /* 20. */ { NT_MORE_ITEMS, NT_ITEM, 2, GRAMMAR_ACTION(1, EMIT_NOTHING) },
+        /* 21. */ { 0, 0, 0, GRAMMAR_ACTION(1, EMIT_END_ARRAY) }
+    };
+
+    unsigned char eventToEmit = EMIT_NOTHING;
+
+    /* Comment tokens are simply ignored whenever they are encountered. */
+    if (token == TOKEN_COMMENT)
+    {
+        return GRAMMARIAN_OUTPUT(ACCEPTED_TOKEN, EMIT_NOTHING);
+    }
+
+    /* If the stack is empty, no more tokens were expected. */
+    if (Grammarian_FinishedDocument(grammarian))
+    {
+        return GRAMMARIAN_OUTPUT(REJECTED_TOKEN, EMIT_NOTHING);
+    }
+
+    for (;;)
+    {
+        Symbol topSymbol = (Symbol)grammarian->pSymbolStack[grammarian->symbolStackUsed - 1];
+        if (IS_TOKEN(topSymbol))
+        {
+            if (topSymbol != token)
+            {
+                return GRAMMARIAN_OUTPUT(REJECTED_TOKEN, EMIT_NOTHING);
+            }
+            grammarian->symbolStackUsed--;
+            break;
+        }
+        else
+        {
+            unsigned char ruleNumber = ruleLookup[token][BOTTOM_4_BITS(topSymbol)];
+            if (ruleNumber == 0)
+            {
+                return GRAMMARIAN_OUTPUT(REJECTED_TOKEN, EMIT_NOTHING);
+            }
+            else
+            {
+                const GrammarRule* pRule = &rules[ruleNumber - 1];
+                if (pRule->numberOfSymbolsToPush == 0)
+                {
+                    /* The rule removes the top symbol and does not replace it. */
+                    grammarian->symbolStackUsed--;
+                }
+                else
+                {
+                    /* The rule replaces the top symbol with 1 or 2 symbols. */
+                    grammarian->pSymbolStack[grammarian->symbolStackUsed - 1] = pRule->symbolToPush1;
+                    if (pRule->numberOfSymbolsToPush == 2)
+                    {
+                        if (!Grammarian_EnsureSymbolStackSlotAvailable(grammarian, pMemorySuite))
+                        {
+                            return GRAMMARIAN_OUTPUT(SYMBOL_STACK_FULL, EMIT_NOTHING);
+                        }
+                        grammarian->pSymbolStack[grammarian->symbolStackUsed] = pRule->symbolToPush2;
+                        grammarian->symbolStackUsed++;
+                    }
+                }
+                eventToEmit |= GRAMMAR_ACTION_EVENT(pRule->action);
+                if (!GRAMMAR_ACTION_REPROCESS(pRule->action))
+                {
+                    break;
+                }
+            }
+        }
+    }
+
+    return GRAMMARIAN_OUTPUT(ACCEPTED_TOKEN, eventToEmit);
+}
+
+/******************** JSON Parser ********************/
+
+/* Combinable parser status bits. */
+typedef enum tag_ParserStatus
+{
+    PARSER_RESET                               = 0,
+    PARSER_STARTED                             = 1 << 0,
+    PARSER_FINISHED                            = 1 << 1,
+    PARSER_IN_PROTECTED_API                    = 1 << 2,
+    PARSER_IN_PARSE_HANDLER                    = 1 << 3,
+    PARSER_AFTER_CARRIAGE_RETURN               = 1 << 4,
+    PARSER_ALLOW_BOM                           = 1 << 5,
+    PARSER_ALLOW_COMMENTS                      = 1 << 6,
+    PARSER_ALLOW_TRAILING_COMMAS               = 1 << 7,
+    PARSER_ALLOW_SPECIAL_NUMBERS               = 1 << 8,
+    PARSER_ALLOW_HEX_NUMBERS                   = 1 << 9,
+    PARSER_REPLACE_INVALID_ENCODING_SEQUENCES  = 1 << 10,
+    PARSER_TRACK_OBJECT_MEMBERS                = 1 << 11
+} ParserStatus;
+
+/* Mutually-exclusive lexer states. */
+typedef enum tag_LexerState
+{
+    LEXER_IDLE                                              = 0,
+    LEXER_IN_LITERAL                                        = 1,
+    LEXER_IN_STRING                                         = 2,
+    LEXER_IN_STRING_ESCAPE                                  = 3,
+    LEXER_IN_STRING_HEX_ESCAPE_BYTE_1                       = 4,
+    LEXER_IN_STRING_HEX_ESCAPE_BYTE_2                       = 5,
+    LEXER_IN_STRING_HEX_ESCAPE_BYTE_3                       = 6,
+    LEXER_IN_STRING_HEX_ESCAPE_BYTE_4                       = 7,
+    LEXER_IN_STRING_HEX_ESCAPE_BYTE_5                       = 8,
+    LEXER_IN_STRING_HEX_ESCAPE_BYTE_6                       = 9,
+    LEXER_IN_STRING_HEX_ESCAPE_BYTE_7                       = 10,
+    LEXER_IN_STRING_HEX_ESCAPE_BYTE_8                       = 11,
+    LEXER_IN_STRING_TRAILING_SURROGATE_HEX_ESCAPE_BACKSLASH = 12,
+    LEXER_IN_STRING_TRAILING_SURROGATE_HEX_ESCAPE_U         = 13,
+    LEXER_IN_NUMBER_AFTER_MINUS                             = 14,
+    LEXER_IN_NUMBER_AFTER_LEADING_ZERO                      = 15,
+    LEXER_IN_NUMBER_AFTER_X                                 = 16,
+    LEXER_IN_NUMBER_HEX_DIGITS                              = 17,
+    LEXER_IN_NUMBER_DECIMAL_DIGITS                          = 18,
+    LEXER_IN_NUMBER_AFTER_DOT                               = 19,
+    LEXER_IN_NUMBER_FRACTIONAL_DIGITS                       = 20,
+    LEXER_IN_NUMBER_AFTER_E                                 = 21,
+    LEXER_IN_NUMBER_AFTER_EXPONENT_SIGN                     = 22,
+    LEXER_IN_NUMBER_EXPONENT_DIGITS                         = 23,
+    LEXER_IN_COMMENT_AFTER_SLASH                            = 24,
+    LEXER_IN_SINGLE_LINE_COMMENT                            = 25,
+    LEXER_IN_MULTI_LINE_COMMENT                             = 26,
+    LEXER_IN_MULTI_LINE_COMMENT_AFTER_STAR                  = 27
+} LexerState;
+
 /* An object member name stored in an unordered, singly-linked-list, used for
    detecting duplicate member names. Note that the name string is not null-
    terminated. */
@@ -584,22 +909,9 @@ typedef struct tag_MemberNames
 /* A parser instance. */
 struct JSON_Parser_Data
 {
-    JSON_Parser_MemorySuite          memorySuite;
-    void*                            userData;
-    JSON_Parser_NullHandler          nullHandler;
-    JSON_Parser_BooleanHandler       booleanHandler;
-    JSON_Parser_StringHandler        stringHandler;
-    JSON_Parser_NumberHandler        numberHandler;
-    JSON_Parser_RawNumberHandler     rawNumberHandler;
-    JSON_Parser_SpecialNumberHandler specialNumberHandler;
-    JSON_Parser_StartObjectHandler   startObjectHandler;
-    JSON_Parser_EndObjectHandler     endObjectHandler;
-    JSON_Parser_ObjectMemberHandler  objectMemberHandler;
-    JSON_Parser_StartArrayHandler    startArrayHandler;
-    JSON_Parser_EndArrayHandler      endArrayHandler;
-    JSON_Parser_ArrayItemHandler     arrayItemHandler;
-    Decoder                          decoder;
+    JSON_MemorySuite                 memorySuite;
     ParserStatus                     parserStatus;
+    void*                            userData;
     unsigned char                    inputEncoding;     /* real type is JSON_Encoding */
     unsigned char                    outputEncoding;    /* real type is JSON_Encoding */
     unsigned char                    lexerState;        /* real type is LexerState */
@@ -620,58 +932,25 @@ struct JSON_Parser_Data
     size_t                           outputBufferLength;
     size_t                           outputBufferUsed;
     size_t                           maxOutputStringLength;
-    unsigned char*                   pSymbolStack;      /* initially set to defaultSymbolStack */
-    size_t                           symbolStackSize;
-    size_t                           symbolStackUsed;
     MemberNames*                     pMemberNames;
+    DecoderData                      decoderData;
+    GrammarianData                   grammarianData;
+    JSON_Parser_NullHandler          nullHandler;
+    JSON_Parser_BooleanHandler       booleanHandler;
+    JSON_Parser_StringHandler        stringHandler;
+    JSON_Parser_NumberHandler        numberHandler;
+    JSON_Parser_RawNumberHandler     rawNumberHandler;
+    JSON_Parser_SpecialNumberHandler specialNumberHandler;
+    JSON_Parser_StartObjectHandler   startObjectHandler;
+    JSON_Parser_EndObjectHandler     endObjectHandler;
+    JSON_Parser_ObjectMemberHandler  objectMemberHandler;
+    JSON_Parser_StartArrayHandler    startArrayHandler;
+    JSON_Parser_EndArrayHandler      endArrayHandler;
+    JSON_Parser_ArrayItemHandler     arrayItemHandler;
     unsigned char                    defaultOutputBuffer[DEFAULT_OUTPUT_BUFFER_LENGTH];
-    unsigned char                    defaultSymbolStack[DEFAULT_SYMBOL_STACK_SIZE];
 };
 
-static void* JSON_CALL DefaultMallocHandler(JSON_Parser parser, size_t size)
-{
-    (void)parser; /* unused */
-    return malloc(size);
-}
-
-static void* JSON_CALL DefaultReallocHandler(JSON_Parser parser, void* ptr, size_t size)
-{
-    (void)parser; /* unused */
-    return realloc(ptr, size);
-}
-
-static void JSON_CALL DefaultFreeHandler(JSON_Parser parser, void* ptr)
-{
-    (void)parser; /* unused */
-    free(ptr);
-}
-
-static void* JSON_CALL CallMalloc(JSON_Parser parser, size_t size)
-{
-    void* p;
-    parser->parserStatus |= PARSER_IN_MEMORY_HANDLER;
-    p = parser->memorySuite.malloc(parser, size);
-    parser->parserStatus &= ~PARSER_IN_MEMORY_HANDLER;
-    return p;
-}
-
-static void* JSON_CALL CallRealloc(JSON_Parser parser, void* ptr, size_t size)
-{
-    void* p;
-    parser->parserStatus |= PARSER_IN_MEMORY_HANDLER;
-    p = parser->memorySuite.realloc(parser, ptr, size);
-    parser->parserStatus &= ~PARSER_IN_MEMORY_HANDLER;
-    return p;
-}
-
-static void JSON_CALL CallFree(JSON_Parser parser, void* ptr)
-{
-    parser->parserStatus |= PARSER_IN_MEMORY_HANDLER;
-    parser->memorySuite.free(parser, ptr);
-    parser->parserStatus &= ~PARSER_IN_MEMORY_HANDLER;
-}
-
-/* Parser functions. */
+/* Parser internal functions. */
 
 /* This array must match the order and number of the JSON_Encoding enum. */
 static const size_t minEncodingSequenceLengths[] =
@@ -684,12 +963,12 @@ static const size_t minEncodingSequenceLengths[] =
     /* JSON_UTF32BE */         4
 };
 
-static void SetErrorAtCodepoint(JSON_Parser parser, JSON_Error error)
+static void JSON_Parser_SetErrorAtCodepoint(JSON_Parser parser, JSON_Error error)
 {
     parser->error = error;
 }
 
-static void SetErrorAtStringEscapeSequenceStart(JSON_Parser parser, JSON_Error error, unsigned char codepointsAgo)
+static void JSON_Parser_SetErrorAtStringEscapeSequenceStart(JSON_Parser parser, JSON_Error error, unsigned char codepointsAgo)
 {
     /* Note that backtracking from the current codepoint requires us to make
        three assumptions, which are always valid in the context of a string
@@ -709,18 +988,18 @@ static void SetErrorAtStringEscapeSequenceStart(JSON_Parser parser, JSON_Error e
     parser->errorOffset = codepointsAgo;
 }
 
-static void SetErrorAtToken(JSON_Parser parser, JSON_Error error)
+static void JSON_Parser_SetErrorAtToken(JSON_Parser parser, JSON_Error error)
 {
     parser->error = error;
     parser->errorOffset = ERROR_LOCATION_IS_TOKEN_START;
 }
 
-static JSON_Status PushMemberNameList(JSON_Parser parser)
+static JSON_Status JSON_Parser_PushMemberNameList(JSON_Parser parser)
 {
-    MemberNames* pNames = (MemberNames*)CallMalloc(parser, sizeof(MemberNames));
+    MemberNames* pNames = (MemberNames*)parser->memorySuite.malloc(parser->memorySuite.userData, sizeof(MemberNames));
     if (!pNames)
     {
-        SetErrorAtCodepoint(parser, JSON_Error_OutOfMemory);
+        JSON_Parser_SetErrorAtCodepoint(parser, JSON_Error_OutOfMemory);
         return JSON_Failure;
     }
     pNames->pAncestor = parser->pMemberNames;
@@ -729,23 +1008,23 @@ static JSON_Status PushMemberNameList(JSON_Parser parser)
     return JSON_Success;
 }
 
-static void PopMemberNameList(JSON_Parser parser)
+static void JSON_Parser_PopMemberNameList(JSON_Parser parser)
 {
     MemberNames* pAncestor = parser->pMemberNames->pAncestor;
     while (parser->pMemberNames->pFirstName)
     {
         MemberName* pNextName = parser->pMemberNames->pFirstName->pNextName;
-        CallFree(parser, parser->pMemberNames->pFirstName);
+        parser->memorySuite.free(parser->memorySuite.userData, parser->pMemberNames->pFirstName);
         parser->pMemberNames->pFirstName = pNextName;
     }
-    CallFree(parser, parser->pMemberNames);
+    parser->memorySuite.free(parser->memorySuite.userData, parser->pMemberNames);
     parser->pMemberNames = pAncestor;
 }
 
-static JSON_Status StartContainer(JSON_Parser parser, int isObject)
+static JSON_Status JSON_Parser_StartContainer(JSON_Parser parser, int isObject)
 {
     if (isObject && (parser->parserStatus & PARSER_TRACK_OBJECT_MEMBERS) &&
-        !PushMemberNameList(parser))
+        !JSON_Parser_PushMemberNameList(parser))
     {
         return JSON_Failure;
     }
@@ -753,16 +1032,16 @@ static JSON_Status StartContainer(JSON_Parser parser, int isObject)
     return JSON_Success;
 }
 
-static void EndContainer(JSON_Parser parser, int isObject)
+static void JSON_Parser_EndContainer(JSON_Parser parser, int isObject)
 {
     parser->depth--;
     if (isObject && (parser->parserStatus & PARSER_TRACK_OBJECT_MEMBERS))
     {
-        PopMemberNameList(parser);
+        JSON_Parser_PopMemberNameList(parser);
     }
 }
 
-static JSON_Status AddMemberNameToList(JSON_Parser parser)
+static JSON_Status JSON_Parser_AddMemberNameToList(JSON_Parser parser)
 {
     if (parser->parserStatus & PARSER_TRACK_OBJECT_MEMBERS)
     {
@@ -771,14 +1050,14 @@ static JSON_Status AddMemberNameToList(JSON_Parser parser)
         {
             if (pName->length == parser->outputBufferUsed && !memcmp(pName->pBytes, parser->pOutputBuffer, pName->length))
             {
-                SetErrorAtToken(parser, JSON_Error_DuplicateObjectMember);
+                JSON_Parser_SetErrorAtToken(parser, JSON_Error_DuplicateObjectMember);
                 return JSON_Failure;
             }
         }
-        pName = (MemberName*)CallMalloc(parser, sizeof(MemberName) + parser->outputBufferUsed - 1);
+        pName = (MemberName*)parser->memorySuite.malloc(parser->memorySuite.userData, sizeof(MemberName) + parser->outputBufferUsed - 1);
         if (!pName)
         {
-            SetErrorAtCodepoint(parser, JSON_Error_OutOfMemory);
+            JSON_Parser_SetErrorAtCodepoint(parser, JSON_Error_OutOfMemory);
             return JSON_Failure;
         }
         pName->pNextName = parser->pMemberNames->pFirstName;
@@ -789,9 +1068,53 @@ static JSON_Status AddMemberNameToList(JSON_Parser parser)
     return JSON_Success;
 }
 
-static void ResetParserData(JSON_Parser parser, int isInitialized)
+static void JSON_Parser_ResetData(JSON_Parser parser, int isInitialized)
 {
+    parser->parserStatus = PARSER_RESET;
     parser->userData = NULL;
+    parser->inputEncoding = JSON_UnknownEncoding;
+    parser->outputEncoding = JSON_UTF8;
+    parser->lexerState = LEXER_IDLE;
+    parser->token = TOKEN_NULL;
+    parser->previousToken = TOKEN_NULL;
+    parser->error = JSON_Error_None;
+    parser->errorOffset = 0;
+    parser->outputAttributes = 0;
+    parser->lexerBits = 0;
+    parser->codepointLocationByte = 0;
+    parser->codepointLocationLine = 0;
+    parser->codepointLocationColumn = 0;
+    parser->tokenLocationByte = 0;
+    parser->tokenLocationLine = 0;
+    parser->tokenLocationColumn = 0;
+    parser->depth = 0;
+    if (!isInitialized)
+    {
+        parser->pOutputBuffer = parser->defaultOutputBuffer;
+        parser->outputBufferLength = sizeof(parser->defaultOutputBuffer);
+    }
+    else
+    {
+        /* When we reset the parser, we keep the output buffer and the symbol
+           stack that have already been allocated, if any. If the client wants
+           to reclaim the memory used by the those buffers, he needs to free
+           the parser and create a new one. */
+    }
+    parser->outputBufferUsed = 0;
+    parser->maxOutputStringLength = (size_t)-1;
+    if (!isInitialized)
+    {
+        parser->pMemberNames = NULL;
+    }
+    else
+    {
+        while (parser->pMemberNames)
+        {
+            JSON_Parser_PopMemberNameList(parser);
+        }
+    }
+    Decoder_Reset(&parser->decoderData);
+    Grammarian_Reset(&parser->grammarianData, isInitialized);
     parser->nullHandler = NULL;
     parser->booleanHandler = NULL;
     parser->stringHandler = NULL;
@@ -804,59 +1127,15 @@ static void ResetParserData(JSON_Parser parser, int isInitialized)
     parser->startArrayHandler = NULL;
     parser->endArrayHandler = NULL;
     parser->arrayItemHandler = NULL;
-    ResetDecoder(&parser->decoder);
-    parser->inputEncoding = JSON_UnknownEncoding;
-    parser->outputEncoding = JSON_UTF8;
-    parser->parserStatus = PARSER_RESET;
-    parser->lexerState = LEXER_IDLE;
-    parser->lexerBits = 0;
-    parser->token = TOKEN_NULL;
-    parser->previousToken = TOKEN_NULL;
-    parser->codepointLocationByte = 0;
-    parser->codepointLocationLine = 0;
-    parser->codepointLocationColumn = 0;
-    parser->tokenLocationByte = 0;
-    parser->tokenLocationLine = 0;
-    parser->tokenLocationColumn = 0;
-    parser->depth = 0;
-    parser->error = JSON_Error_None;
-    parser->errorOffset = 0;
-    parser->outputAttributes = 0;
-    if (!isInitialized)
-    {
-        parser->pOutputBuffer = parser->defaultOutputBuffer;
-        parser->outputBufferLength = sizeof(parser->defaultOutputBuffer);
-        parser->pSymbolStack = parser->defaultSymbolStack;
-        parser->symbolStackSize = sizeof(parser->defaultSymbolStack);
-    }
-    else
-    {
-        /* When we reset the parser, we keep the output buffer and the symbol
-           stack that have already been allocated, if any. If the client wants
-           to reclaim the memory used by the those buffers, he needs to free
-           the parser and create a new one. The object member lists do get
-           freed, however, since they are not reusable. */
-        while (parser->pMemberNames)
-        {
-            PopMemberNameList(parser);
-        }
-    }
-    parser->outputBufferUsed = 0;
-    parser->maxOutputStringLength = (size_t)-1;
-
-    /* The parser always starts with NT_VALUE on the symbol stack. */
-    parser->pSymbolStack[0] = NT_VALUE;
-    parser->symbolStackUsed = 1;
-    parser->pMemberNames = NULL;
 }
 
-static JSON_Status OutputNumberCharacter(JSON_Parser parser, unsigned char c)
+static JSON_Status JSON_Parser_OutputNumberCharacter(JSON_Parser parser, unsigned char c)
 {
     /* Because DEFAULT_OUTPUT_BUFFER_LENGTH == MAX_NUMBER_CHARACTERS + 1,
        the output buffer never needs to grown when we parse a number. */
     if (parser->outputBufferUsed == MAX_NUMBER_CHARACTERS)
     {
-        SetErrorAtToken(parser, JSON_Error_TooLongNumber);
+        JSON_Parser_SetErrorAtToken(parser, JSON_Error_TooLongNumber);
         return JSON_Failure;
     }
     parser->pOutputBuffer[parser->outputBufferUsed] = c;
@@ -864,7 +1143,7 @@ static JSON_Status OutputNumberCharacter(JSON_Parser parser, unsigned char c)
     return JSON_Success;
 }
 
-static void NullTerminateNumberOutput(JSON_Parser parser)
+static void JSON_Parser_NullTerminateNumberOutput(JSON_Parser parser)
 {
     /* Because DEFAULT_OUTPUT_BUFFER_LENGTH == MAX_NUMBER_CHARACTERS + 1,
        there is always room for a null terminator byte at the end of the
@@ -873,7 +1152,7 @@ static void NullTerminateNumberOutput(JSON_Parser parser)
     parser->outputBufferUsed++;
 }
 
-static JSON_Status OutputStringBytes(JSON_Parser parser, const unsigned char* pBytes, size_t length)
+static JSON_Status JSON_Parser_OutputStringBytes(JSON_Parser parser, const unsigned char* pBytes, size_t length)
 {
     /* Make sure the output buffer has enough space for the new bytes. */
     unsigned char* pOutputBuffer = NULL;
@@ -899,7 +1178,7 @@ static JSON_Status OutputStringBytes(JSON_Parser parser, const unsigned char* pB
             }
             if (parser->pOutputBuffer == parser->defaultOutputBuffer)
             {
-                pOutputBuffer = (unsigned char*)CallMalloc(parser, newLength);
+                pOutputBuffer = (unsigned char*)parser->memorySuite.malloc(parser->memorySuite.userData, newLength);
                 if (pOutputBuffer)
                 {
                     memcpy(pOutputBuffer, parser->defaultOutputBuffer, parser->outputBufferUsed);
@@ -907,7 +1186,7 @@ static JSON_Status OutputStringBytes(JSON_Parser parser, const unsigned char* pB
             }
             else
             {
-                pOutputBuffer = (unsigned char*)CallRealloc(parser, parser->pOutputBuffer, newLength);
+                pOutputBuffer = (unsigned char*)parser->memorySuite.realloc(parser->memorySuite.userData, parser->pOutputBuffer, newLength);
             }
             if (pOutputBuffer)
             {
@@ -918,7 +1197,7 @@ static JSON_Status OutputStringBytes(JSON_Parser parser, const unsigned char* pB
     }
     if (!pOutputBuffer)
     {
-        SetErrorAtCodepoint(parser, JSON_Error_OutOfMemory);
+        JSON_Parser_SetErrorAtCodepoint(parser, JSON_Error_OutOfMemory);
         return JSON_Failure;
     }
     while (parser->outputBufferUsed < requiredLength)
@@ -930,7 +1209,7 @@ static JSON_Status OutputStringBytes(JSON_Parser parser, const unsigned char* pB
     return JSON_Success;
 }
 
-static JSON_Status OutputStringCodepoint(JSON_Parser parser, JSON_UInt32 c)
+static JSON_Status JSON_Parser_OutputStringCodepoint(JSON_Parser parser, JSON_UInt32 c)
 {
     unsigned char bytes[4];
     size_t length = 0;
@@ -1032,7 +1311,7 @@ static JSON_Status OutputStringCodepoint(JSON_Parser parser, JSON_UInt32 c)
 
     if (parser->outputBufferUsed + length > parser->maxOutputStringLength)
     {
-        SetErrorAtToken(parser, JSON_Error_TooLongString);
+        JSON_Parser_SetErrorAtToken(parser, JSON_Error_TooLongString);
         return JSON_Failure;
     }
 
@@ -1053,7 +1332,7 @@ static JSON_Status OutputStringCodepoint(JSON_Parser parser, JSON_UInt32 c)
         parser->outputAttributes |= JSON_ContainsNonASCIICharacter;
     }
 
-    if (!OutputStringBytes(parser, bytes, length))
+    if (!JSON_Parser_OutputStringBytes(parser, bytes, length))
     {
         return JSON_Failure;
     }
@@ -1061,22 +1340,22 @@ static JSON_Status OutputStringCodepoint(JSON_Parser parser, JSON_UInt32 c)
     return JSON_Success;
 }
 
-static const unsigned char nullTerminatorBytes[4] = { 0, 0, 0, 0 };
-static JSON_Status NullTerminateStringOutput(JSON_Parser parser)
+static JSON_Status JSON_Parser_NullTerminateStringOutput(JSON_Parser parser)
 {
-    if (!OutputStringBytes(parser, nullTerminatorBytes, minEncodingSequenceLengths[parser->outputEncoding]))
+    static const unsigned char nullTerminatorBytes[4] = { 0, 0, 0, 0 };
+    if (!JSON_Parser_OutputStringBytes(parser, nullTerminatorBytes, minEncodingSequenceLengths[parser->outputEncoding]))
     {
         return JSON_Failure;
     }
     return JSON_Success;
 }
 
-static JSON_Status FlushParser(JSON_Parser parser)
+static JSON_Status JSON_Parser_FlushParser(JSON_Parser parser)
 {
     /* The symbol stack should be empty when parsing finishes. */
-    if (parser->symbolStackUsed)
+    if (!Grammarian_FinishedDocument(&parser->grammarianData))
     {
-        SetErrorAtCodepoint(parser, JSON_Error_ExpectedMoreTokens);
+        JSON_Parser_SetErrorAtCodepoint(parser, JSON_Error_ExpectedMoreTokens);
         return JSON_Failure;
     }
     return JSON_Success;
@@ -1106,9 +1385,10 @@ int InterpretHexDigit(char c)
      2. All characters in pDigits are hex digit characters.
      3. The first character in pDigits is not '0'.
 */
-static const int significantBitsInHexDigit[15] = { 1, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4 };
 static double InterpretSignificantHexDigits(const char* pDigits, int length)
 {
+    static const int significantBitsInHexDigit[15] = { 1, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4 };
+
     double value;
     JSON_UInt64 mantissa;
     int exponent = 0;
@@ -1243,7 +1523,7 @@ static double InterpretHexDigits(const char* pDigits, int length)
     return 0.0;
 }
 
-static double InterpretNumber(JSON_Parser parser)
+static double JSON_Parser_InterpretNumber(JSON_Parser parser)
 {
     double value;
     /* We can tell whether the number is hex simply by examining the second
@@ -1282,7 +1562,8 @@ static double InterpretNumber(JSON_Parser parser)
     return value;
 }
 
-static JSON_Status CallSimpleHandler(JSON_Parser parser, JSON_Parser_NullHandler handler)
+typedef JSON_Parser_HandlerResult (JSON_CALL * JSON_Parser_SimpleHandler)(JSON_Parser parser);
+static JSON_Status JSON_Parser_CallSimpleHandler(JSON_Parser parser, JSON_Parser_SimpleHandler handler)
 {
     if (handler)
     {
@@ -1290,16 +1571,16 @@ static JSON_Status CallSimpleHandler(JSON_Parser parser, JSON_Parser_NullHandler
         parser->parserStatus |= PARSER_IN_PARSE_HANDLER;
         result = handler(parser);
         parser->parserStatus &= ~PARSER_IN_PARSE_HANDLER;
-        if (result != JSON_ContinueParsing)
+        if (result != JSON_Parser_ContinueParsing)
         {
-            SetErrorAtToken(parser, JSON_Error_AbortedByHandler);
+            JSON_Parser_SetErrorAtToken(parser, JSON_Error_AbortedByHandler);
             return JSON_Failure;
         }
     }
     return JSON_Success;
 }
 
-static JSON_Status CallBooleanHandler(JSON_Parser parser)
+static JSON_Status JSON_Parser_CallBooleanHandler(JSON_Parser parser)
 {
     if (parser->booleanHandler)
     {
@@ -1307,16 +1588,16 @@ static JSON_Status CallBooleanHandler(JSON_Parser parser)
         parser->parserStatus |= PARSER_IN_PARSE_HANDLER;
         result = parser->booleanHandler(parser, parser->token == TOKEN_TRUE ? JSON_True : JSON_False);
         parser->parserStatus &= ~PARSER_IN_PARSE_HANDLER;
-        if (result != JSON_ContinueParsing)
+        if (result != JSON_Parser_ContinueParsing)
         {
-            SetErrorAtToken(parser, JSON_Error_AbortedByHandler);
+            JSON_Parser_SetErrorAtToken(parser, JSON_Error_AbortedByHandler);
             return JSON_Failure;
         }
     }
     return JSON_Success;
 }
 
-static JSON_Status CallStringHandler(JSON_Parser parser)
+static JSON_Status JSON_Parser_CallStringHandler(JSON_Parser parser)
 {
     if (parser->stringHandler)
     {
@@ -1326,23 +1607,23 @@ static JSON_Status CallStringHandler(JSON_Parser parser)
            save the length before we null-terminate the string. */
         JSON_Parser_HandlerResult result;
         size_t lengthNotIncludingNullTerminator = parser->outputBufferUsed;
-        if (!NullTerminateStringOutput(parser))
+        if (!JSON_Parser_NullTerminateStringOutput(parser))
         {
             return JSON_Failure;
         }
         parser->parserStatus |= PARSER_IN_PARSE_HANDLER;
         result = parser->stringHandler(parser, (const char*)parser->pOutputBuffer, lengthNotIncludingNullTerminator, parser->outputAttributes);
         parser->parserStatus &= ~PARSER_IN_PARSE_HANDLER;
-        if (result != JSON_ContinueParsing)
+        if (result != JSON_Parser_ContinueParsing)
         {
-            SetErrorAtToken(parser, JSON_Error_AbortedByHandler);
+            JSON_Parser_SetErrorAtToken(parser, JSON_Error_AbortedByHandler);
             return JSON_Failure;
         }
     }
     return JSON_Success;
 }
 
-static JSON_Status CallNumberHandler(JSON_Parser parser)
+static JSON_Status JSON_Parser_CallNumberHandler(JSON_Parser parser)
 {
     if (parser->rawNumberHandler || parser->numberHandler)
     {
@@ -1350,7 +1631,7 @@ static JSON_Status CallNumberHandler(JSON_Parser parser)
            before being converted to a double and/or passed to handlers. */
         JSON_Parser_HandlerResult result;
         size_t lengthNotIncludingNullTerminator = parser->outputBufferUsed;
-        NullTerminateNumberOutput(parser);
+        JSON_Parser_NullTerminateNumberOutput(parser);
         parser->parserStatus |= PARSER_IN_PARSE_HANDLER;
         if (parser->rawNumberHandler)
         {
@@ -1358,19 +1639,19 @@ static JSON_Status CallNumberHandler(JSON_Parser parser)
         }
         else
         {
-            result = parser->numberHandler(parser, InterpretNumber(parser));
+            result = parser->numberHandler(parser, JSON_Parser_InterpretNumber(parser));
         }
         parser->parserStatus &= ~PARSER_IN_PARSE_HANDLER;
-        if (result != JSON_ContinueParsing)
+        if (result != JSON_Parser_ContinueParsing)
         {
-            SetErrorAtToken(parser, JSON_Error_AbortedByHandler);
+            JSON_Parser_SetErrorAtToken(parser, JSON_Error_AbortedByHandler);
             return JSON_Failure;
         }
     }
     return JSON_Success;
 }
 
-static JSON_Status CallSpecialNumberHandler(JSON_Parser parser)
+static JSON_Status JSON_Parser_CallSpecialNumberHandler(JSON_Parser parser)
 {
     if (parser->specialNumberHandler)
     {
@@ -1379,16 +1660,16 @@ static JSON_Status CallSpecialNumberHandler(JSON_Parser parser)
         result = parser->specialNumberHandler(parser, parser->token == TOKEN_NAN ? JSON_NaN :
                                               (parser->token == TOKEN_INFINITY ? JSON_Infinity : JSON_NegativeInfinity));
         parser->parserStatus &= ~PARSER_IN_PARSE_HANDLER;
-        if (result != JSON_ContinueParsing)
+        if (result != JSON_Parser_ContinueParsing)
         {
-            SetErrorAtToken(parser, JSON_Error_AbortedByHandler);
+            JSON_Parser_SetErrorAtToken(parser, JSON_Error_AbortedByHandler);
             return JSON_Failure;
         }
     }
     return JSON_Success;
 }
 
-static JSON_Status CallObjectMemberHandler(JSON_Parser parser)
+static JSON_Status JSON_Parser_CallObjectMemberHandler(JSON_Parser parser)
 {
     if (parser->objectMemberHandler)
     {
@@ -1398,7 +1679,7 @@ static JSON_Status CallObjectMemberHandler(JSON_Parser parser)
            save the length before we null-terminate the string. */
         JSON_Parser_HandlerResult result;
         size_t lengthNotIncludingNullTerminator = parser->outputBufferUsed;
-        if (!NullTerminateStringOutput(parser))
+        if (!JSON_Parser_NullTerminateStringOutput(parser))
         {
             return JSON_Failure;
         }
@@ -1408,9 +1689,9 @@ static JSON_Status CallObjectMemberHandler(JSON_Parser parser)
             (const char*)parser->pOutputBuffer, lengthNotIncludingNullTerminator,
             parser->outputAttributes);
         parser->parserStatus &= ~PARSER_IN_PARSE_HANDLER;
-        if (result != JSON_ContinueParsing)
+        if (result != JSON_Parser_ContinueParsing)
         {
-            SetErrorAtToken(parser, (result == JSON_TreatAsDuplicateObjectMember)
+            JSON_Parser_SetErrorAtToken(parser, (result == JSON_Parser_TreatAsDuplicateObjectMember)
                             ? JSON_Error_DuplicateObjectMember
                             : JSON_Error_AbortedByHandler);
             return JSON_Failure;
@@ -1419,7 +1700,7 @@ static JSON_Status CallObjectMemberHandler(JSON_Parser parser)
     return JSON_Success;
 }
 
-static JSON_Status CallArrayItemHandler(JSON_Parser parser)
+static JSON_Status JSON_Parser_CallArrayItemHandler(JSON_Parser parser)
 {
     if (parser->arrayItemHandler)
     {
@@ -1427,321 +1708,142 @@ static JSON_Status CallArrayItemHandler(JSON_Parser parser)
         parser->parserStatus |= PARSER_IN_PARSE_HANDLER;
         result = parser->arrayItemHandler(parser, (parser->previousToken == TOKEN_LEFT_SQUARE) ? JSON_True : JSON_False);
         parser->parserStatus &= ~PARSER_IN_PARSE_HANDLER;
-        if (result != JSON_ContinueParsing)
+        if (result != JSON_Parser_ContinueParsing)
         {
-            SetErrorAtToken(parser, JSON_Error_AbortedByHandler);
+            JSON_Parser_SetErrorAtToken(parser, JSON_Error_AbortedByHandler);
             return JSON_Failure;
         }
     }
     return JSON_Success;
 }
 
-static JSON_Status ReplaceTopSymbol(JSON_Parser parser, const Symbol* pSymbolsToPush, size_t numberOfSymbolsToPush)
+static JSON_Status JSON_Parser_HandleGrammarEvents(JSON_Parser parser, unsigned char emit)
 {
-    /* Make sure the symbol stack has enough space for the new symbols. */
-    unsigned char* pSymbolStack = NULL;
-    size_t requiredSize;
-    parser->symbolStackUsed--; /* pop top symbol */
-    requiredSize = parser->symbolStackUsed + numberOfSymbolsToPush;
-    if (requiredSize < numberOfSymbolsToPush)
+    if (emit & EMIT_ARRAY_ITEM)
     {
-        /* Required size is greater than the maximum allocatable size. */
-    }
-    else
-    {
-        if (requiredSize <= parser->symbolStackSize)
+        if (!JSON_Parser_CallArrayItemHandler(parser))
         {
-            /* The current stack is big enough. */
-            pSymbolStack = parser->pSymbolStack;
+            return JSON_Failure;
+        }
+        emit &= ~EMIT_ARRAY_ITEM;
+    }
+    switch (emit)
+    {
+    case EMIT_NULL:
+        if (!JSON_Parser_CallSimpleHandler(parser, parser->nullHandler))
+        {
+            return JSON_Failure;
+        }
+        break;
+
+    case EMIT_BOOLEAN:
+        if (!JSON_Parser_CallBooleanHandler(parser))
+        {
+            return JSON_Failure;
+        }
+        break;
+
+    case EMIT_STRING:
+        if (!JSON_Parser_CallStringHandler(parser))
+        {
+            return JSON_Failure;
+        }
+        break;
+
+    case EMIT_NUMBER:
+        if (parser->token == TOKEN_NUMBER)
+        {
+            if (!JSON_Parser_CallNumberHandler(parser))
+            {
+                return JSON_Failure;
+            }
         }
         else
         {
-            /* We're going to need a bigger boat. */
-            size_t newSize = parser->symbolStackSize * 2;
-            if (newSize < requiredSize)
+            if (!JSON_Parser_CallSpecialNumberHandler(parser))
             {
-                newSize = requiredSize;
-            }
-            if (parser->pSymbolStack == parser->defaultSymbolStack)
-            {
-                pSymbolStack = (unsigned char*)CallMalloc(parser, newSize);
-                if (pSymbolStack)
-                {
-                    memcpy(pSymbolStack, parser->defaultSymbolStack, parser->symbolStackUsed);
-                }
-            }
-            else
-            {
-                pSymbolStack = (unsigned char*)CallRealloc(parser, parser->pSymbolStack, newSize);
-            }
-            if (pSymbolStack)
-            {
-                parser->pSymbolStack = pSymbolStack;
-                parser->symbolStackSize = newSize;
+                return JSON_Failure;
             }
         }
-    }
-    if (!pSymbolStack)
-    {
-        SetErrorAtCodepoint(parser, JSON_Error_OutOfMemory);
-        return JSON_Failure;
-    }
-    while (parser->symbolStackUsed < requiredSize)
-    {
-        pSymbolStack[parser->symbolStackUsed] = (unsigned char)*pSymbolsToPush;
-        parser->symbolStackUsed++;
-        pSymbolsToPush++;
+        break;
+
+    case EMIT_START_OBJECT:
+        if (!JSON_Parser_CallSimpleHandler(parser, parser->startObjectHandler) ||
+            !JSON_Parser_StartContainer(parser, 1/*isObject*/))
+        {
+            return JSON_Failure;
+        }
+        break;
+
+    case EMIT_END_OBJECT:
+        if (parser->previousToken == TOKEN_COMMA && !(parser->parserStatus & PARSER_ALLOW_TRAILING_COMMAS))
+        {
+            JSON_Parser_SetErrorAtToken(parser, JSON_Error_UnexpectedToken);
+            return JSON_Failure;
+        }
+        JSON_Parser_EndContainer(parser, 1/*isObject*/);
+        if (!JSON_Parser_CallSimpleHandler(parser, parser->endObjectHandler))
+        {
+            return JSON_Failure;
+        }
+        break;
+
+    case EMIT_OBJECT_MEMBER:
+        if (!JSON_Parser_AddMemberNameToList(parser) || /* will fail if member is duplicate */
+            !JSON_Parser_CallObjectMemberHandler(parser))
+        {
+            return JSON_Failure;
+        }
+        break;
+
+    case EMIT_START_ARRAY:
+        if (!JSON_Parser_CallSimpleHandler(parser, parser->startArrayHandler) ||
+            !JSON_Parser_StartContainer(parser, 0/*isObject*/))
+        {
+            return JSON_Failure;
+        }
+        break;
+
+    case EMIT_END_ARRAY:
+        if (parser->previousToken == TOKEN_COMMA && !(parser->parserStatus & PARSER_ALLOW_TRAILING_COMMAS))
+        {
+            JSON_Parser_SetErrorAtToken(parser, JSON_Error_UnexpectedToken);
+            return JSON_Failure;
+        }
+        JSON_Parser_EndContainer(parser, 0/*isObject*/);
+        if (!JSON_Parser_CallSimpleHandler(parser, parser->endArrayHandler))
+        {
+            return JSON_Failure;
+        }
+        break;
     }
     return JSON_Success;
 }
 
-/* The JSON grammar comprises the following productions:
-
-   1.  VALUE => null
-   2.  VALUE => true
-   3.  VALUE => false
-   4.  VALUE => string
-   5.  VALUE => number
-   6.  VALUE => { MEMBERS }
-   7.  VALUE => [ ITEMS ]
-
-   8.  MEMBERS => MEMBER MORE_MEMBERS
-   9.  MEMBERS => e
-
-   10. MEMBER => string : VALUE
-
-   11. MORE_MEMBERS => , MEMBERS_AFTER_COMMA
-   12. MORE_MEMBERS => e
-
-   13. MEMBERS_AFTER_COMMA => MEMBER MORE_MEMBERS
-   14. MEMBERS_AFTER_COMMA => e (only if AllowTrailingCommas is enabled)
-
-   15. ITEMS => ITEM MORE_ITEMS
-   16. ITEMS => e
-
-   17. ITEM => VALUE
-
-   18. MORE_ITEMS => , ITEMS_AFTER_COMMA
-   19. MORE_ITEMS => e
-
-   20. ITEMS_AFTER_COMMA => ITEM MORE_ITEMS
-   21. ITEMS_AFTER_COMMA => e (only if AllowTrailingCommas is enabled)
-
-   We implement a simple LL(1) parser based on this grammar, with parse
-   handlers invoked when certain non-terminals are replaced.
-
-   The order and number of the rows and columns in the productions table must
-   match the token and non-terminal enum values in the Symbol enum.
-*/
-static const unsigned char productions[14][9] =
-{
-/*             V     MS    M     MM   MAC    IS    I     MI   IAC  */
-/*  null  */ { 1,    0,    0,    0,    0,    15,   17,   0,    20 },
-/*  true  */ { 2,    0,    0,    0,    0,    15,   17,   0,    20 },
-/* false  */ { 3,    0,    0,    0,    0,    15,   17,   0,    20 },
-/* string */ { 4,    8,    10,   0,    13,   15,   17,   0,    20 },
-/* number */ { 5,    0,    0,    0,    0,    15,   17,   0,    20 },
-/*  NaN   */ { 5,    0,    0,    0,    0,    15,   17,   0,    20 },
-/*  Inf   */ { 5,    0,    0,    0,    0,    15,   17,   0,    20 },
-/* -Inf   */ { 5,    0,    0,    0,    0,    15,   17,   0,    20 },
-/*   {    */ { 6,    0,    0,    0,    0,    15,   17,   0,    20 },
-/*   }    */ { 0,    9,    0,    12,   14,   0,    0,    0,    0  },
-/*   [    */ { 7,    0,    0,    0,    0,    15,   17,   0,    20 },
-/*   ]    */ { 0,    0,    0,    0,    0,    16,   0,    19,   21 },
-/*   :    */ { 0,    0,    0,    0,    0,    0,    0,    0,    0  },
-/*   ,    */ { 0,    0,    0,    11,   0,    0,    0,    18,   0  }
-};
-
-static JSON_Status ProcessToken(JSON_Parser parser)
+static JSON_Status JSON_Parser_ProcessToken(JSON_Parser parser)
 {
     /* Comment tokens are simply ignored whenever they are encountered. */
     if (parser->token != TOKEN_COMMENT)
     {
-        int processTopSymbol;
-
-        /* If the stack is empty, no more tokens were expected. */
-        if (parser->symbolStackUsed == 0)
+        GrammarianOutput output;
+        output = Grammarian_ProcessToken(&parser->grammarianData, parser->token, &parser->memorySuite);
+        switch (GRAMMARIAN_RESULT_CODE(output))
         {
-            SetErrorAtToken(parser, JSON_Error_UnexpectedToken);
-            return JSON_Failure;
-        }
-
-        do
-        {
-            Symbol topSymbol = (Symbol)parser->pSymbolStack[parser->symbolStackUsed - 1];
-            Symbol symbolsToPush[2];
-            size_t numberOfSymbolsToPush = 0;
-            processTopSymbol = 0;
-            if (IS_TOKEN(topSymbol))
-            {
-                if (parser->token != topSymbol)
-                {
-                    SetErrorAtToken(parser, JSON_Error_UnexpectedToken);
-                    return JSON_Failure;
-                }
-            }
-            else
-            {
-                switch (productions[parser->token][BOTTOM_4_BITS(topSymbol)])
-                {
-                case 1: /* VALUE => null */
-                    if (!CallSimpleHandler(parser, parser->nullHandler))
-                    {
-                        return JSON_Failure;
-                    }
-                    break;
-
-                case 2: /* VALUE => true */
-                case 3: /* VALUE => false */
-                    if (!CallBooleanHandler(parser))
-                    {
-                        return JSON_Failure;
-                    }
-                    break;
-
-                case 4: /* VALUE => string */
-                    if (!CallStringHandler(parser))
-                    {
-                        return JSON_Failure;
-                    }
-                    break;
-
-                case 5: /* VALUE => number */
-                    if (parser->token == TOKEN_NUMBER)
-                    {
-                        if (!CallNumberHandler(parser))
-                        {
-                            return JSON_Failure;
-                        }
-                    }
-                    else
-                    {
-                        if (!CallSpecialNumberHandler(parser))
-                        {
-                            return JSON_Failure;
-                        }
-                    }
-                    break;
-
-                case 6: /* VALUE => { MEMBERS } */
-                    if (!CallSimpleHandler(parser, parser->startObjectHandler) ||
-                        !StartContainer(parser, 1/*isObject*/))
-                    {
-                        return JSON_Failure;
-                    }
-                    symbolsToPush[0] = TOKEN_RIGHT_CURLY;
-                    symbolsToPush[1] = NT_MEMBERS;
-                    numberOfSymbolsToPush = 2;
-                    break;
-
-                case 7: /* VALUE => [ ITEMS ] */
-                    if (!CallSimpleHandler(parser, parser->startArrayHandler) ||
-                        !StartContainer(parser, 0/*isObject*/))
-                    {
-                        return JSON_Failure;
-                    }
-                    symbolsToPush[0] = TOKEN_RIGHT_SQUARE;
-                    symbolsToPush[1] = NT_ITEMS;
-                    numberOfSymbolsToPush = 2;
-                    break;
-
-                case 8:  /* MEMBERS => MEMBER MORE_MEMBERS */
-                case 13: /* MEMBERS_AFTER_COMMA => MEMBER MORE_MEMBERS */
-                    symbolsToPush[0] = NT_MORE_MEMBERS;
-                    symbolsToPush[1] = NT_MEMBER;
-                    numberOfSymbolsToPush = 2;
-                    processTopSymbol = 1;
-                    break;
-
-                case 14: /* MEMBERS_AFTER_COMMA => e (only if AllowTrailingCommas is enabled) */
-                    if (parser->parserStatus & PARSER_ALLOW_TRAILING_COMMAS)
-                    {
-                        /* fallthrough */
-                    }
-                    else
-                    {
-                        SetErrorAtToken(parser, JSON_Error_UnexpectedToken);
-                        return JSON_Failure;
-                    }
-                case 9:  /* MEMBERS => e */
-                case 12: /* MORE_MEMBERS => e */
-                    EndContainer(parser, 1/*isObject*/);
-                    if (!CallSimpleHandler(parser, parser->endObjectHandler))
-                    {
-                        return JSON_Failure;
-                    }
-                    processTopSymbol = 1;
-                    break;
-
-                case 10: /* MEMBER => string : VALUE */
-                    if (!AddMemberNameToList(parser) || /* will fail if member is duplicate */
-                        !CallObjectMemberHandler(parser))
-                    {
-                        return JSON_Failure;
-                    }
-                    symbolsToPush[0] = NT_VALUE;
-                    symbolsToPush[1] = TOKEN_COLON;
-                    numberOfSymbolsToPush = 2;
-                    break;
-
-                case 11: /* MORE_MEMBERS => , MEMBERS_AFTER_COMMA */
-                    symbolsToPush[0] = NT_MEMBERS_AFTER_COMMA;
-                    numberOfSymbolsToPush = 1;
-                    break;
-
-                case 15: /* ITEMS => ITEM MORE_ITEMS */
-                case 20: /* ITEMS_AFTER_COMMA => ITEM MORE_ITEMS */
-                    symbolsToPush[0] = NT_MORE_ITEMS;
-                    symbolsToPush[1] = NT_ITEM;
-                    numberOfSymbolsToPush = 2;
-                    processTopSymbol = 1;
-                    break;
-
-                case 21: /* ITEMS_AFTER_COMMA => e (only if AllowTrailingCommas is enabled) */
-                    if (parser->parserStatus & PARSER_ALLOW_TRAILING_COMMAS)
-                    {
-                        /* fallthrough */
-                    }
-                    else
-                    {
-                        SetErrorAtToken(parser, JSON_Error_UnexpectedToken);
-                        return JSON_Failure;
-                    }
-                case 16: /* ITEMS => e */
-                case 19: /* MORE_ITEMS => e */
-                    EndContainer(parser, 0/*isObject*/);
-                    if (!CallSimpleHandler(parser, parser->endArrayHandler))
-                    {
-                        return JSON_Failure;
-                    }
-                    processTopSymbol = 1;
-                    break;
-
-                case 17: /* ITEM => VALUE */
-                    if (!CallArrayItemHandler(parser))
-                    {
-                        return JSON_Failure;
-                    }
-                    symbolsToPush[0] = NT_VALUE;
-                    numberOfSymbolsToPush = 1;
-                    processTopSymbol = 1;
-                    break;
-
-                case 18: /* MORE_ITEMS => , ITEMS_AFTER_COMMA */
-                    symbolsToPush[0] = NT_ITEMS_AFTER_COMMA;
-                    numberOfSymbolsToPush = 1;
-                    break;
-
-                default: /* no production */
-                    SetErrorAtToken(parser, JSON_Error_UnexpectedToken);
-                    return JSON_Failure;
-                }
-            }
-            if (!ReplaceTopSymbol(parser, symbolsToPush, numberOfSymbolsToPush))
+        case ACCEPTED_TOKEN:
+            if (!JSON_Parser_HandleGrammarEvents(parser, GRAMMARIAN_EVENT(output)))
             {
                 return JSON_Failure;
             }
-        } while (processTopSymbol);
+            break;
+
+        case REJECTED_TOKEN:
+            JSON_Parser_SetErrorAtToken(parser, JSON_Error_UnexpectedToken);
+            return JSON_Failure;
+
+        case SYMBOL_STACK_FULL:
+            JSON_Parser_SetErrorAtCodepoint(parser, JSON_Error_OutOfMemory);
+            return JSON_Failure;
+        }
         parser->previousToken = parser->token;
     }
 
@@ -1764,7 +1866,7 @@ static const unsigned char expectedLiteralChars[] = { 'u', 'l', 'l', 0, 'r', 'u'
 #define NAN_LITERAL_EXPECTED_CHARS_START_INDEX      13
 #define INFINITY_LITERAL_EXPECTED_CHARS_START_INDEX 16
 
-static void StartToken(JSON_Parser parser, Symbol token)
+static void JSON_Parser_StartToken(JSON_Parser parser, Symbol token)
 {
     parser->token = token;
     parser->tokenLocationByte = parser->codepointLocationByte;
@@ -1772,7 +1874,7 @@ static void StartToken(JSON_Parser parser, Symbol token)
     parser->tokenLocationColumn = parser->codepointLocationColumn;
 }
 
-static JSON_Status ProcessCodepoint(JSON_Parser parser, JSON_UInt32 c, size_t encodedLength)
+static JSON_Status JSON_Parser_ProcessCodepoint(JSON_Parser parser, JSON_UInt32 c, size_t encodedLength)
 {
     JSON_UInt32 codepointToOutput = EOF_CODEPOINT;
     int tokenFinished = 0;
@@ -1796,72 +1898,72 @@ reprocess:
     case LEXER_IDLE:
         if (c == '{')
         {
-            StartToken(parser, TOKEN_LEFT_CURLY);
+            JSON_Parser_StartToken(parser, TOKEN_LEFT_CURLY);
             tokenFinished = 1;
         }
         else if (c == '}')
         {
-            StartToken(parser, TOKEN_RIGHT_CURLY);
+            JSON_Parser_StartToken(parser, TOKEN_RIGHT_CURLY);
             tokenFinished = 1;
         }
         else if (c == '[')
         {
-            StartToken(parser, TOKEN_LEFT_SQUARE);
+            JSON_Parser_StartToken(parser, TOKEN_LEFT_SQUARE);
             tokenFinished = 1;
         }
         else if (c == ']')
         {
-            StartToken(parser, TOKEN_RIGHT_SQUARE);
+            JSON_Parser_StartToken(parser, TOKEN_RIGHT_SQUARE);
             tokenFinished = 1;
         }
         else if (c == ':')
         {
-            StartToken(parser, TOKEN_COLON);
+            JSON_Parser_StartToken(parser, TOKEN_COLON);
             tokenFinished = 1;
         }
         else if (c == ',')
         {
-            StartToken(parser, TOKEN_COMMA);
+            JSON_Parser_StartToken(parser, TOKEN_COMMA);
             tokenFinished = 1;
         }
         else if (c == 'n')
         {
-            StartToken(parser, TOKEN_NULL);
+            JSON_Parser_StartToken(parser, TOKEN_NULL);
             parser->lexerBits = NULL_LITERAL_EXPECTED_CHARS_START_INDEX;
             parser->lexerState = LEXER_IN_LITERAL;
         }
         else if (c == 't')
         {
-            StartToken(parser, TOKEN_TRUE);
+            JSON_Parser_StartToken(parser, TOKEN_TRUE);
             parser->lexerBits = TRUE_LITERAL_EXPECTED_CHARS_START_INDEX;
             parser->lexerState = LEXER_IN_LITERAL;
         }
         else if (c == 'f')
         {
-            StartToken(parser, TOKEN_FALSE);
+            JSON_Parser_StartToken(parser, TOKEN_FALSE);
             parser->lexerBits = FALSE_LITERAL_EXPECTED_CHARS_START_INDEX;
             parser->lexerState = LEXER_IN_LITERAL;
         }
         else if (c == '"')
         {
-            StartToken(parser, TOKEN_STRING);
+            JSON_Parser_StartToken(parser, TOKEN_STRING);
             parser->lexerState = LEXER_IN_STRING;
         }
         else if (c == '-')
         {
-            StartToken(parser, TOKEN_NUMBER);
+            JSON_Parser_StartToken(parser, TOKEN_NUMBER);
             codepointToOutput = '-';
             parser->lexerState = LEXER_IN_NUMBER_AFTER_MINUS;
         }
         else if (c == '0')
         {
-            StartToken(parser, TOKEN_NUMBER);
+            JSON_Parser_StartToken(parser, TOKEN_NUMBER);
             codepointToOutput = '0';
             parser->lexerState = LEXER_IN_NUMBER_AFTER_LEADING_ZERO;
         }
         else if (c >= '1' && c <= '9')
         {
-            StartToken(parser, TOKEN_NUMBER);
+            JSON_Parser_StartToken(parser, TOKEN_NUMBER);
             codepointToOutput = c;
             parser->lexerState = LEXER_IN_NUMBER_DECIMAL_DIGITS;
         }
@@ -1878,30 +1980,30 @@ reprocess:
             }
             else
             {
-                SetErrorAtCodepoint(parser, JSON_Error_BOMNotAllowed);
+                JSON_Parser_SetErrorAtCodepoint(parser, JSON_Error_BOMNotAllowed);
                 return JSON_Failure;
             }
         }
         else if (c == '/' && (parser->parserStatus & PARSER_ALLOW_COMMENTS))
         {
-            StartToken(parser, TOKEN_COMMENT);
+            JSON_Parser_StartToken(parser, TOKEN_COMMENT);
             parser->lexerState = LEXER_IN_COMMENT_AFTER_SLASH;
         }
         else if (c == 'N' && (parser->parserStatus & PARSER_ALLOW_SPECIAL_NUMBERS))
         {
-            StartToken(parser, TOKEN_NAN);
+            JSON_Parser_StartToken(parser, TOKEN_NAN);
             parser->lexerBits = NAN_LITERAL_EXPECTED_CHARS_START_INDEX;
             parser->lexerState = LEXER_IN_LITERAL;
         }
         else if (c == 'I' && (parser->parserStatus & PARSER_ALLOW_SPECIAL_NUMBERS))
         {
-            StartToken(parser, TOKEN_INFINITY);
+            JSON_Parser_StartToken(parser, TOKEN_INFINITY);
             parser->lexerBits = INFINITY_LITERAL_EXPECTED_CHARS_START_INDEX;
             parser->lexerState = LEXER_IN_LITERAL;
         }
         else
         {
-            SetErrorAtCodepoint(parser, JSON_Error_UnknownToken);
+            JSON_Parser_SetErrorAtCodepoint(parser, JSON_Error_UnknownToken);
             return JSON_Failure;
         }
         break;
@@ -1914,7 +2016,7 @@ reprocess:
             /* The codepoint should match the next character in the literal. */
             if (c != expectedLiteralChars[parser->lexerBits])
             {
-                SetErrorAtToken(parser, JSON_Error_UnknownToken);
+                JSON_Parser_SetErrorAtToken(parser, JSON_Error_UnknownToken);
                 return JSON_Failure;
             }
             parser->lexerBits++;
@@ -1929,10 +2031,10 @@ reprocess:
                 (c >= '0' && c <= '9') ||
                 (c == '_'))
             {
-                SetErrorAtToken(parser, JSON_Error_UnknownToken);
+                JSON_Parser_SetErrorAtToken(parser, JSON_Error_UnknownToken);
                 return JSON_Failure;
             }
-            if (!ProcessToken(parser))
+            if (!JSON_Parser_ProcessToken(parser))
             {
                 return JSON_Failure;
             }
@@ -1943,7 +2045,7 @@ reprocess:
     case LEXER_IN_STRING:
         if (c == EOF_CODEPOINT)
         {
-            /* FlushLexer() will trigger the appropriate error. */
+            /* JSON_Parser_FlushLexer() will fail. */
         }
         else if (c == '"')
         {
@@ -1957,7 +2059,7 @@ reprocess:
         {
             /* ASCII control characters (U+0000 - U+001F) are not allowed to
                appear unescaped in string values. */
-            SetErrorAtCodepoint(parser, JSON_Error_UnescapedControlCharacter);
+            JSON_Parser_SetErrorAtCodepoint(parser, JSON_Error_UnescapedControlCharacter);
             return JSON_Failure;
         }
         else
@@ -1969,7 +2071,7 @@ reprocess:
     case LEXER_IN_STRING_ESCAPE:
         if (c == EOF_CODEPOINT)
         {
-            /* FlushLexer() will trigger the appropriate error. */
+            /* JSON_Parser_FlushLexer() will fail. */
         }
         else
         {
@@ -2009,7 +2111,7 @@ reprocess:
                        the backslash that started the escape sequence. The error
                        location should be the beginning of the escape sequence, 1
                        character earlier. */
-                    SetErrorAtStringEscapeSequenceStart(parser, JSON_Error_InvalidEscapeSequence, 1);
+                    JSON_Parser_SetErrorAtStringEscapeSequenceStart(parser, JSON_Error_InvalidEscapeSequence, 1);
                     return JSON_Failure;
                 }
                 parser->lexerState = LEXER_IN_STRING;
@@ -2027,7 +2129,7 @@ reprocess:
     case LEXER_IN_STRING_HEX_ESCAPE_BYTE_8:
         if (c == EOF_CODEPOINT)
         {
-            /* FlushLexer() will trigger the appropriate error. */
+            /* JSON_Parser_FlushLexer() will fail. */
         }
         else
         {
@@ -2057,7 +2159,7 @@ reprocess:
                    location should be the beginning of the hex escape
                    sequence, between 2 and 5 bytes earlier. */
                 unsigned char codepointsAgo = 2 /* for "\u" */ + (unsigned char)byteNumber;
-                SetErrorAtStringEscapeSequenceStart(parser, JSON_Error_InvalidEscapeSequence, codepointsAgo);
+                JSON_Parser_SetErrorAtStringEscapeSequenceStart(parser, JSON_Error_InvalidEscapeSequence, codepointsAgo);
                 return JSON_Failure;
             }
             /* Store the hex digit's bits in the appropriate byte of lexerBits. */
@@ -2085,7 +2187,7 @@ reprocess:
                        of the hex escape sequence. The error location should
                        be the beginning of the hex escape sequence, 5
                        characters earlier. */
-                    SetErrorAtStringEscapeSequenceStart(parser, JSON_Error_UnpairedSurrogateEscapeSequence, 5);
+                    JSON_Parser_SetErrorAtStringEscapeSequenceStart(parser, JSON_Error_UnpairedSurrogateEscapeSequence, 5);
                     return JSON_Failure;
                 }
                 else
@@ -2108,7 +2210,7 @@ reprocess:
                        the second hex escape sequence. The error location
                        should be the beginning of the leading surrogate
                        hex escape sequence, 11 characters earlier. */
-                    SetErrorAtStringEscapeSequenceStart(parser, JSON_Error_UnpairedSurrogateEscapeSequence, 11);
+                    JSON_Parser_SetErrorAtStringEscapeSequenceStart(parser, JSON_Error_UnpairedSurrogateEscapeSequence, 11);
                     return JSON_Failure;
                 }
                 /* The escape sequence represents a non-BMP codepoint. */
@@ -2126,7 +2228,7 @@ reprocess:
     case LEXER_IN_STRING_TRAILING_SURROGATE_HEX_ESCAPE_BACKSLASH:
         if (c == EOF_CODEPOINT)
         {
-            /* FlushLexer() will trigger the appropriate error. */
+            /* JSON_Parser_FlushLexer() will fail. */
         }
         else
         {
@@ -2136,7 +2238,7 @@ reprocess:
                    the leading surrogate hex escape sequence. The error
                    location should be the beginning of the leading surrogate
                    hex escape sequence, 6 characters earlier. */
-                SetErrorAtStringEscapeSequenceStart(parser, JSON_Error_UnpairedSurrogateEscapeSequence, 6);
+                JSON_Parser_SetErrorAtStringEscapeSequenceStart(parser, JSON_Error_UnpairedSurrogateEscapeSequence, 6);
                 return JSON_Failure;
             }
             parser->lexerState = LEXER_IN_STRING_TRAILING_SURROGATE_HEX_ESCAPE_U;
@@ -2146,7 +2248,7 @@ reprocess:
     case LEXER_IN_STRING_TRAILING_SURROGATE_HEX_ESCAPE_U:
         if (c == EOF_CODEPOINT)
         {
-            /* FlushLexer() will trigger the appropriate error. */
+            /* JSON_Parser_FlushLexer() will fail. */
         }
         else
         {
@@ -2164,13 +2266,13 @@ reprocess:
                     /* The error location should be at that beginning of the
                        leading surrogate's hex escape sequence, 7 characters
                        earlier. */
-                    SetErrorAtStringEscapeSequenceStart(parser, JSON_Error_UnpairedSurrogateEscapeSequence, 7);
+                    JSON_Parser_SetErrorAtStringEscapeSequenceStart(parser, JSON_Error_UnpairedSurrogateEscapeSequence, 7);
                 }
                 else
                 {
                     /* The error location should be at that backslash, 1
                        character earlier. */
-                    SetErrorAtStringEscapeSequenceStart(parser, JSON_Error_InvalidEscapeSequence, 1);
+                    JSON_Parser_SetErrorAtStringEscapeSequenceStart(parser, JSON_Error_InvalidEscapeSequence, 1);
                 }
                 return JSON_Failure;
             }
@@ -2181,7 +2283,7 @@ reprocess:
     case LEXER_IN_NUMBER_AFTER_MINUS:
         if (c == EOF_CODEPOINT)
         {
-            /* FlushLexer() will trigger the appropriate error. */
+            /* JSON_Parser_FlushLexer() will fail. */
         }
         else if (c == 'I' && (parser->parserStatus & PARSER_ALLOW_SPECIAL_NUMBERS))
         {
@@ -2205,7 +2307,7 @@ reprocess:
             {
                 /* We trigger an unknown token error rather than an invalid number
                    error so that "Foo" and "-Foo" trigger the same error. */
-                SetErrorAtToken(parser, JSON_Error_UnknownToken);
+                JSON_Parser_SetErrorAtToken(parser, JSON_Error_UnknownToken);
                 return JSON_Failure;
             }
         }
@@ -2227,7 +2329,7 @@ reprocess:
         }
         else if (c >= '0' && c <= '9')
         {
-            SetErrorAtToken(parser, JSON_Error_InvalidNumber);
+            JSON_Parser_SetErrorAtToken(parser, JSON_Error_InvalidNumber);
             return JSON_Failure;
         }
         else if ((c == 'x' || c == 'X') && (parser->pOutputBuffer[0] != '-') &&
@@ -2239,7 +2341,7 @@ reprocess:
         else
         {
             /* The number is finished. */
-            if (!ProcessToken(parser))
+            if (!JSON_Parser_ProcessToken(parser))
             {
                 return JSON_Failure;
             }
@@ -2250,7 +2352,7 @@ reprocess:
     case LEXER_IN_NUMBER_AFTER_X:
         if (c == EOF_CODEPOINT)
         {
-            /* FlushLexer() will trigger the appropriate error. */
+            /* JSON_Parser_FlushLexer() will fail. */
         }
         else if ((c >= '0' && c <= '9') || (c >= 'A' && c <= 'F') || (c >= 'a' && c <= 'f'))
         {
@@ -2259,7 +2361,7 @@ reprocess:
         }
         else
         {
-            SetErrorAtToken(parser, JSON_Error_InvalidNumber);
+            JSON_Parser_SetErrorAtToken(parser, JSON_Error_InvalidNumber);
             return JSON_Failure;
         }
         break;
@@ -2272,7 +2374,7 @@ reprocess:
         else
         {
             /* The number is finished. */
-            if (!ProcessToken(parser))
+            if (!JSON_Parser_ProcessToken(parser))
             {
                 return JSON_Failure;
             }
@@ -2301,7 +2403,7 @@ reprocess:
         else
         {
             /* The number is finished. */
-            if (!ProcessToken(parser))
+            if (!JSON_Parser_ProcessToken(parser))
             {
                 return JSON_Failure;
             }
@@ -2312,7 +2414,7 @@ reprocess:
     case LEXER_IN_NUMBER_AFTER_DOT:
         if (c == EOF_CODEPOINT)
         {
-            /* FlushLexer() will trigger the appropriate error. */
+            /* JSON_Parser_FlushLexer() will fail. */
         }
         else if (c >= '0' && c <= '9')
         {
@@ -2321,7 +2423,7 @@ reprocess:
         }
         else
         {
-            SetErrorAtToken(parser, JSON_Error_InvalidNumber);
+            JSON_Parser_SetErrorAtToken(parser, JSON_Error_InvalidNumber);
             return JSON_Failure;
         }
         break;
@@ -2339,7 +2441,7 @@ reprocess:
         else
         {
             /* The number is finished. */
-            if (!ProcessToken(parser))
+            if (!JSON_Parser_ProcessToken(parser))
             {
                 return JSON_Failure;
             }
@@ -2350,7 +2452,7 @@ reprocess:
     case LEXER_IN_NUMBER_AFTER_E:
         if (c == EOF_CODEPOINT)
         {
-            /* FlushLexer() will trigger the appropriate error. */
+            /* JSON_Parser_FlushLexer() will fail. */
         }
         else if (c == '+')
         {
@@ -2369,7 +2471,7 @@ reprocess:
         }
         else
         {
-            SetErrorAtToken(parser, JSON_Error_InvalidNumber);
+            JSON_Parser_SetErrorAtToken(parser, JSON_Error_InvalidNumber);
             return JSON_Failure;
         }
         break;
@@ -2377,7 +2479,7 @@ reprocess:
     case LEXER_IN_NUMBER_AFTER_EXPONENT_SIGN:
         if (c == EOF_CODEPOINT)
         {
-            /* FlushLexer() will trigger the appropriate error. */
+            /* JSON_Parser_FlushLexer() will fail. */
         }
         else if (c >= '0' && c <= '9')
         {
@@ -2386,7 +2488,7 @@ reprocess:
         }
         else
         {
-            SetErrorAtToken(parser, JSON_Error_InvalidNumber);
+            JSON_Parser_SetErrorAtToken(parser, JSON_Error_InvalidNumber);
             return JSON_Failure;
         }
         break;
@@ -2399,7 +2501,7 @@ reprocess:
         else
         {
             /* The number is finished. */
-            if (!ProcessToken(parser))
+            if (!JSON_Parser_ProcessToken(parser))
             {
                 return JSON_Failure;
             }
@@ -2418,7 +2520,7 @@ reprocess:
         }
         else
         {
-            SetErrorAtToken(parser, JSON_Error_UnknownToken);
+            JSON_Parser_SetErrorAtToken(parser, JSON_Error_UnknownToken);
             return JSON_Failure;
         }
         break;
@@ -2455,18 +2557,18 @@ reprocess:
            encoded in ASCII. */
         if (parser->token == TOKEN_NUMBER)
         {
-            if (!OutputNumberCharacter(parser, (unsigned char)codepointToOutput))
+            if (!JSON_Parser_OutputNumberCharacter(parser, (unsigned char)codepointToOutput))
             {
                 return JSON_Failure;
             }
         }
-        else if (!OutputStringCodepoint(parser, codepointToOutput))
+        else if (!JSON_Parser_OutputStringCodepoint(parser, codepointToOutput))
         {
             return JSON_Failure;
         }
     }
 
-    if (tokenFinished && !ProcessToken(parser))
+    if (tokenFinished && !JSON_Parser_ProcessToken(parser))
     {
         return JSON_Failure;
     }
@@ -2498,13 +2600,13 @@ reprocess:
     return JSON_Success;
 }
 
-static JSON_Status FlushLexer(JSON_Parser parser)
+static JSON_Status JSON_Parser_FlushLexer(JSON_Parser parser)
 {
     /* Push the EOF codepoint to the lexer so that it can finish the pending
        token, if any. The EOF codepoint is never emitted by the decoder
        itself, since it is outside the Unicode range and therefore cannot
        be encoded in any of the possible input encodings. */
-    if (!ProcessCodepoint(parser, EOF_CODEPOINT, 0))
+    if (!JSON_Parser_ProcessCodepoint(parser, EOF_CODEPOINT, 0))
     {
         return JSON_Failure;
     }
@@ -2512,7 +2614,7 @@ static JSON_Status FlushLexer(JSON_Parser parser)
     /* The lexer should be idle when parsing finishes. */
     if (parser->lexerState != LEXER_IDLE)
     {
-        SetErrorAtToken(parser, JSON_Error_IncompleteToken);
+        JSON_Parser_SetErrorAtToken(parser, JSON_Error_IncompleteToken);
         return JSON_Failure;
     }
     return JSON_Success;
@@ -2521,35 +2623,35 @@ static JSON_Status FlushLexer(JSON_Parser parser)
 /* Parser's decoder functions. */
 
 /* Forward declaration. */
-static JSON_Status ProcessInputBytes(JSON_Parser parser, const unsigned char* pBytes, size_t length);
+static JSON_Status JSON_Parser_ProcessInputBytes(JSON_Parser parser, const unsigned char* pBytes, size_t length);
 
-static JSON_Status ProcessUnknownByte(JSON_Parser parser, unsigned char b)
+static JSON_Status JSON_Parser_ProcessUnknownByte(JSON_Parser parser, unsigned char b)
 {
     /* When the input encoding is unknown, the first 4 bytes of input are
        recorded in decoder.bits. */
 
     unsigned char bytes[4];
-    switch (parser->decoder.state)
+    switch (parser->decoderData.state)
     {
     case DECODER_RESET:
-        parser->decoder.state = DECODER_PROCESSED_1_OF_4;
-        parser->decoder.bits = b << 24;
+        parser->decoderData.state = DECODED_1_OF_4;
+        parser->decoderData.bits = b << 24;
         break;
 
-    case DECODER_PROCESSED_1_OF_4:
-        parser->decoder.state = DECODER_PROCESSED_2_OF_4;
-        parser->decoder.bits |= b << 16;
+    case DECODED_1_OF_4:
+        parser->decoderData.state = DECODED_2_OF_4;
+        parser->decoderData.bits |= b << 16;
         break;
 
-    case DECODER_PROCESSED_2_OF_4:
-        parser->decoder.state = DECODER_PROCESSED_3_OF_4;
-        parser->decoder.bits |= b << 8;
+    case DECODED_2_OF_4:
+        parser->decoderData.state = DECODED_3_OF_4;
+        parser->decoderData.bits |= b << 8;
         break;
 
-    case DECODER_PROCESSED_3_OF_4:
-        bytes[0] = parser->decoder.bits >> 24;
-        bytes[1] = parser->decoder.bits >> 16;
-        bytes[2] = parser->decoder.bits >> 8;
+    case DECODED_3_OF_4:
+        bytes[0] = parser->decoderData.bits >> 24;
+        bytes[1] = parser->decoderData.bits >> 16;
+        bytes[2] = parser->decoderData.bits >> 8;
         bytes[3] = b;
 
         /* We try to match the following patterns in order, where .. is any
@@ -2627,26 +2729,26 @@ static JSON_Status ProcessUnknownByte(JSON_Parser parser, unsigned char b)
 
         if (parser->inputEncoding == JSON_UnknownEncoding)
         {
-            SetErrorAtCodepoint(parser, JSON_Error_InvalidEncodingSequence);
+            JSON_Parser_SetErrorAtCodepoint(parser, JSON_Error_InvalidEncodingSequence);
             return JSON_Failure;
         }
 
         /* Reset the decoder before reprocessing the bytes. */
-        ResetDecoder(&parser->decoder);
-        return ProcessInputBytes(parser, bytes, 4);
+        Decoder_Reset(&parser->decoderData);
+        return JSON_Parser_ProcessInputBytes(parser, bytes, 4);
     }
 
     /* We don't have 4 bytes yet. */
     return JSON_Success;
 }
 
-JSON_Status ProcessInputBytes(JSON_Parser parser, const unsigned char* pBytes, size_t length)
+JSON_Status JSON_Parser_ProcessInputBytes(JSON_Parser parser, const unsigned char* pBytes, size_t length)
 {
     /* Note that if length is 0, pBytes is allowed to be NULL. */
     size_t i = 0;
     while (parser->inputEncoding == JSON_UnknownEncoding && i < length)
     {
-        if (!ProcessUnknownByte(parser, pBytes[i]))
+        if (!JSON_Parser_ProcessUnknownByte(parser, pBytes[i]))
         {
             return JSON_Failure;
         }
@@ -2654,7 +2756,7 @@ JSON_Status ProcessInputBytes(JSON_Parser parser, const unsigned char* pBytes, s
     }
     while (i < length)
     {
-        DecoderOutput output = DecodeByte(&parser->decoder, parser->inputEncoding, pBytes[i]);
+        DecoderOutput output = Decoder_DecodeByte(&parser->decoderData, parser->inputEncoding, pBytes[i]);
         DecoderResultCode result = DECODER_RESULT_CODE(output);
         switch (result)
         {
@@ -2662,7 +2764,7 @@ JSON_Status ProcessInputBytes(JSON_Parser parser, const unsigned char* pBytes, s
             break;
 
         case SEQUENCE_COMPLETE:
-            if (!ProcessCodepoint(parser, DECODER_CODEPOINT(output), DECODER_SEQUENCE_LENGTH(output)))
+            if (!JSON_Parser_ProcessCodepoint(parser, DECODER_CODEPOINT(output), DECODER_SEQUENCE_LENGTH(output)))
             {
                 return JSON_Failure;
             }
@@ -2681,7 +2783,7 @@ JSON_Status ProcessInputBytes(JSON_Parser parser, const unsigned char* pBytes, s
                        the string attributes actually get passed to a handler. */
                     parser->outputAttributes |= JSON_ContainsReplacedCharacter;
                 }
-                if (!ProcessCodepoint(parser, REPLACEMENT_CHARACTER_CODEPOINT, DECODER_SEQUENCE_LENGTH(output)))
+                if (!JSON_Parser_ProcessCodepoint(parser, REPLACEMENT_CHARACTER_CODEPOINT, DECODER_SEQUENCE_LENGTH(output)))
                 {
                     return JSON_Failure;
                 }
@@ -2692,7 +2794,7 @@ JSON_Status ProcessInputBytes(JSON_Parser parser, const unsigned char* pBytes, s
             }
             else
             {
-                SetErrorAtCodepoint(parser, JSON_Error_InvalidEncodingSequence);
+                JSON_Parser_SetErrorAtCodepoint(parser, JSON_Error_InvalidEncodingSequence);
                 return JSON_Failure;
             }
             break;
@@ -2702,7 +2804,7 @@ JSON_Status ProcessInputBytes(JSON_Parser parser, const unsigned char* pBytes, s
     return JSON_Success;
 }
 
-static JSON_Status FlushDecoder(JSON_Parser parser)
+static JSON_Status JSON_Parser_FlushDecoder(JSON_Parser parser)
 {
     /* If the input was 1, 2, or 3 bytes long, and the input encoding was not
        explicitly specified by the client, we can sometimes make a reasonable
@@ -2717,21 +2819,21 @@ static JSON_Status FlushDecoder(JSON_Parser parser)
          00 nz => UTF-16BE
          .. .. => unknown encoding */
     if (parser->inputEncoding == JSON_UnknownEncoding &&
-        parser->decoder.state != DECODER_RESET)
+        parser->decoderData.state != DECODER_RESET)
     {
         unsigned char bytes[3];
         size_t length = 0;
-        bytes[0] = parser->decoder.bits >> 24;
-        bytes[1] = parser->decoder.bits >> 16;
-        bytes[2] = parser->decoder.bits >> 8;
-        switch (parser->decoder.state)
+        bytes[0] = parser->decoderData.bits >> 24;
+        bytes[1] = parser->decoderData.bits >> 16;
+        bytes[2] = parser->decoderData.bits >> 8;
+        switch (parser->decoderData.state)
         {
-        case DECODER_PROCESSED_1_OF_4:
+        case DECODED_1_OF_4:
             parser->inputEncoding = JSON_UTF8;
             length = 1;
             break;
 
-        case DECODER_PROCESSED_2_OF_4:
+        case DECODED_2_OF_4:
             if (bytes[0] == 0xFF && bytes[1] == 0xFE)
             {
                 /* FF FE */
@@ -2755,42 +2857,42 @@ static JSON_Status FlushDecoder(JSON_Parser parser)
             }
             else
             {
-                SetErrorAtCodepoint(parser, JSON_Error_InvalidEncodingSequence);
+                JSON_Parser_SetErrorAtCodepoint(parser, JSON_Error_InvalidEncodingSequence);
                 return JSON_Failure;
             }
             length = 2;
             break;
 
-        case DECODER_PROCESSED_3_OF_4:
+        case DECODED_3_OF_4:
             parser->inputEncoding = JSON_UTF8;
             length = 3;
             break;
         }
 
         /* Reset the decoder before reprocessing the bytes. */
-        parser->decoder.state = DECODER_RESET;
-        parser->decoder.bits = 0;
-        if (!ProcessInputBytes(parser, bytes, length))
+        parser->decoderData.state = DECODER_RESET;
+        parser->decoderData.bits = 0;
+        if (!JSON_Parser_ProcessInputBytes(parser, bytes, length))
         {
             return JSON_Failure;
         }
     }
 
     /* The decoder should be idle when parsing finishes. */
-    if (parser->decoder.state != DECODER_RESET)
+    if (parser->decoderData.state != DECODER_RESET)
     {
-        SetErrorAtCodepoint(parser, JSON_Error_InvalidEncodingSequence);
+        JSON_Parser_SetErrorAtCodepoint(parser, JSON_Error_InvalidEncodingSequence);
         return JSON_Failure;
     }
     return JSON_Success;
 }
 
-/* Library API functions. */
+/* Parser API functions. */
 
-JSON_Parser JSON_CALL JSON_Parser_Create(const JSON_Parser_MemorySuite* pMemorySuite)
+JSON_Parser JSON_CALL JSON_Parser_Create(const JSON_MemorySuite* pMemorySuite)
 {
     JSON_Parser parser;
-    JSON_Parser_MemorySuite memorySuite;
+    JSON_MemorySuite memorySuite;
     if (pMemorySuite)
     {
         memorySuite = *pMemorySuite;
@@ -2802,77 +2904,47 @@ JSON_Parser JSON_CALL JSON_Parser_Create(const JSON_Parser_MemorySuite* pMemoryS
     }
     else
     {
-        memorySuite.malloc = &DefaultMallocHandler;
-        memorySuite.realloc = &DefaultReallocHandler;
-        memorySuite.free = &DefaultFreeHandler;
+        memorySuite = defaultMemorySuite;
     }
-    parser = (JSON_Parser)memorySuite.malloc(NULL, sizeof(struct JSON_Parser_Data));
+    parser = (JSON_Parser)memorySuite.malloc(memorySuite.userData, sizeof(struct JSON_Parser_Data));
     if (!parser)
     {
         return NULL;
     }
     parser->memorySuite = memorySuite;
-    ResetParserData(parser, 0/* isInitialized */);
+    JSON_Parser_ResetData(parser, 0/* isInitialized */);
     return parser;
 }
 
 JSON_Status JSON_CALL JSON_Parser_Free(JSON_Parser parser)
 {
-    if (!parser || (parser->parserStatus & PARSER_IN_HANDLER))
+    if (!parser || (parser->parserStatus & PARSER_IN_PROTECTED_API))
     {
         return JSON_Failure;
     }
+    parser->parserStatus |= PARSER_IN_PROTECTED_API;
     if (parser->pOutputBuffer != parser->defaultOutputBuffer)
     {
-        CallFree(parser, parser->pOutputBuffer);
-    }
-    if (parser->pSymbolStack != parser->defaultSymbolStack)
-    {
-        CallFree(parser, parser->pSymbolStack);
+        parser->memorySuite.free(parser->memorySuite.userData, parser->pOutputBuffer);
     }
     while (parser->pMemberNames)
     {
-        PopMemberNameList(parser);
+        JSON_Parser_PopMemberNameList(parser);
     }
-    parser->parserStatus |= PARSER_IN_MEMORY_HANDLER;
-    parser->memorySuite.free(NULL, parser);
+    Grammarian_FreeAllocations(&parser->grammarianData, &parser->memorySuite);
+    parser->memorySuite.free(parser->memorySuite.userData, parser);
     return JSON_Success;
 }
 
 JSON_Status JSON_CALL JSON_Parser_Reset(JSON_Parser parser)
 {
-    if (!parser || (parser->parserStatus & PARSER_IN_HANDLER))
+    if (!parser || (parser->parserStatus & PARSER_IN_PROTECTED_API))
     {
         return JSON_Failure;
     }
-    ResetParserData(parser, 1/* isInitialized */);
-    return JSON_Success;
-}
-
-JSON_Error JSON_CALL JSON_Parser_GetError(JSON_Parser parser)
-{
-    return parser ? (JSON_Error)parser->error : JSON_Error_None;
-}
-
-JSON_Status JSON_CALL JSON_Parser_GetErrorLocation(JSON_Parser parser, JSON_Location* pLocation)
-{
-    if (!pLocation || !parser || parser->error == JSON_Error_None)
-    {
-        return JSON_Failure;
-    }
-    if (parser->errorOffset == ERROR_LOCATION_IS_TOKEN_START)
-    {
-        pLocation->byte = parser->tokenLocationByte;
-        pLocation->line = parser->tokenLocationLine;
-        pLocation->column = parser->tokenLocationColumn;
-    }
-    else
-    {
-        pLocation->byte = parser->codepointLocationByte - (minEncodingSequenceLengths[parser->inputEncoding] * parser->errorOffset);
-        pLocation->line = parser->codepointLocationLine;
-        pLocation->column = parser->codepointLocationColumn - parser->errorOffset;
-    }
-    pLocation->depth = parser->depth;
+    parser->parserStatus |= PARSER_IN_PROTECTED_API;
+    JSON_Parser_ResetData(parser, 1/* isInitialized */);
+    parser->parserStatus &= ~PARSER_IN_PROTECTED_API;
     return JSON_Success;
 }
 
@@ -2889,209 +2961,6 @@ JSON_Status JSON_CALL JSON_Parser_SetUserData(JSON_Parser parser, void* userData
     }
     parser->userData = userData;
     return JSON_Success;
-}
-
-JSON_Status JSON_CALL JSON_Parser_GetTokenLocation(JSON_Parser parser, JSON_Location* pLocation)
-{
-    if (!parser || !pLocation || !(parser->parserStatus & PARSER_IN_PARSE_HANDLER))
-    {
-        return JSON_Failure;
-    }
-    pLocation->byte = parser->tokenLocationByte;
-    pLocation->line = parser->tokenLocationLine;
-    pLocation->column = parser->tokenLocationColumn;
-    pLocation->depth = parser->depth;
-    return JSON_Success;
-}
-
-JSON_Parser_NullHandler JSON_CALL JSON_Parser_GetNullHandler(JSON_Parser parser)
-{
-    return parser ? parser->nullHandler : NULL;
-}
-
-JSON_Status JSON_CALL JSON_Parser_SetNullHandler(JSON_Parser parser, JSON_Parser_NullHandler handler)
-{
-    if (!parser)
-    {
-        return JSON_Failure;
-    }
-    parser->nullHandler = handler;
-    return JSON_Success;
-}
-
-JSON_Parser_BooleanHandler JSON_CALL JSON_Parser_GetBooleanHandler(JSON_Parser parser)
-{
-    return parser ? parser->booleanHandler : NULL;
-}
-
-JSON_Status JSON_CALL JSON_Parser_SetBooleanHandler(JSON_Parser parser, JSON_Parser_BooleanHandler handler)
-{
-    if (!parser)
-    {
-        return JSON_Failure;
-    }
-    parser->booleanHandler = handler;
-    return JSON_Success;
-}
-
-JSON_Parser_StringHandler JSON_CALL JSON_Parser_GetStringHandler(JSON_Parser parser)
-{
-    return parser ? parser->stringHandler : NULL;
-}
-
-JSON_Status JSON_CALL JSON_Parser_SetStringHandler(JSON_Parser parser, JSON_Parser_StringHandler handler)
-{
-    if (!parser)
-    {
-        return JSON_Failure;
-    }
-    parser->stringHandler = handler;
-    return JSON_Success;
-}
-
-JSON_Parser_NumberHandler JSON_CALL JSON_Parser_GetNumberHandler(JSON_Parser parser)
-{
-    return parser ? parser->numberHandler : NULL;
-}
-
-JSON_Status JSON_CALL JSON_Parser_SetNumberHandler(JSON_Parser parser, JSON_Parser_NumberHandler handler)
-{
-    if (!parser)
-    {
-        return JSON_Failure;
-    }
-    parser->numberHandler = handler;
-    return JSON_Success;
-}
-
-JSON_Parser_RawNumberHandler JSON_CALL JSON_Parser_GetRawNumberHandler(JSON_Parser parser)
-{
-    return parser ? parser->rawNumberHandler : NULL;
-}
-
-JSON_Status JSON_CALL JSON_Parser_SetRawNumberHandler(JSON_Parser parser, JSON_Parser_RawNumberHandler handler)
-{
-    if (!parser)
-    {
-        return JSON_Failure;
-    }
-    parser->rawNumberHandler = handler;
-    return JSON_Success;
-}
-
-JSON_Parser_SpecialNumberHandler JSON_CALL JSON_Parser_GetSpecialNumberHandler(JSON_Parser parser)
-{
-    return parser ? parser->specialNumberHandler : NULL;
-}
-
-JSON_Status JSON_CALL JSON_Parser_SetSpecialNumberHandler(JSON_Parser parser, JSON_Parser_SpecialNumberHandler handler)
-{
-    if (!parser)
-    {
-        return JSON_Failure;
-    }
-    parser->specialNumberHandler = handler;
-    return JSON_Success;
-}
-
-JSON_Parser_StartObjectHandler JSON_CALL JSON_Parser_GetStartObjectHandler(JSON_Parser parser)
-{
-    return parser ? parser->startObjectHandler : NULL;
-}
-
-JSON_Status JSON_CALL JSON_Parser_SetStartObjectHandler(JSON_Parser parser, JSON_Parser_StartObjectHandler handler)
-{
-    if (!parser)
-    {
-        return JSON_Failure;
-    }
-    parser->startObjectHandler = handler;
-    return JSON_Success;
-}
-
-JSON_Parser_EndObjectHandler JSON_CALL JSON_Parser_GetEndObjectHandler(JSON_Parser parser)
-{
-    return parser ? parser->endObjectHandler : NULL;
-}
-
-JSON_Status JSON_CALL JSON_Parser_SetEndObjectHandler(JSON_Parser parser, JSON_Parser_EndObjectHandler handler)
-{
-    if (!parser)
-    {
-        return JSON_Failure;
-    }
-    parser->endObjectHandler = handler;
-    return JSON_Success;
-}
-
-JSON_Parser_ObjectMemberHandler JSON_CALL JSON_Parser_GetObjectMemberHandler(JSON_Parser parser)
-{
-    return parser ? parser->objectMemberHandler : NULL;
-}
-
-JSON_Status JSON_CALL JSON_Parser_SetObjectMemberHandler(JSON_Parser parser, JSON_Parser_ObjectMemberHandler handler)
-{
-    if (!parser)
-    {
-        return JSON_Failure;
-    }
-    parser->objectMemberHandler = handler;
-    return JSON_Success;
-}
-
-JSON_Parser_StartArrayHandler JSON_CALL JSON_Parser_GetStartArrayHandler(JSON_Parser parser)
-{
-    return parser ? parser->startArrayHandler : NULL;
-}
-
-JSON_Status JSON_CALL JSON_Parser_SetStartArrayHandler(JSON_Parser parser, JSON_Parser_StartArrayHandler handler)
-{
-    if (!parser)
-    {
-        return JSON_Failure;
-    }
-    parser->startArrayHandler = handler;
-    return JSON_Success;
-}
-
-JSON_Parser_EndArrayHandler JSON_CALL JSON_Parser_GetEndArrayHandler(JSON_Parser parser)
-{
-    return parser ? parser->endArrayHandler : NULL;
-}
-
-JSON_Status JSON_CALL JSON_Parser_SetEndArrayHandler(JSON_Parser parser, JSON_Parser_EndArrayHandler handler)
-{
-    if (!parser)
-    {
-        return JSON_Failure;
-    }
-    parser->endArrayHandler = handler;
-    return JSON_Success;
-}
-
-JSON_Parser_ArrayItemHandler JSON_CALL JSON_Parser_GetArrayItemHandler(JSON_Parser parser)
-{
-    return parser ? parser->arrayItemHandler : NULL;
-}
-
-JSON_Status JSON_CALL JSON_Parser_SetArrayItemHandler(JSON_Parser parser, JSON_Parser_ArrayItemHandler handler)
-{
-    if (!parser)
-    {
-        return JSON_Failure;
-    }
-    parser->arrayItemHandler = handler;
-    return JSON_Success;
-}
-
-JSON_Boolean JSON_CALL JSON_Parser_StartedParsing(JSON_Parser parser)
-{
-    return (parser && (parser->parserStatus & PARSER_STARTED)) ? JSON_True : JSON_False;
-}
-
-JSON_Boolean JSON_CALL JSON_Parser_FinishedParsing(JSON_Parser parser)
-{
-    return (parser && (parser->parserStatus & PARSER_FINISHED)) ? JSON_True : JSON_False;
 }
 
 JSON_Encoding JSON_CALL JSON_Parser_GetInputEncoding(JSON_Parser parser)
@@ -3293,20 +3162,253 @@ JSON_Status JSON_CALL JSON_Parser_SetTrackObjectMembers(JSON_Parser parser, JSON
     return JSON_Success;
 }
 
+JSON_Boolean JSON_CALL JSON_Parser_StartedParsing(JSON_Parser parser)
+{
+    return (parser && (parser->parserStatus & PARSER_STARTED)) ? JSON_True : JSON_False;
+}
+
+JSON_Boolean JSON_CALL JSON_Parser_FinishedParsing(JSON_Parser parser)
+{
+    return (parser && (parser->parserStatus & PARSER_FINISHED)) ? JSON_True : JSON_False;
+}
+
+JSON_Error JSON_CALL JSON_Parser_GetError(JSON_Parser parser)
+{
+    return parser ? (JSON_Error)parser->error : JSON_Error_None;
+}
+
+JSON_Status JSON_CALL JSON_Parser_GetErrorLocation(JSON_Parser parser, JSON_Location* pLocation)
+{
+    if (!pLocation || !parser || parser->error == JSON_Error_None)
+    {
+        return JSON_Failure;
+    }
+    if (parser->errorOffset == ERROR_LOCATION_IS_TOKEN_START)
+    {
+        pLocation->byte = parser->tokenLocationByte;
+        pLocation->line = parser->tokenLocationLine;
+        pLocation->column = parser->tokenLocationColumn;
+    }
+    else
+    {
+        pLocation->byte = parser->codepointLocationByte - (minEncodingSequenceLengths[parser->inputEncoding] * parser->errorOffset);
+        pLocation->line = parser->codepointLocationLine;
+        pLocation->column = parser->codepointLocationColumn - parser->errorOffset;
+    }
+    pLocation->depth = parser->depth;
+    return JSON_Success;
+}
+
+JSON_Status JSON_CALL JSON_Parser_GetTokenLocation(JSON_Parser parser, JSON_Location* pLocation)
+{
+    if (!parser || !pLocation || !(parser->parserStatus & PARSER_IN_PARSE_HANDLER))
+    {
+        return JSON_Failure;
+    }
+    pLocation->byte = parser->tokenLocationByte;
+    pLocation->line = parser->tokenLocationLine;
+    pLocation->column = parser->tokenLocationColumn;
+    pLocation->depth = parser->depth;
+    return JSON_Success;
+}
+
+JSON_Parser_NullHandler JSON_CALL JSON_Parser_GetNullHandler(JSON_Parser parser)
+{
+    return parser ? parser->nullHandler : NULL;
+}
+
+JSON_Status JSON_CALL JSON_Parser_SetNullHandler(JSON_Parser parser, JSON_Parser_NullHandler handler)
+{
+    if (!parser)
+    {
+        return JSON_Failure;
+    }
+    parser->nullHandler = handler;
+    return JSON_Success;
+}
+
+JSON_Parser_BooleanHandler JSON_CALL JSON_Parser_GetBooleanHandler(JSON_Parser parser)
+{
+    return parser ? parser->booleanHandler : NULL;
+}
+
+JSON_Status JSON_CALL JSON_Parser_SetBooleanHandler(JSON_Parser parser, JSON_Parser_BooleanHandler handler)
+{
+    if (!parser)
+    {
+        return JSON_Failure;
+    }
+    parser->booleanHandler = handler;
+    return JSON_Success;
+}
+
+JSON_Parser_StringHandler JSON_CALL JSON_Parser_GetStringHandler(JSON_Parser parser)
+{
+    return parser ? parser->stringHandler : NULL;
+}
+
+JSON_Status JSON_CALL JSON_Parser_SetStringHandler(JSON_Parser parser, JSON_Parser_StringHandler handler)
+{
+    if (!parser)
+    {
+        return JSON_Failure;
+    }
+    parser->stringHandler = handler;
+    return JSON_Success;
+}
+
+JSON_Parser_NumberHandler JSON_CALL JSON_Parser_GetNumberHandler(JSON_Parser parser)
+{
+    return parser ? parser->numberHandler : NULL;
+}
+
+JSON_Status JSON_CALL JSON_Parser_SetNumberHandler(JSON_Parser parser, JSON_Parser_NumberHandler handler)
+{
+    if (!parser)
+    {
+        return JSON_Failure;
+    }
+    parser->numberHandler = handler;
+    return JSON_Success;
+}
+
+JSON_Parser_RawNumberHandler JSON_CALL JSON_Parser_GetRawNumberHandler(JSON_Parser parser)
+{
+    return parser ? parser->rawNumberHandler : NULL;
+}
+
+JSON_Status JSON_CALL JSON_Parser_SetRawNumberHandler(JSON_Parser parser, JSON_Parser_RawNumberHandler handler)
+{
+    if (!parser)
+    {
+        return JSON_Failure;
+    }
+    parser->rawNumberHandler = handler;
+    return JSON_Success;
+}
+
+JSON_Parser_SpecialNumberHandler JSON_CALL JSON_Parser_GetSpecialNumberHandler(JSON_Parser parser)
+{
+    return parser ? parser->specialNumberHandler : NULL;
+}
+
+JSON_Status JSON_CALL JSON_Parser_SetSpecialNumberHandler(JSON_Parser parser, JSON_Parser_SpecialNumberHandler handler)
+{
+    if (!parser)
+    {
+        return JSON_Failure;
+    }
+    parser->specialNumberHandler = handler;
+    return JSON_Success;
+}
+
+JSON_Parser_StartObjectHandler JSON_CALL JSON_Parser_GetStartObjectHandler(JSON_Parser parser)
+{
+    return parser ? parser->startObjectHandler : NULL;
+}
+
+JSON_Status JSON_CALL JSON_Parser_SetStartObjectHandler(JSON_Parser parser, JSON_Parser_StartObjectHandler handler)
+{
+    if (!parser)
+    {
+        return JSON_Failure;
+    }
+    parser->startObjectHandler = handler;
+    return JSON_Success;
+}
+
+JSON_Parser_EndObjectHandler JSON_CALL JSON_Parser_GetEndObjectHandler(JSON_Parser parser)
+{
+    return parser ? parser->endObjectHandler : NULL;
+}
+
+JSON_Status JSON_CALL JSON_Parser_SetEndObjectHandler(JSON_Parser parser, JSON_Parser_EndObjectHandler handler)
+{
+    if (!parser)
+    {
+        return JSON_Failure;
+    }
+    parser->endObjectHandler = handler;
+    return JSON_Success;
+}
+
+JSON_Parser_ObjectMemberHandler JSON_CALL JSON_Parser_GetObjectMemberHandler(JSON_Parser parser)
+{
+    return parser ? parser->objectMemberHandler : NULL;
+}
+
+JSON_Status JSON_CALL JSON_Parser_SetObjectMemberHandler(JSON_Parser parser, JSON_Parser_ObjectMemberHandler handler)
+{
+    if (!parser)
+    {
+        return JSON_Failure;
+    }
+    parser->objectMemberHandler = handler;
+    return JSON_Success;
+}
+
+JSON_Parser_StartArrayHandler JSON_CALL JSON_Parser_GetStartArrayHandler(JSON_Parser parser)
+{
+    return parser ? parser->startArrayHandler : NULL;
+}
+
+JSON_Status JSON_CALL JSON_Parser_SetStartArrayHandler(JSON_Parser parser, JSON_Parser_StartArrayHandler handler)
+{
+    if (!parser)
+    {
+        return JSON_Failure;
+    }
+    parser->startArrayHandler = handler;
+    return JSON_Success;
+}
+
+JSON_Parser_EndArrayHandler JSON_CALL JSON_Parser_GetEndArrayHandler(JSON_Parser parser)
+{
+    return parser ? parser->endArrayHandler : NULL;
+}
+
+JSON_Status JSON_CALL JSON_Parser_SetEndArrayHandler(JSON_Parser parser, JSON_Parser_EndArrayHandler handler)
+{
+    if (!parser)
+    {
+        return JSON_Failure;
+    }
+    parser->endArrayHandler = handler;
+    return JSON_Success;
+}
+
+JSON_Parser_ArrayItemHandler JSON_CALL JSON_Parser_GetArrayItemHandler(JSON_Parser parser)
+{
+    return parser ? parser->arrayItemHandler : NULL;
+}
+
+JSON_Status JSON_CALL JSON_Parser_SetArrayItemHandler(JSON_Parser parser, JSON_Parser_ArrayItemHandler handler)
+{
+    if (!parser)
+    {
+        return JSON_Failure;
+    }
+    parser->arrayItemHandler = handler;
+    return JSON_Success;
+}
+
 JSON_Status JSON_CALL JSON_Parser_Parse(JSON_Parser parser, const char* pBytes, size_t length, JSON_Boolean isFinal)
 {
     JSON_Status status = JSON_Failure;
-    if (parser && !(parser->parserStatus & (PARSER_FINISHED | PARSER_IN_HANDLER)))
+    if (parser && !(parser->parserStatus & (PARSER_FINISHED | PARSER_IN_PROTECTED_API)))
     {
         int finishedParsing = 0;
-        parser->parserStatus |= PARSER_STARTED;
-        if (ProcessInputBytes(parser, (const unsigned char*)pBytes, length))
+        parser->parserStatus |= PARSER_STARTED | PARSER_IN_PROTECTED_API;
+        if (JSON_Parser_ProcessInputBytes(parser, (const unsigned char*)pBytes, length))
         {
             /* New input was parsed successfully. */
             if (isFinal)
             {
-                /* Make sure there is nothing pending in the decoder, lexer, or parser. */
-                if (FlushDecoder(parser) && FlushLexer(parser) && FlushParser(parser))
+                /* Make sure there is nothing pending in the decoder, lexer,
+                   or parser. */
+                if (JSON_Parser_FlushDecoder(parser) &&
+                    JSON_Parser_FlushLexer(parser) &&
+                    JSON_Parser_FlushParser(parser))
                 {
                     status = JSON_Success;
                 }
@@ -3326,13 +3428,18 @@ JSON_Status JSON_CALL JSON_Parser_Parse(JSON_Parser parser, const char* pBytes, 
         {
             parser->parserStatus |= PARSER_FINISHED;
         }
+        parser->parserStatus &= ~PARSER_IN_PROTECTED_API;
     }
     return status;
 }
 
-/* This array must match the order and number of the JSON_Error enum. */
-static const char* errorStrings[] =
+/******************** Miscellaneous API ********************/
+
+const char* JSON_CALL JSON_ErrorString(JSON_Error error)
 {
+    /* This array must match the order and number of the JSON_Error enum. */
+    static const char* errorStrings[] =
+    {
     /* JSON_Error_None */                            "no error",
     /* JSON_Error_OutOfMemory */                     "the parser could not allocate enough memory",
     /* JSON_Error_AbortedByHandler */                "parsing was aborted by a handler",
@@ -3349,10 +3456,7 @@ static const char* errorStrings[] =
     /* JSON_Error_InvalidNumber */                   "the input contains an invalid number",
     /* JSON_Error_TooLongNumber */                   "the input contains a number that is too long",
     /* JSON_Error_DuplicateObjectMember */           "the input contains an object with duplicate members"
-};
-
-const char* JSON_CALL JSON_ErrorString(JSON_Error error)
-{
+    };
     return ((unsigned int)error < (sizeof(errorStrings) / sizeof(errorStrings[0])))
         ? errorStrings[error]
         : "";

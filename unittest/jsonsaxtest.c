@@ -336,7 +336,7 @@ static int CheckParserHasDefaultValues(JSON_Parser parser)
            CheckParserHandlers(parser, &handlers);
 }
 
-static int CheckCreateParser(const JSON_Parser_MemorySuite* pMemorySuite, JSON_Status expectedStatus, JSON_Parser* pParser)
+static int CheckCreateParser(const JSON_MemorySuite* pMemorySuite, JSON_Status expectedStatus, JSON_Parser* pParser)
 {
     *pParser = JSON_Parser_Create(pMemorySuite);
     if (expectedStatus == JSON_Success && !*pParser)
@@ -354,9 +354,10 @@ static int CheckCreateParser(const JSON_Parser_MemorySuite* pMemorySuite, JSON_S
     return 1;
 }
 
-static int CheckCreateParserWithCustomMemorySuite(JSON_Parser_MallocHandler m, JSON_Parser_ReallocHandler r, JSON_Parser_FreeHandler f, JSON_Status expectedStatus, JSON_Parser* pParser)
+static int CheckCreateParserWithCustomMemorySuite(JSON_MallocHandler m, JSON_ReallocHandler r, JSON_FreeHandler f, JSON_Status expectedStatus, JSON_Parser* pParser)
 {
-    JSON_Parser_MemorySuite memorySuite;
+    JSON_MemorySuite memorySuite;
+    memorySuite.userData = NULL;
     memorySuite.malloc = m;
     memorySuite.realloc = r;
     memorySuite.free = f;
@@ -654,10 +655,10 @@ static int CheckErrorString(JSON_Error error, const char* pExpectedMessage)
     return 1;
 }
 
-static void* JSON_CALL MallocHandler(JSON_Parser parser, size_t size)
+static void* JSON_CALL MallocHandler(void* caller, size_t size)
 {
     size_t* pBlock = NULL;
-    (void)parser; /* unused */
+    (void)caller; /* unused */
     if (!s_failMalloc)
     {
         size_t blockSize = sizeof(size_t) + size;
@@ -673,10 +674,10 @@ static void* JSON_CALL MallocHandler(JSON_Parser parser, size_t size)
     return pBlock;
 }
 
-static void* JSON_CALL ReallocHandler(JSON_Parser parser, void* ptr, size_t size)
+static void* JSON_CALL ReallocHandler(void* caller, void* ptr, size_t size)
 {
     size_t* pBlock = NULL;
-    (void)parser; /* unused */
+    (void)caller; /* unused */
     if (!s_failRealloc)
     {
         size_t newBlockSize = sizeof(size_t) + size;
@@ -702,9 +703,9 @@ static void* JSON_CALL ReallocHandler(JSON_Parser parser, void* ptr, size_t size
     return pBlock;
 }
 
-static void JSON_CALL FreeHandler(JSON_Parser parser, void* ptr)
+static void JSON_CALL FreeHandler(void* caller, void* ptr)
 {
-    (void)parser; /* unused */
+    (void)caller; /* unused */
     if (ptr)
     {
         size_t* pBlock = (size_t*)ptr;
@@ -836,20 +837,20 @@ static JSON_Parser_HandlerResult JSON_CALL NullHandler(JSON_Parser parser)
     JSON_Location location;
     if (s_failParseCallback)
     {
-        return JSON_AbortParsing;
+        return JSON_Parser_AbortParsing;
     }
     if (s_misbehaveInCallback && TryToMisbehaveInCallback(parser))
     {
-        return JSON_AbortParsing;
+        return JSON_Parser_AbortParsing;
     }
     if (JSON_Parser_GetTokenLocation(parser, &location) != JSON_Success)
     {
-        return JSON_AbortParsing;
+        return JSON_Parser_AbortParsing;
     }
     OutputSeparator();
     OutputFormatted("n:");
     OutputLocation(&location);
-    return JSON_ContinueParsing;
+    return JSON_Parser_ContinueParsing;
 }
 
 static JSON_Parser_HandlerResult JSON_CALL BooleanHandler(JSON_Parser parser, JSON_Boolean value)
@@ -857,20 +858,20 @@ static JSON_Parser_HandlerResult JSON_CALL BooleanHandler(JSON_Parser parser, JS
     JSON_Location location;
     if (s_failParseCallback)
     {
-        return JSON_AbortParsing;
+        return JSON_Parser_AbortParsing;
     }
     if (s_misbehaveInCallback && TryToMisbehaveInCallback(parser))
     {
-        return JSON_AbortParsing;
+        return JSON_Parser_AbortParsing;
     }
     if (JSON_Parser_GetTokenLocation(parser, &location) != JSON_Success)
     {
-        return JSON_AbortParsing;
+        return JSON_Parser_AbortParsing;
     }
     OutputSeparator();
     OutputFormatted("%s:", (value == JSON_True) ? "t" : "f");
     OutputLocation(&location);
-    return JSON_ContinueParsing;
+    return JSON_Parser_ContinueParsing;
 }
 
 static JSON_Parser_HandlerResult JSON_CALL StringHandler(JSON_Parser parser, const char* pBytes, size_t length, JSON_StringAttributes attributes)
@@ -878,22 +879,22 @@ static JSON_Parser_HandlerResult JSON_CALL StringHandler(JSON_Parser parser, con
     JSON_Location location;
     if (s_failParseCallback)
     {
-        return JSON_AbortParsing;
+        return JSON_Parser_AbortParsing;
     }
     if (s_misbehaveInCallback && TryToMisbehaveInCallback(parser))
     {
-        return JSON_AbortParsing;
+        return JSON_Parser_AbortParsing;
     }
     if (JSON_Parser_GetTokenLocation(parser, &location) != JSON_Success)
     {
-        return JSON_AbortParsing;
+        return JSON_Parser_AbortParsing;
     }
     OutputSeparator();
     OutputFormatted("s(");
     OutputStringBytes(pBytes, length, attributes);
     OutputFormatted("):");
     OutputLocation(&location);
-    return JSON_ContinueParsing;
+    return JSON_Parser_ContinueParsing;
 }
 
 static JSON_Parser_HandlerResult JSON_CALL NumberHandler(JSON_Parser parser, double value)
@@ -902,17 +903,17 @@ static JSON_Parser_HandlerResult JSON_CALL NumberHandler(JSON_Parser parser, dou
     (void)value; /* unused */
     if (s_failParseCallback)
     {
-        return JSON_AbortParsing;
+        return JSON_Parser_AbortParsing;
     }
     if (s_misbehaveInCallback && TryToMisbehaveInCallback(parser))
     {
-        return JSON_AbortParsing;
+        return JSON_Parser_AbortParsing;
     }
     if (JSON_Parser_GetTokenLocation(parser, &location) != JSON_Success)
     {
-        return JSON_AbortParsing;
+        return JSON_Parser_AbortParsing;
     }
-    return JSON_ContinueParsing;
+    return JSON_Parser_ContinueParsing;
 }
 
 static JSON_Parser_HandlerResult JSON_CALL RawNumberHandler(JSON_Parser parser, const char* pValue, size_t length)
@@ -920,24 +921,24 @@ static JSON_Parser_HandlerResult JSON_CALL RawNumberHandler(JSON_Parser parser, 
     JSON_Location location;
     if (s_failParseCallback)
     {
-        return JSON_AbortParsing;
+        return JSON_Parser_AbortParsing;
     }
     if (s_misbehaveInCallback && TryToMisbehaveInCallback(parser))
     {
-        return JSON_AbortParsing;
+        return JSON_Parser_AbortParsing;
     }
     if (strlen(pValue) != length)
     {
-        return JSON_AbortParsing;
+        return JSON_Parser_AbortParsing;
     }
     if (JSON_Parser_GetTokenLocation(parser, &location) != JSON_Success)
     {
-        return JSON_AbortParsing;
+        return JSON_Parser_AbortParsing;
     }
     OutputSeparator();
     OutputFormatted("#(%s):", pValue);
     OutputLocation(&location);
-    return JSON_ContinueParsing;
+    return JSON_Parser_ContinueParsing;
 }
 
 static JSON_Parser_HandlerResult JSON_CALL SpecialNumberHandler(JSON_Parser parser, JSON_SpecialNumber value)
@@ -946,15 +947,15 @@ static JSON_Parser_HandlerResult JSON_CALL SpecialNumberHandler(JSON_Parser pars
     const char* pValue;
     if (s_failParseCallback)
     {
-        return JSON_AbortParsing;
+        return JSON_Parser_AbortParsing;
     }
     if (s_misbehaveInCallback && TryToMisbehaveInCallback(parser))
     {
-        return JSON_AbortParsing;
+        return JSON_Parser_AbortParsing;
     }
     if (JSON_Parser_GetTokenLocation(parser, &location) != JSON_Success)
     {
-        return JSON_AbortParsing;
+        return JSON_Parser_AbortParsing;
     }
     switch (value)
     {
@@ -974,7 +975,7 @@ static JSON_Parser_HandlerResult JSON_CALL SpecialNumberHandler(JSON_Parser pars
     OutputSeparator();
     OutputFormatted("#(%s):", pValue);
     OutputLocation(&location);
-    return JSON_ContinueParsing;
+    return JSON_Parser_ContinueParsing;
 }
 
 static JSON_Parser_HandlerResult JSON_CALL StartObjectHandler(JSON_Parser parser)
@@ -982,20 +983,20 @@ static JSON_Parser_HandlerResult JSON_CALL StartObjectHandler(JSON_Parser parser
     JSON_Location location;
     if (s_failParseCallback)
     {
-        return JSON_AbortParsing;
+        return JSON_Parser_AbortParsing;
     }
     if (s_misbehaveInCallback && TryToMisbehaveInCallback(parser))
     {
-        return JSON_AbortParsing;
+        return JSON_Parser_AbortParsing;
     }
     if (JSON_Parser_GetTokenLocation(parser, &location) != JSON_Success)
     {
-        return JSON_AbortParsing;
+        return JSON_Parser_AbortParsing;
     }
     OutputSeparator();
     OutputFormatted("{:");
     OutputLocation(&location);
-    return JSON_ContinueParsing;
+    return JSON_Parser_ContinueParsing;
 }
 
 static JSON_Parser_HandlerResult JSON_CALL EndObjectHandler(JSON_Parser parser)
@@ -1003,20 +1004,20 @@ static JSON_Parser_HandlerResult JSON_CALL EndObjectHandler(JSON_Parser parser)
     JSON_Location location;
     if (s_failParseCallback)
     {
-        return JSON_AbortParsing;
+        return JSON_Parser_AbortParsing;
     }
     if (s_misbehaveInCallback && TryToMisbehaveInCallback(parser))
     {
-        return JSON_AbortParsing;
+        return JSON_Parser_AbortParsing;
     }
     if (JSON_Parser_GetTokenLocation(parser, &location) != JSON_Success)
     {
-        return JSON_AbortParsing;
+        return JSON_Parser_AbortParsing;
     }
     OutputSeparator();
     OutputFormatted("}:");
     OutputLocation(&location);
-    return JSON_ContinueParsing;
+    return JSON_Parser_ContinueParsing;
 }
 
 static JSON_Parser_HandlerResult JSON_CALL ObjectMemberHandler(JSON_Parser parser, JSON_Boolean isFirstMember, const char* pBytes, size_t length, JSON_StringAttributes attributes)
@@ -1024,26 +1025,26 @@ static JSON_Parser_HandlerResult JSON_CALL ObjectMemberHandler(JSON_Parser parse
     JSON_Location location;
     if (s_failParseCallback)
     {
-        return JSON_AbortParsing;
+        return JSON_Parser_AbortParsing;
     }
     if (s_misbehaveInCallback && TryToMisbehaveInCallback(parser))
     {
-        return JSON_AbortParsing;
+        return JSON_Parser_AbortParsing;
     }
     if (attributes == JSON_SimpleString && !strcmp(pBytes, "duplicate"))
     {
-        return JSON_TreatAsDuplicateObjectMember;
+        return JSON_Parser_TreatAsDuplicateObjectMember;
     }
     if (JSON_Parser_GetTokenLocation(parser, &location) != JSON_Success)
     {
-        return JSON_AbortParsing;
+        return JSON_Parser_AbortParsing;
     }
     OutputSeparator();
     OutputFormatted("%s(", isFirstMember ? "M" : "m");
     OutputStringBytes(pBytes, length, attributes);
     OutputFormatted("):");
     OutputLocation(&location);
-    return JSON_ContinueParsing;
+    return JSON_Parser_ContinueParsing;
 }
 
 static JSON_Parser_HandlerResult JSON_CALL StartArrayHandler(JSON_Parser parser)
@@ -1051,20 +1052,20 @@ static JSON_Parser_HandlerResult JSON_CALL StartArrayHandler(JSON_Parser parser)
     JSON_Location location;
     if (s_failParseCallback)
     {
-        return JSON_AbortParsing;
+        return JSON_Parser_AbortParsing;
     }
     if (s_misbehaveInCallback && TryToMisbehaveInCallback(parser))
     {
-        return JSON_AbortParsing;
+        return JSON_Parser_AbortParsing;
     }
     if (JSON_Parser_GetTokenLocation(parser, &location) != JSON_Success)
     {
-        return JSON_AbortParsing;
+        return JSON_Parser_AbortParsing;
     }
     OutputSeparator();
     OutputFormatted("[:");
     OutputLocation(&location);
-    return JSON_ContinueParsing;
+    return JSON_Parser_ContinueParsing;
 }
 
 static JSON_Parser_HandlerResult JSON_CALL EndArrayHandler(JSON_Parser parser)
@@ -1072,20 +1073,20 @@ static JSON_Parser_HandlerResult JSON_CALL EndArrayHandler(JSON_Parser parser)
     JSON_Location location;
     if (s_failParseCallback)
     {
-        return JSON_AbortParsing;
+        return JSON_Parser_AbortParsing;
     }
     if (s_misbehaveInCallback && TryToMisbehaveInCallback(parser))
     {
-        return JSON_AbortParsing;
+        return JSON_Parser_AbortParsing;
     }
     if (JSON_Parser_GetTokenLocation(parser, &location) != JSON_Success)
     {
-        return JSON_AbortParsing;
+        return JSON_Parser_AbortParsing;
     }
     OutputSeparator();
     OutputFormatted("]:");
     OutputLocation(&location);
-    return JSON_ContinueParsing;
+    return JSON_Parser_ContinueParsing;
 }
 
 static JSON_Parser_HandlerResult JSON_CALL ArrayItemHandler(JSON_Parser parser, JSON_Boolean isFirstItem)
@@ -1093,20 +1094,20 @@ static JSON_Parser_HandlerResult JSON_CALL ArrayItemHandler(JSON_Parser parser, 
     JSON_Location location;
     if (s_failParseCallback)
     {
-        return JSON_AbortParsing;
+        return JSON_Parser_AbortParsing;
     }
     if (s_misbehaveInCallback && TryToMisbehaveInCallback(parser))
     {
-        return JSON_AbortParsing;
+        return JSON_Parser_AbortParsing;
     }
     if (JSON_Parser_GetTokenLocation(parser, &location) != JSON_Success)
     {
-        return JSON_AbortParsing;
+        return JSON_Parser_AbortParsing;
     }
     OutputSeparator();
     OutputFormatted("%s:", isFirstItem ? "I" : "i");
     OutputLocation(&location);
-    return JSON_ContinueParsing;
+    return JSON_Parser_ContinueParsing;
 }
 
 /* The length and content of this array MUST correspond exactly with the
@@ -2034,9 +2035,9 @@ static JSON_Parser_HandlerResult JSON_CALL CheckIEEE754InterpretationNumberHandl
     {
         printf("FAILURE: expected value to be %f instead of %f\n", pTest->expectedValue, value);
         s_failureCount++;
-        return JSON_AbortParsing;
+        return JSON_Parser_AbortParsing;
     }
-    return JSON_ContinueParsing;
+    return JSON_Parser_ContinueParsing;
 }
 
 static void RunIEEE754Test(const IEEE754Test* pTest)
