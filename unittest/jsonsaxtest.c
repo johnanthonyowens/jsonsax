@@ -123,7 +123,6 @@ typedef struct tag_ParserSettings
     size_t        maxOutputStringLength;
     JSON_Boolean  allowBOM;
     JSON_Boolean  allowComments;
-    JSON_Boolean  allowTrailingCommas;
     JSON_Boolean  allowSpecialNumbers;
     JSON_Boolean  allowHexNumbers;
     JSON_Boolean  replaceInvalidEncodingSequences;
@@ -138,7 +137,6 @@ static void InitParserSettings(ParserSettings* pSettings)
     pSettings->maxOutputStringLength = (size_t)-1;
     pSettings->allowBOM = JSON_False;
     pSettings->allowComments = JSON_False;
-    pSettings->allowTrailingCommas = JSON_False;
     pSettings->allowSpecialNumbers = JSON_False;
     pSettings->allowHexNumbers = JSON_False;
     pSettings->replaceInvalidEncodingSequences = JSON_False;
@@ -153,7 +151,6 @@ static void GetParserSettings(JSON_Parser parser, ParserSettings* pSettings)
     pSettings->maxOutputStringLength = JSON_Parser_GetMaxOutputStringLength(parser);
     pSettings->allowBOM = JSON_Parser_GetAllowBOM(parser);
     pSettings->allowComments = JSON_Parser_GetAllowComments(parser);
-    pSettings->allowTrailingCommas = JSON_Parser_GetAllowTrailingCommas(parser);
     pSettings->allowSpecialNumbers = JSON_Parser_GetAllowSpecialNumbers(parser);
     pSettings->allowHexNumbers = JSON_Parser_GetAllowHexNumbers(parser);
     pSettings->replaceInvalidEncodingSequences = JSON_Parser_GetReplaceInvalidEncodingSequences(parser);
@@ -168,7 +165,6 @@ static int ParserSettingsAreIdentical(const ParserSettings* pSettings1, const Pa
             pSettings1->maxOutputStringLength == pSettings2->maxOutputStringLength &&
             pSettings1->allowBOM == pSettings2->allowBOM &&
             pSettings1->allowComments == pSettings2->allowComments &&
-            pSettings1->allowTrailingCommas == pSettings2->allowTrailingCommas &&
             pSettings1->allowSpecialNumbers == pSettings2->allowSpecialNumbers &&
             pSettings1->allowHexNumbers == pSettings2->allowHexNumbers &&
             pSettings1->replaceInvalidEncodingSequences == pSettings2->replaceInvalidEncodingSequences &&
@@ -197,7 +193,6 @@ static int CheckParserSettings(JSON_Parser parser, const ParserSettings* pExpect
             );
         printf("  JSON_Parser_GetAllowBOM()                        %8d   %8d\n"
                "  JSON_Parser_GetAllowComments()                   %8d   %8d\n"
-               "  JSON_Parser_GetAllowTrailingCommas()             %8d   %8d\n"
                "  JSON_Parser_GetAllowSpecialNumbers()             %8d   %8d\n"
                "  JSON_Parser_GetAllowHexNumbers()                 %8d   %8d\n"
                "  JSON_Parser_GetReplaceInvalidEncodingSequences() %8d   %8d\n"
@@ -205,7 +200,6 @@ static int CheckParserSettings(JSON_Parser parser, const ParserSettings* pExpect
                ,
                (int)pExpectedSettings->allowBOM, (int)actualSettings.allowBOM,
                (int)pExpectedSettings->allowComments, (int)actualSettings.allowComments,
-               (int)pExpectedSettings->allowTrailingCommas, (int)actualSettings.allowTrailingCommas,
                (int)pExpectedSettings->allowSpecialNumbers, (int)actualSettings.allowSpecialNumbers,
                (int)pExpectedSettings->allowHexNumbers, (int)actualSettings.allowHexNumbers,
                (int)pExpectedSettings->replaceInvalidEncodingSequences, (int)actualSettings.replaceInvalidEncodingSequences,
@@ -459,16 +453,6 @@ static int CheckSetAllowComments(JSON_Parser parser, JSON_Boolean allowComments,
     if (JSON_Parser_SetAllowComments(parser, allowComments) != expectedStatus)
     {
         printf("FAILURE: expected JSON_Parser_SetAllowComments() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
-        return 0;
-    }
-    return 1;
-}
-
-static int CheckSetAllowTrailingCommas(JSON_Parser parser, JSON_Boolean allowTrailingCommas, JSON_Status expectedStatus)
-{
-    if (JSON_Parser_SetAllowTrailingCommas(parser, allowTrailingCommas) != expectedStatus)
-    {
-        printf("FAILURE: expected JSON_Parser_SetAllowTrailingCommas() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
         return 0;
     }
     return 1;
@@ -820,7 +804,6 @@ static int TryToMisbehaveInCallback(JSON_Parser parser)
         !CheckSetOutputEncoding(parser, JSON_UTF32LE, JSON_Failure) ||
         !CheckSetAllowBOM(parser, JSON_True, JSON_Failure) ||
         !CheckSetAllowComments(parser, JSON_True, JSON_Failure) ||
-        !CheckSetAllowTrailingCommas(parser, JSON_True, JSON_Failure) ||
         !CheckSetAllowSpecialNumbers(parser, JSON_True, JSON_Failure) ||
         !CheckSetAllowHexNumbers(parser, JSON_True, JSON_Failure) ||
         !CheckSetReplaceInvalidEncodingSequences(parser, JSON_True, JSON_Failure) ||
@@ -1161,11 +1144,10 @@ typedef enum tag_ParserParam
     /* Rest of bits are settings. */
     AllowBOM                        = 1 << 10,
     AllowComments                   = 1 << 11,
-    AllowTrailingCommas             = 1 << 12,
-    AllowSpecialNumbers             = 1 << 13,
-    AllowHexNumbers                 = 1 << 14,
-    ReplaceInvalidEncodingSequences = 1 << 15,
-    TrackObjectMembers              = 1 << 16
+    AllowSpecialNumbers             = 1 << 12,
+    AllowHexNumbers                 = 1 << 13,
+    ReplaceInvalidEncodingSequences = 1 << 14,
+    TrackObjectMembers              = 1 << 15
 } ParserParam;
 typedef unsigned int ParserParams;
 
@@ -1202,11 +1184,10 @@ static void RunParseTest(const ParseTest* pTest)
     }
     settings.allowBOM = (JSON_Boolean)((pTest->parserParams >> 10) & 0x1);
     settings.allowComments = (JSON_Boolean)((pTest->parserParams >> 11) & 0x1);
-    settings.allowTrailingCommas = (JSON_Boolean)((pTest->parserParams >> 12) & 0x1);
-    settings.allowSpecialNumbers = (JSON_Boolean)((pTest->parserParams >> 13) & 0x1);
-    settings.allowHexNumbers = (JSON_Boolean)((pTest->parserParams >> 14) & 0x1);
-    settings.replaceInvalidEncodingSequences = (JSON_Boolean)((pTest->parserParams >> 15) & 0x1);
-    settings.trackObjectMembers = (JSON_Boolean)((pTest->parserParams >> 16) & 0x1);
+    settings.allowSpecialNumbers = (JSON_Boolean)((pTest->parserParams >> 12) & 0x1);
+    settings.allowHexNumbers = (JSON_Boolean)((pTest->parserParams >> 13) & 0x1);
+    settings.replaceInvalidEncodingSequences = (JSON_Boolean)((pTest->parserParams >> 14) & 0x1);
+    settings.trackObjectMembers = (JSON_Boolean)((pTest->parserParams >> 15) & 0x1);
 
     InitParserState(&state);
     state.startedParsing = JSON_True;
@@ -1231,7 +1212,6 @@ static void RunParseTest(const ParseTest* pTest)
         CheckSetMaxOutputStringLength(parser, settings.maxOutputStringLength, JSON_Success) &&
         CheckSetAllowBOM(parser, settings.allowBOM, JSON_Success) &&
         CheckSetAllowComments(parser, settings.allowComments, JSON_Success) &&
-        CheckSetAllowTrailingCommas(parser, settings.allowTrailingCommas, JSON_Success) &&
         CheckSetAllowSpecialNumbers(parser, settings.allowSpecialNumbers, JSON_Success) &&
         CheckSetAllowHexNumbers(parser, settings.allowHexNumbers, JSON_Success) &&
         CheckSetReplaceInvalidEncodingSequences(parser, settings.replaceInvalidEncodingSequences, JSON_Success) &&
@@ -1334,7 +1314,6 @@ static void TestSetParserSettings()
     settings.outputEncoding = JSON_UTF16LE;
     settings.allowBOM = JSON_True;
     settings.allowComments = JSON_True;
-    settings.allowTrailingCommas = JSON_True;
     settings.allowSpecialNumbers = JSON_True;
     settings.allowHexNumbers = JSON_True;
     settings.replaceInvalidEncodingSequences = JSON_True;
@@ -1346,7 +1325,6 @@ static void TestSetParserSettings()
         CheckSetMaxOutputStringLength(parser, settings.maxOutputStringLength, JSON_Success) &&
         CheckSetAllowBOM(parser, settings.allowBOM, JSON_Success) &&
         CheckSetAllowComments(parser, settings.allowComments, JSON_Success) &&
-        CheckSetAllowTrailingCommas(parser, settings.allowTrailingCommas, JSON_Success) &&
         CheckSetAllowSpecialNumbers(parser, settings.allowSpecialNumbers, JSON_Success) &&
         CheckSetAllowHexNumbers(parser, settings.allowHexNumbers, JSON_Success) &&
         CheckSetReplaceInvalidEncodingSequences(parser, settings.replaceInvalidEncodingSequences, JSON_Success) &&
@@ -1444,7 +1422,6 @@ static void TestResetParser()
         CheckSetMaxOutputStringLength(parser, 32, JSON_Success) &&
         CheckSetAllowBOM(parser, JSON_True, JSON_Success) &&
         CheckSetAllowComments(parser, JSON_True, JSON_Success) &&
-        CheckSetAllowTrailingCommas(parser, JSON_True, JSON_Success) &&
         CheckSetAllowSpecialNumbers(parser, JSON_True, JSON_Success) &&
         CheckSetAllowHexNumbers(parser, JSON_True, JSON_Success) &&
         CheckSetReplaceInvalidEncodingSequences(parser, JSON_True, JSON_Success) &&
@@ -2593,12 +2570,9 @@ PARSE_TEST("max length 2 string (5)", MaxStringLength2, "\"\xE0\xAB\xB9\"", FINA
 /* objects */
 
 PARSE_TEST("start object", UTF8In, "{", PARTIAL, UTF8, "{:0,0,0,0")
-PARSE_TEST("empty object (1)", Standard, "{}", FINAL, UTF8, "{:0,0,0,0 }:1,0,1,0")
-PARSE_TEST("empty object (2)", AllowTrailingCommas, "{}", FINAL, UTF8, "{:0,0,0,0 }:1,0,1,0")
-PARSE_TEST("single-member object (1)", Standard, "{ \"pi\" : 3.14159 }", FINAL, UTF8, "{:0,0,0,0 M(70 69):2,0,2,1 #(3.14159):9,0,9,1 }:17,0,17,0")
-PARSE_TEST("single-member object (2)", AllowTrailingCommas, "{ \"pi\" : 3.14159 }", FINAL, UTF8, "{:0,0,0,0 M(70 69):2,0,2,1 #(3.14159):9,0,9,1 }:17,0,17,0")
-PARSE_TEST("multi-member object (1)", Standard, "{ \"pi\" : 3.14159, \"e\" : 2.71828 }", FINAL, UTF8, "{:0,0,0,0 M(70 69):2,0,2,1 #(3.14159):9,0,9,1 m(65):18,0,18,1 #(2.71828):24,0,24,1 }:32,0,32,0")
-PARSE_TEST("multi-member object (2)", AllowTrailingCommas, "{ \"pi\" : 3.14159, \"e\" : 2.71828 }", FINAL, UTF8, "{:0,0,0,0 M(70 69):2,0,2,1 #(3.14159):9,0,9,1 m(65):18,0,18,1 #(2.71828):24,0,24,1 }:32,0,32,0")
+PARSE_TEST("empty object", Standard, "{}", FINAL, UTF8, "{:0,0,0,0 }:1,0,1,0")
+PARSE_TEST("single-member object", Standard, "{ \"pi\" : 3.14159 }", FINAL, UTF8, "{:0,0,0,0 M(70 69):2,0,2,1 #(3.14159):9,0,9,1 }:17,0,17,0")
+PARSE_TEST("multi-member object", Standard, "{ \"pi\" : 3.14159, \"e\" : 2.71828 }", FINAL, UTF8, "{:0,0,0,0 M(70 69):2,0,2,1 #(3.14159):9,0,9,1 m(65):18,0,18,1 #(2.71828):24,0,24,1 }:32,0,32,0")
 PARSE_TEST("all types of object member values", AllowSpecialNumbers | AllowHexNumbers, "{ \"a\" : null, \"b\" : true, \"c\" : \"foo\", \"d\" : 17, \"e\" : NaN, \"f\": 0xbeef, \"g\" : {}, \"h\" : {}, \"i\" : [] }", FINAL, UTF8, "{:0,0,0,0 M(61):2,0,2,1 n:8,0,8,1 m(62):14,0,14,1 t:20,0,20,1 m(63):26,0,26,1 s(66 6F 6F):32,0,32,1 m(64):39,0,39,1 #(17):45,0,45,1 m(65):49,0,49,1 #(NaN):55,0,55,1 m(66):60,0,60,1 #(0xbeef):65,0,65,1 m(67):73,0,73,1 {:79,0,79,1 }:80,0,80,1 m(68):83,0,83,1 {:89,0,89,1 }:90,0,90,1 m(69):93,0,93,1 [:99,0,99,1 ]:100,0,100,1 }:102,0,102,0")
 PARSE_TEST("nested objects", Standard, "{\"a\":{\"b\":{\"c\":{\"d\":{\"e\":{}}}}}}", FINAL, UTF8, "{:0,0,0,0 M(61):1,0,1,1 {:5,0,5,1 M(62):6,0,6,2 {:10,0,10,2 M(63):11,0,11,3 {:15,0,15,3 M(64):16,0,16,4 {:20,0,20,4 M(65):21,0,21,5 {:25,0,25,5 }:26,0,26,5 }:27,0,27,4 }:28,0,28,3 }:29,0,29,2 }:30,0,30,1 }:31,0,31,0")
 PARSE_TEST("object members with similar names", Standard, "{\"\":null,\"\\u0000\":0,\"x\":1,\"X\":2,\"x2\":3,\"x\\u0000\":4,\"x\\u0000y\":5}", FINAL, UTF8, "{:0,0,0,0 M():1,0,1,1 n:4,0,4,1 m(zc 00):9,0,9,1 #(0):18,0,18,1 m(78):20,0,20,1 #(1):24,0,24,1 m(58):26,0,26,1 #(2):30,0,30,1 m(78 32):32,0,32,1 #(3):37,0,37,1 m(zc 78 00):39,0,39,1 #(4):49,0,49,1 m(zc 78 00 79):51,0,51,1 #(5):62,0,62,1 }:63,0,63,0")
@@ -2623,8 +2597,6 @@ PARSE_TEST("object member requires value (2)", Standard, "{\"x\":}", FINAL, UTF8
 PARSE_TEST("object member missing (1)", Standard, "{,\"y\":2}", FINAL, UTF8, "{:0,0,0,0 !(UnexpectedToken):1,0,1,1")
 PARSE_TEST("object member missing (2)", Standard, "{\"x\":1,,\"y\":2}", FINAL, UTF8, "{:0,0,0,0 M(78):1,0,1,1 #(1):5,0,5,1 !(UnexpectedToken):7,0,7,1")
 PARSE_TEST("object member missing (3)", Standard, "{\"x\":1,}", FINAL, UTF8, "{:0,0,0,0 M(78):1,0,1,1 #(1):5,0,5,1 !(UnexpectedToken):7,0,7,1")
-PARSE_TEST("allow trailing comma after last object member (1)", AllowTrailingCommas, "{\"x\":0,}", FINAL, UTF8, "{:0,0,0,0 M(78):1,0,1,1 #(0):5,0,5,1 }:7,0,7,0")
-PARSE_TEST("allow trailing comma after last object member (2)", AllowTrailingCommas, "{\"x\":0,\"y\":1}", FINAL, UTF8, "{:0,0,0,0 M(78):1,0,1,1 #(0):5,0,5,1 m(79):7,0,7,1 #(1):11,0,11,1 }:12,0,12,0")
 PARSE_TEST("object members require comma separator", Standard, "{\"x\":1 \"y\":2}", FINAL, UTF8, "{:0,0,0,0 M(78):1,0,1,1 #(1):5,0,5,1 !(UnexpectedToken):7,0,7,1")
 PARSE_TEST("object members must be unique (1)", TrackObjectMembers, "{\"x\":1,\"x\":2}", FINAL, UTF8, "{:0,0,0,0 M(78):1,0,1,1 #(1):5,0,5,1 !(DuplicateObjectMember):7,0,7,1")
 PARSE_TEST("object members must be unique (2)", TrackObjectMembers, "{\"x\":1,\"y\":2,\"x\":3}", FINAL, UTF8, "{:0,0,0,0 M(78):1,0,1,1 #(1):5,0,5,1 m(79):7,0,7,1 #(2):11,0,11,1 !(DuplicateObjectMember):13,0,13,1")
@@ -2645,12 +2617,9 @@ PARSE_TEST("empty string object member name (4)", TrackObjectMembers, "{\"\":0,\
 /* arrays */
 
 PARSE_TEST("start array", UTF8In, "[", PARTIAL, UTF8, "[:0,0,0,0")
-PARSE_TEST("empty array (1)", Standard, "[]", FINAL, UTF8, "[:0,0,0,0 ]:1,0,1,0")
-PARSE_TEST("empty array (2)", AllowTrailingCommas, "[]", FINAL, UTF8, "[:0,0,0,0 ]:1,0,1,0")
-PARSE_TEST("single-item array (1)", Standard, "[ 3.14159 ]", FINAL, UTF8, "[:0,0,0,0 I:2,0,2,1 #(3.14159):2,0,2,1 ]:10,0,10,0")
-PARSE_TEST("single-item array (2)", AllowTrailingCommas, "[ 3.14159 ]", FINAL, UTF8, "[:0,0,0,0 I:2,0,2,1 #(3.14159):2,0,2,1 ]:10,0,10,0")
-PARSE_TEST("multi-item array (1)", Standard, "[ 3.14159, 2.71828 ]", FINAL, UTF8, "[:0,0,0,0 I:2,0,2,1 #(3.14159):2,0,2,1 i:11,0,11,1 #(2.71828):11,0,11,1 ]:19,0,19,0")
-PARSE_TEST("multi-item array (2)", AllowTrailingCommas, "[ 3.14159, 2.71828 ]", FINAL, UTF8, "[:0,0,0,0 I:2,0,2,1 #(3.14159):2,0,2,1 i:11,0,11,1 #(2.71828):11,0,11,1 ]:19,0,19,0")
+PARSE_TEST("empty array", Standard, "[]", FINAL, UTF8, "[:0,0,0,0 ]:1,0,1,0")
+PARSE_TEST("single-item array", Standard, "[ 3.14159 ]", FINAL, UTF8, "[:0,0,0,0 I:2,0,2,1 #(3.14159):2,0,2,1 ]:10,0,10,0")
+PARSE_TEST("multi-item array", Standard, "[ 3.14159, 2.71828 ]", FINAL, UTF8, "[:0,0,0,0 I:2,0,2,1 #(3.14159):2,0,2,1 i:11,0,11,1 #(2.71828):11,0,11,1 ]:19,0,19,0")
 PARSE_TEST("all types of array items", AllowSpecialNumbers | AllowHexNumbers, "[ null, true, \"foo\", 17, NaN, 0xbeef, {}, [] ]", FINAL, UTF8, "[:0,0,0,0 I:2,0,2,1 n:2,0,2,1 i:8,0,8,1 t:8,0,8,1 i:14,0,14,1 s(66 6F 6F):14,0,14,1 i:21,0,21,1 #(17):21,0,21,1 i:25,0,25,1 #(NaN):25,0,25,1 i:30,0,30,1 #(0xbeef):30,0,30,1 i:38,0,38,1 {:38,0,38,1 }:39,0,39,1 i:42,0,42,1 [:42,0,42,1 ]:43,0,43,1 ]:45,0,45,0")
 PARSE_TEST("nested arrays", Standard, "[[],[[],[[],[[],[[],[]]]]]]", FINAL, UTF8, "[:0,0,0,0 I:1,0,1,1 [:1,0,1,1 ]:2,0,2,1 i:4,0,4,1 [:4,0,4,1 I:5,0,5,2 [:5,0,5,2 ]:6,0,6,2 i:8,0,8,2 [:8,0,8,2 I:9,0,9,3 [:9,0,9,3 ]:10,0,10,3 i:12,0,12,3 [:12,0,12,3 I:13,0,13,4 [:13,0,13,4 ]:14,0,14,4 i:16,0,16,4 [:16,0,16,4 I:17,0,17,5 [:17,0,17,5 ]:18,0,18,5 i:20,0,20,5 [:20,0,20,5 ]:21,0,21,5 ]:22,0,22,4 ]:23,0,23,3 ]:24,0,24,2 ]:25,0,25,1 ]:26,0,26,0")
 PARSE_TEST("array truncated after left square brace", Standard, "[", FINAL, UTF8, "[:0,0,0,0 !(ExpectedMoreTokens):1,0,1,1")
@@ -2661,8 +2630,6 @@ PARSE_TEST("array truncated after comma (2)", Standard, "[1,2,", FINAL, UTF8, "[
 PARSE_TEST("array item missing (1)", Standard, "[,2]", FINAL, UTF8, "[:0,0,0,0 !(UnexpectedToken):1,0,1,1")
 PARSE_TEST("array item missing (2)", Standard, "[1,,2]", FINAL, UTF8, "[:0,0,0,0 I:1,0,1,1 #(1):1,0,1,1 !(UnexpectedToken):3,0,3,1")
 PARSE_TEST("array item missing (3)", Standard, "[1,]", FINAL, UTF8, "[:0,0,0,0 I:1,0,1,1 #(1):1,0,1,1 !(UnexpectedToken):3,0,3,1")
-PARSE_TEST("allow trailing comma after last array item (1)", AllowTrailingCommas, "[1,]", FINAL, UTF8, "[:0,0,0,0 I:1,0,1,1 #(1):1,0,1,1 ]:3,0,3,0")
-PARSE_TEST("allow trailing comma after last array item (2)", AllowTrailingCommas, "[1,2,]", FINAL, UTF8, "[:0,0,0,0 I:1,0,1,1 #(1):1,0,1,1 i:3,0,3,1 #(2):3,0,3,1 ]:5,0,5,0")
 PARSE_TEST("array items require comma separator", Standard, "[1 2]", FINAL, UTF8, "[:0,0,0,0 I:1,0,1,1 #(1):1,0,1,1 !(UnexpectedToken):3,0,3,1")
 
 /* comments */

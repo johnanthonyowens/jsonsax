@@ -502,34 +502,22 @@ static DecoderOutput Decoder_DecodeByte(Decoder decoder, JSON_Encoding encoding,
 /* The JSON grammar comprises the following productions:
 
    1.  VALUE => null
-   2.  VALUE => true
-   3.  VALUE => false
-   4.  VALUE => string
-   5.  VALUE => number
+   2.  VALUE => boolean
+   3.  VALUE => string
+   4.  VALUE => number
+   5.  VALUE => specialnumber
    6.  VALUE => { MEMBERS }
    7.  VALUE => [ ITEMS ]
-
    8.  MEMBERS => MEMBER MORE_MEMBERS
    9.  MEMBERS => e
-
    10. MEMBER => string : VALUE
-
-   11. MORE_MEMBERS => , MEMBERS_AFTER_COMMA
+   11. MORE_MEMBERS => , MEMBER MORE_MEMBERS
    12. MORE_MEMBERS => e
-
-   13. MEMBERS_AFTER_COMMA => MEMBER MORE_MEMBERS
-   14. MEMBERS_AFTER_COMMA => e (only if AllowTrailingCommas is enabled)
-
-   15. ITEMS => ITEM MORE_ITEMS
-   16. ITEMS => e
-
-   17. ITEM => VALUE
-
-   18. MORE_ITEMS => , ITEMS_AFTER_COMMA
-   19. MORE_ITEMS => e
-
-   20. ITEMS_AFTER_COMMA => ITEM MORE_ITEMS
-   21. ITEMS_AFTER_COMMA => e (only if AllowTrailingCommas is enabled)
+   13. ITEMS => ITEM MORE_ITEMS
+   14. ITEMS => e
+   15. ITEM => VALUE
+   16. MORE_ITEMS => , ITEM MORE_ITEMS
+   17. MORE_ITEMS => e
 
    We implement a simple LL(1) parser based on this grammar, with events
    emitted when certain non-terminals are replaced.
@@ -563,11 +551,9 @@ typedef enum tag_Symbol
     NT_MEMBERS              = 0x11,
     NT_MEMBER               = 0x12,
     NT_MORE_MEMBERS         = 0x13,
-    NT_MEMBERS_AFTER_COMMA  = 0x14,
-    NT_ITEMS                = 0x15,
-    NT_ITEM                 = 0x16,
-    NT_MORE_ITEMS           = 0x17,
-    NT_ITEMS_AFTER_COMMA    = 0x18
+    NT_ITEMS                = 0x14,
+    NT_ITEM                 = 0x15,
+    NT_MORE_ITEMS           = 0x16
 } Symbol;
 
 #define IS_NONTERMINAL(s) ((s) & 0x10)
@@ -596,16 +582,17 @@ typedef enum tag_GrammarianResultCode
    a token. */
 typedef enum tag_GrammarianEvent
 {
-    EMIT_NOTHING       = 0x0,
-    EMIT_NULL          = 0x1,
-    EMIT_BOOLEAN       = 0x2,
-    EMIT_STRING        = 0x3,
-    EMIT_NUMBER        = 0x4,
-    EMIT_START_OBJECT  = 0x5,
-    EMIT_END_OBJECT    = 0x6,
-    EMIT_OBJECT_MEMBER = 0x7,
-    EMIT_START_ARRAY   = 0x8,
-    EMIT_END_ARRAY     = 0x9,
+    EMIT_NOTHING        = 0x0,
+    EMIT_NULL           = 0x1,
+    EMIT_BOOLEAN        = 0x2,
+    EMIT_STRING         = 0x3,
+    EMIT_NUMBER         = 0x4,
+    EMIT_SPECIAL_NUMBER = 0x5,
+    EMIT_START_OBJECT   = 0x6,
+    EMIT_END_OBJECT     = 0x7,
+    EMIT_OBJECT_MEMBER  = 0x8,
+    EMIT_START_ARRAY    = 0x9,
+    EMIT_END_ARRAY      = 0xA,
 
     /* This value may be combined with other values. */
     EMIT_ARRAY_ITEM    = 0x10
@@ -722,49 +709,46 @@ static JSON_Status Grammarian_EnsureSymbolStackSlotAvailable(Grammarian grammari
 static GrammarianOutput Grammarian_ProcessToken(Grammarian grammarian, Symbol token, const JSON_MemorySuite* pMemorySuite)
 {
     /* The order and number of the rows and columns in this table must
-       match the token and non-terminal enum values in the Symbol enum. */
-    static const unsigned char ruleLookup[14][9] =
+       match the token and non-terminal enum values in the Symbol enum.
+       The comment token is not included, since it is handled specially. */
+    static const unsigned char ruleLookup[14][7] =
     {
-        /*             V     MS    M     MM   MAC    IS    I     MI   IAC  */
-        /*  null  */ { 1,    0,    0,    0,    0,    15,   17,   0,    20 },
-        /*  true  */ { 2,    0,    0,    0,    0,    15,   17,   0,    20 },
-        /* false  */ { 3,    0,    0,    0,    0,    15,   17,   0,    20 },
-        /* string */ { 4,    8,    10,   0,    13,   15,   17,   0,    20 },
-        /* number */ { 5,    0,    0,    0,    0,    15,   17,   0,    20 },
-        /*  NaN   */ { 5,    0,    0,    0,    0,    15,   17,   0,    20 },
-        /*  Inf   */ { 5,    0,    0,    0,    0,    15,   17,   0,    20 },
-        /* -Inf   */ { 5,    0,    0,    0,    0,    15,   17,   0,    20 },
-        /*   {    */ { 6,    0,    0,    0,    0,    15,   17,   0,    20 },
-        /*   }    */ { 0,    9,    0,    12,   14,   0,    0,    0,    0  },
-        /*   [    */ { 7,    0,    0,    0,    0,    15,   17,   0,    20 },
-        /*   ]    */ { 0,    0,    0,    0,    0,    16,   0,    19,   21 },
-        /*   :    */ { 0,    0,    0,    0,    0,    0,    0,    0,    0  },
-        /*   ,    */ { 0,    0,    0,    11,   0,    0,    0,    18,   0  }
+        /*             V     MS    M     MM    IS    I     MI  */
+        /*  null  */ { 1,    0,    0,    0,    13,   15,   0  },
+        /*  true  */ { 2,    0,    0,    0,    13,   15,   0  },
+        /* false  */ { 2,    0,    0,    0,    13,   15,   0  },
+        /* string */ { 3,    8,    10,   0,    13,   15,   0  },
+        /* number */ { 4,    0,    0,    0,    13,   15,   0  },
+        /*  NaN   */ { 5,    0,    0,    0,    13,   15,   0  },
+        /*  Inf   */ { 5,    0,    0,    0,    13,   15,   0  },
+        /* -Inf   */ { 5,    0,    0,    0,    13,   15,   0  },
+        /*   {    */ { 6,    0,    0,    0,    13,   15,   0  },
+        /*   }    */ { 0,    9,    0,    12,   0,    0,    0  },
+        /*   [    */ { 7,    0,    0,    0,    13,   15,   0  },
+        /*   ]    */ { 0,    0,    0,    0,    14,   0,    17 },
+        /*   :    */ { 0,    0,    0,    0,    0,    0,    0  },
+        /*   ,    */ { 0,    0,    0,    11,   0,    0,    16 }
     };
 
-    static const GrammarRule rules[21] =
+    static const GrammarRule rules[17] =
     {
-        /* 1.  */ { 0, 0, 0, GRAMMAR_ACTION(0, EMIT_NULL) },
-        /* 2.  */ { 0, 0, 0, GRAMMAR_ACTION(0, EMIT_BOOLEAN) },
-        /* 3.  */ { 0, 0, 0, GRAMMAR_ACTION(0, EMIT_BOOLEAN) },
-        /* 4.  */ { 0, 0, 0, GRAMMAR_ACTION(0, EMIT_STRING) },
-        /* 5.  */ { 0, 0, 0, GRAMMAR_ACTION(0, EMIT_NUMBER) },
-        /* 6.  */ { TOKEN_RIGHT_CURLY, NT_MEMBERS, 2, GRAMMAR_ACTION(0, EMIT_START_OBJECT) },
-        /* 7.  */ { TOKEN_RIGHT_SQUARE, NT_ITEMS, 2, GRAMMAR_ACTION(0, EMIT_START_ARRAY) },
-        /* 8.  */ { NT_MORE_MEMBERS, NT_MEMBER, 2, GRAMMAR_ACTION(1, EMIT_NOTHING) },
-        /* 9.  */ { 0, 0, 0, GRAMMAR_ACTION(1, EMIT_END_OBJECT) },
-        /* 10. */ { NT_VALUE, TOKEN_COLON, 2, GRAMMAR_ACTION(0, EMIT_OBJECT_MEMBER) },
-        /* 11. */ { NT_MEMBERS_AFTER_COMMA, 0, 1, GRAMMAR_ACTION(0, EMIT_NOTHING) },
-        /* 12. */ { 0, 0, 0, GRAMMAR_ACTION(1, EMIT_END_OBJECT) },
-        /* 13. */ { NT_MORE_MEMBERS, NT_MEMBER, 2, GRAMMAR_ACTION(1, EMIT_NOTHING) },
-        /* 14. */ { 0, 0, 0, GRAMMAR_ACTION(1, EMIT_END_OBJECT) },
-        /* 15. */ { NT_MORE_ITEMS, NT_ITEM, 2, GRAMMAR_ACTION(1, EMIT_NOTHING) },
-        /* 16. */ { 0, 0, 0, GRAMMAR_ACTION(1, EMIT_END_ARRAY) },
-        /* 17. */ { NT_VALUE, 0, 1, GRAMMAR_ACTION(1, EMIT_ARRAY_ITEM) },
-        /* 18. */ { NT_ITEMS_AFTER_COMMA, 0, 1, GRAMMAR_ACTION(0, EMIT_NOTHING) },
-        /* 19. */ { 0, 0, 0, GRAMMAR_ACTION(1, EMIT_END_ARRAY) },
-        /* 20. */ { NT_MORE_ITEMS, NT_ITEM, 2, GRAMMAR_ACTION(1, EMIT_NOTHING) },
-        /* 21. */ { 0, 0, 0, GRAMMAR_ACTION(1, EMIT_END_ARRAY) }
+        /* 1.  */ { 0,                  0,           0, GRAMMAR_ACTION(0, EMIT_NULL) },
+        /* 2.  */ { 0,                  0,           0, GRAMMAR_ACTION(0, EMIT_BOOLEAN) },
+        /* 3.  */ { 0,                  0,           0, GRAMMAR_ACTION(0, EMIT_STRING) },
+        /* 4.  */ { 0,                  0,           0, GRAMMAR_ACTION(0, EMIT_NUMBER) },
+        /* 5.  */ { 0,                  0,           0, GRAMMAR_ACTION(0, EMIT_SPECIAL_NUMBER) },
+        /* 6.  */ { TOKEN_RIGHT_CURLY,  NT_MEMBERS,  2, GRAMMAR_ACTION(0, EMIT_START_OBJECT) },
+        /* 7.  */ { TOKEN_RIGHT_SQUARE, NT_ITEMS,    2, GRAMMAR_ACTION(0, EMIT_START_ARRAY) },
+        /* 8.  */ { NT_MORE_MEMBERS,    NT_MEMBER,   2, GRAMMAR_ACTION(1, EMIT_NOTHING) },
+        /* 9.  */ { 0,                  0,           0, GRAMMAR_ACTION(1, EMIT_END_OBJECT) },
+        /* 10. */ { NT_VALUE,           TOKEN_COLON, 2, GRAMMAR_ACTION(0, EMIT_OBJECT_MEMBER) },
+        /* 11. */ { NT_MORE_MEMBERS,    NT_MEMBER,   2, GRAMMAR_ACTION(0, EMIT_NOTHING) },
+        /* 12. */ { 0,                  0,           0, GRAMMAR_ACTION(1, EMIT_END_OBJECT) },
+        /* 13. */ { NT_MORE_ITEMS,      NT_ITEM,     2, GRAMMAR_ACTION(1, EMIT_NOTHING) },
+        /* 14. */ { 0,                  0,           0, GRAMMAR_ACTION(1, EMIT_END_ARRAY) },
+        /* 15. */ { NT_VALUE,           0,           1, GRAMMAR_ACTION(1, EMIT_ARRAY_ITEM) },
+        /* 16. */ { NT_MORE_ITEMS,      NT_ITEM,     2, GRAMMAR_ACTION(0, EMIT_NOTHING) },
+        /* 17. */ { 0,                  0,           0, GRAMMAR_ACTION(1, EMIT_END_ARRAY) }
     };
 
     unsigned char eventToEmit = EMIT_NOTHING;
@@ -847,11 +831,10 @@ typedef enum tag_ParserStatus
     PARSER_AFTER_CARRIAGE_RETURN               = 1 << 4,
     PARSER_ALLOW_BOM                           = 1 << 5,
     PARSER_ALLOW_COMMENTS                      = 1 << 6,
-    PARSER_ALLOW_TRAILING_COMMAS               = 1 << 7,
-    PARSER_ALLOW_SPECIAL_NUMBERS               = 1 << 8,
-    PARSER_ALLOW_HEX_NUMBERS                   = 1 << 9,
-    PARSER_REPLACE_INVALID_ENCODING_SEQUENCES  = 1 << 10,
-    PARSER_TRACK_OBJECT_MEMBERS                = 1 << 11
+    PARSER_ALLOW_SPECIAL_NUMBERS               = 1 << 7,
+    PARSER_ALLOW_HEX_NUMBERS                   = 1 << 8,
+    PARSER_REPLACE_INVALID_ENCODING_SEQUENCES  = 1 << 9,
+    PARSER_TRACK_OBJECT_MEMBERS                = 1 << 10
 } ParserStatus;
 
 /* Mutually-exclusive lexer states. */
@@ -1751,19 +1734,16 @@ static JSON_Status JSON_Parser_HandleGrammarEvents(JSON_Parser parser, unsigned 
         break;
 
     case EMIT_NUMBER:
-        if (parser->token == TOKEN_NUMBER)
+        if (!JSON_Parser_CallNumberHandler(parser))
         {
-            if (!JSON_Parser_CallNumberHandler(parser))
-            {
-                return JSON_Failure;
-            }
+            return JSON_Failure;
         }
-        else
+        break;
+
+    case EMIT_SPECIAL_NUMBER:
+        if (!JSON_Parser_CallSpecialNumberHandler(parser))
         {
-            if (!JSON_Parser_CallSpecialNumberHandler(parser))
-            {
-                return JSON_Failure;
-            }
+            return JSON_Failure;
         }
         break;
 
@@ -1776,11 +1756,6 @@ static JSON_Status JSON_Parser_HandleGrammarEvents(JSON_Parser parser, unsigned 
         break;
 
     case EMIT_END_OBJECT:
-        if (parser->previousToken == TOKEN_COMMA && !(parser->parserStatus & PARSER_ALLOW_TRAILING_COMMAS))
-        {
-            JSON_Parser_SetErrorAtToken(parser, JSON_Error_UnexpectedToken);
-            return JSON_Failure;
-        }
         JSON_Parser_EndContainer(parser, 1/*isObject*/);
         if (!JSON_Parser_CallSimpleHandler(parser, parser->endObjectHandler))
         {
@@ -1805,11 +1780,6 @@ static JSON_Status JSON_Parser_HandleGrammarEvents(JSON_Parser parser, unsigned 
         break;
 
     case EMIT_END_ARRAY:
-        if (parser->previousToken == TOKEN_COMMA && !(parser->parserStatus & PARSER_ALLOW_TRAILING_COMMAS))
-        {
-            JSON_Parser_SetErrorAtToken(parser, JSON_Error_UnexpectedToken);
-            return JSON_Failure;
-        }
         JSON_Parser_EndContainer(parser, 0/*isObject*/);
         if (!JSON_Parser_CallSimpleHandler(parser, parser->endArrayHandler))
         {
@@ -3048,28 +3018,6 @@ JSON_Status JSON_CALL JSON_Parser_SetAllowComments(JSON_Parser parser, JSON_Bool
     else
     {
         parser->parserStatus &= ~PARSER_ALLOW_COMMENTS;
-    }
-    return JSON_Success;
-}
-
-JSON_Boolean JSON_CALL JSON_Parser_GetAllowTrailingCommas(JSON_Parser parser)
-{
-    return (parser && (parser->parserStatus & PARSER_ALLOW_TRAILING_COMMAS)) ? JSON_True : JSON_False;
-}
-
-JSON_Status JSON_CALL JSON_Parser_SetAllowTrailingCommas(JSON_Parser parser, JSON_Boolean allowTrailingCommas)
-{
-    if (!parser || (parser->parserStatus & PARSER_STARTED))
-    {
-        return JSON_Failure;
-    }
-    if (allowTrailingCommas)
-    {
-        parser->parserStatus |= PARSER_ALLOW_TRAILING_COMMAS;
-    }
-    else
-    {
-        parser->parserStatus &= ~PARSER_ALLOW_TRAILING_COMMAS;
     }
     return JSON_Success;
 }
