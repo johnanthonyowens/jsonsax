@@ -751,7 +751,7 @@ static GrammarianOutput Grammarian_ProcessToken(Grammarian grammarian, Symbol to
         /* 17. */ { 0,                  0,           0, GRAMMAR_ACTION(1, EMIT_END_ARRAY) }
     };
 
-    unsigned char eventToEmit = EMIT_NOTHING;
+    unsigned char emit = EMIT_NOTHING;
 
     /* Comment tokens are simply ignored whenever they are encountered. */
     if (token == TOKEN_COMMENT)
@@ -806,7 +806,7 @@ static GrammarianOutput Grammarian_ProcessToken(Grammarian grammarian, Symbol to
                         grammarian->symbolStackUsed++;
                     }
                 }
-                eventToEmit |= GRAMMAR_ACTION_EVENT(pRule->action);
+                emit |= GRAMMAR_ACTION_EVENT(pRule->action);
                 if (!GRAMMAR_ACTION_REPROCESS(pRule->action))
                 {
                     break;
@@ -815,7 +815,7 @@ static GrammarianOutput Grammarian_ProcessToken(Grammarian grammarian, Symbol to
         }
     }
 
-    return GRAMMARIAN_OUTPUT(ACCEPTED_TOKEN, eventToEmit);
+    return GRAMMARIAN_OUTPUT(ACCEPTED_TOKEN, emit);
 }
 
 /******************** JSON Parser ********************/
@@ -1053,7 +1053,6 @@ static JSON_Status JSON_Parser_AddMemberNameToList(JSON_Parser parser)
 
 static void JSON_Parser_ResetData(JSON_Parser parser, int isInitialized)
 {
-    parser->parserStatus = PARSER_RESET;
     parser->userData = NULL;
     parser->inputEncoding = JSON_UnknownEncoding;
     parser->outputEncoding = JSON_UTF8;
@@ -1110,6 +1109,7 @@ static void JSON_Parser_ResetData(JSON_Parser parser, int isInitialized)
     parser->startArrayHandler = NULL;
     parser->endArrayHandler = NULL;
     parser->arrayItemHandler = NULL;
+    parser->parserStatus = PARSER_RESET; /* do this last! */
 }
 
 static JSON_Status JSON_Parser_OutputNumberCharacter(JSON_Parser parser, unsigned char c)
