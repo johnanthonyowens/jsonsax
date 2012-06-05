@@ -94,10 +94,10 @@ static int CheckParserState(JSON_Parser parser, const ParserState* pExpectedStat
         printf("FAILURE: parser state does not match\n"
                "  STATE                                 EXPECTED     ACTUAL\n"
                "  JSON_Parser_GetError()                %8d   %8d\n"
-               "  JSON_Parser_GetErrorLocation().byte   %8d   %8d\n"
-               "  JSON_Parser_GetErrorLocation().line   %8d   %8d\n"
-               "  JSON_Parser_GetErrorLocation().column %8d   %8d\n"
-               "  JSON_Parser_GetErrorLocation().depth  %8d   %8d\n"
+               "  JSON_Parser_GetErrorLocation() byte   %8d   %8d\n"
+               "  JSON_Parser_GetErrorLocation() line   %8d   %8d\n"
+               "  JSON_Parser_GetErrorLocation() column %8d   %8d\n"
+               "  JSON_Parser_GetErrorLocation() depth  %8d   %8d\n"
                "  JSON_Parser_StartedParsing()          %8d   %8d\n"
                "  JSON_Parser_FinishedParsing()         %8d   %8d\n"
                "  JSON_Parser_GetInputEncoding()        %8d   %8d\n"
@@ -330,7 +330,7 @@ static int CheckParserHasDefaultValues(JSON_Parser parser)
            CheckParserHandlers(parser, &handlers);
 }
 
-static int CheckCreateParser(const JSON_MemorySuite* pMemorySuite, JSON_Status expectedStatus, JSON_Parser* pParser)
+static int CheckParserCreate(const JSON_MemorySuite* pMemorySuite, JSON_Status expectedStatus, JSON_Parser* pParser)
 {
     *pParser = JSON_Parser_Create(pMemorySuite);
     if (expectedStatus == JSON_Success && !*pParser)
@@ -348,17 +348,17 @@ static int CheckCreateParser(const JSON_MemorySuite* pMemorySuite, JSON_Status e
     return 1;
 }
 
-static int CheckCreateParserWithCustomMemorySuite(JSON_MallocHandler m, JSON_ReallocHandler r, JSON_FreeHandler f, JSON_Status expectedStatus, JSON_Parser* pParser)
+static int CheckParserCreateWithCustomMemorySuite(JSON_MallocHandler m, JSON_ReallocHandler r, JSON_FreeHandler f, JSON_Status expectedStatus, JSON_Parser* pParser)
 {
     JSON_MemorySuite memorySuite;
     memorySuite.userData = NULL;
     memorySuite.malloc = m;
     memorySuite.realloc = r;
     memorySuite.free = f;
-    return CheckCreateParser(&memorySuite, expectedStatus, pParser);
+    return CheckParserCreate(&memorySuite, expectedStatus, pParser);
 }
 
-static int CheckResetParser(JSON_Parser parser, JSON_Status expectedStatus)
+static int CheckParserReset(JSON_Parser parser, JSON_Status expectedStatus)
 {
     if (JSON_Parser_Reset(parser) != expectedStatus)
     {
@@ -368,7 +368,7 @@ static int CheckResetParser(JSON_Parser parser, JSON_Status expectedStatus)
     return 1;
 }
 
-static int CheckFreeParser(JSON_Parser parser, JSON_Status expectedStatus)
+static int CheckParserFree(JSON_Parser parser, JSON_Status expectedStatus)
 {
     if (JSON_Parser_Free(parser) != expectedStatus)
     {
@@ -378,7 +378,7 @@ static int CheckFreeParser(JSON_Parser parser, JSON_Status expectedStatus)
     return 1;
 }
 
-static int CheckGetErrorLocation(JSON_Parser parser, JSON_Location* pLocation, JSON_Status expectedStatus)
+static int CheckParserGetError(JSON_Parser parser, JSON_Location* pLocation, JSON_Status expectedStatus)
 {
     if (JSON_Parser_GetErrorLocation(parser, pLocation) != expectedStatus)
     {
@@ -388,7 +388,7 @@ static int CheckGetErrorLocation(JSON_Parser parser, JSON_Location* pLocation, J
     return 1;
 }
 
-static int CheckGetTokenLocation(JSON_Parser parser, JSON_Location* pLocation, JSON_Status expectedStatus)
+static int CheckParserGetTokenLocation(JSON_Parser parser, JSON_Location* pLocation, JSON_Status expectedStatus)
 {
     if (JSON_Parser_GetTokenLocation(parser, pLocation) != expectedStatus)
     {
@@ -398,7 +398,7 @@ static int CheckGetTokenLocation(JSON_Parser parser, JSON_Location* pLocation, J
     return 1;
 }
 
-static int CheckSetUserData(JSON_Parser parser, void* userData, JSON_Status expectedStatus)
+static int CheckParserSetUserData(JSON_Parser parser, void* userData, JSON_Status expectedStatus)
 {
     if (JSON_Parser_SetUserData(parser, userData) != expectedStatus)
     {
@@ -408,7 +408,7 @@ static int CheckSetUserData(JSON_Parser parser, void* userData, JSON_Status expe
     return 1;
 }
 
-static int CheckSetInputEncoding(JSON_Parser parser, JSON_Encoding encoding, JSON_Status expectedStatus)
+static int CheckParserSetInputEncoding(JSON_Parser parser, JSON_Encoding encoding, JSON_Status expectedStatus)
 {
     if (JSON_Parser_SetInputEncoding(parser, encoding) != expectedStatus)
     {
@@ -418,7 +418,7 @@ static int CheckSetInputEncoding(JSON_Parser parser, JSON_Encoding encoding, JSO
     return 1;
 }
 
-static int CheckSetOutputEncoding(JSON_Parser parser, JSON_Encoding encoding, JSON_Status expectedStatus)
+static int CheckParserSetOutputEncoding(JSON_Parser parser, JSON_Encoding encoding, JSON_Status expectedStatus)
 {
     if (JSON_Parser_SetOutputEncoding(parser, encoding) != expectedStatus)
     {
@@ -428,7 +428,7 @@ static int CheckSetOutputEncoding(JSON_Parser parser, JSON_Encoding encoding, JS
     return 1;
 }
 
-static int CheckSetMaxOutputStringLength(JSON_Parser parser, size_t maxLength, JSON_Status expectedStatus)
+static int CheckParserSetMaxOutputStringLength(JSON_Parser parser, size_t maxLength, JSON_Status expectedStatus)
 {
     if (JSON_Parser_SetMaxOutputStringLength(parser, maxLength) != expectedStatus)
     {
@@ -438,7 +438,7 @@ static int CheckSetMaxOutputStringLength(JSON_Parser parser, size_t maxLength, J
     return 1;
 }
 
-static int CheckSetAllowBOM(JSON_Parser parser, JSON_Boolean allowBOM, JSON_Status expectedStatus)
+static int CheckParserSetAllowBOM(JSON_Parser parser, JSON_Boolean allowBOM, JSON_Status expectedStatus)
 {
     if (JSON_Parser_SetAllowBOM(parser, allowBOM) != expectedStatus)
     {
@@ -448,7 +448,7 @@ static int CheckSetAllowBOM(JSON_Parser parser, JSON_Boolean allowBOM, JSON_Stat
     return 1;
 }
 
-static int CheckSetAllowComments(JSON_Parser parser, JSON_Boolean allowComments, JSON_Status expectedStatus)
+static int CheckParserSetAllowComments(JSON_Parser parser, JSON_Boolean allowComments, JSON_Status expectedStatus)
 {
     if (JSON_Parser_SetAllowComments(parser, allowComments) != expectedStatus)
     {
@@ -458,7 +458,7 @@ static int CheckSetAllowComments(JSON_Parser parser, JSON_Boolean allowComments,
     return 1;
 }
 
-static int CheckSetAllowSpecialNumbers(JSON_Parser parser, JSON_Boolean allowSpecialNumbers, JSON_Status expectedStatus)
+static int CheckParserSetAllowSpecialNumbers(JSON_Parser parser, JSON_Boolean allowSpecialNumbers, JSON_Status expectedStatus)
 {
     if (JSON_Parser_SetAllowSpecialNumbers(parser, allowSpecialNumbers) != expectedStatus)
     {
@@ -468,7 +468,7 @@ static int CheckSetAllowSpecialNumbers(JSON_Parser parser, JSON_Boolean allowSpe
     return 1;
 }
 
-static int CheckSetAllowHexNumbers(JSON_Parser parser, JSON_Boolean allowHexNumbers, JSON_Status expectedStatus)
+static int CheckParserSetAllowHexNumbers(JSON_Parser parser, JSON_Boolean allowHexNumbers, JSON_Status expectedStatus)
 {
     if (JSON_Parser_SetAllowHexNumbers(parser, allowHexNumbers) != expectedStatus)
     {
@@ -478,7 +478,7 @@ static int CheckSetAllowHexNumbers(JSON_Parser parser, JSON_Boolean allowHexNumb
     return 1;
 }
 
-static int CheckSetReplaceInvalidEncodingSequences(JSON_Parser parser, JSON_Boolean replaceInvalidEncodingSequences, JSON_Status expectedStatus)
+static int CheckParserSetReplaceInvalidEncodingSequences(JSON_Parser parser, JSON_Boolean replaceInvalidEncodingSequences, JSON_Status expectedStatus)
 {
     if (JSON_Parser_SetReplaceInvalidEncodingSequences(parser, replaceInvalidEncodingSequences) != expectedStatus)
     {
@@ -488,7 +488,7 @@ static int CheckSetReplaceInvalidEncodingSequences(JSON_Parser parser, JSON_Bool
     return 1;
 }
 
-static int CheckSetTrackObjectMembers(JSON_Parser parser, JSON_Boolean trackObjectMembers, JSON_Status expectedStatus)
+static int CheckParserSetTrackObjectMembers(JSON_Parser parser, JSON_Boolean trackObjectMembers, JSON_Status expectedStatus)
 {
     if (JSON_Parser_SetTrackObjectMembers(parser, trackObjectMembers) != expectedStatus)
     {
@@ -498,7 +498,7 @@ static int CheckSetTrackObjectMembers(JSON_Parser parser, JSON_Boolean trackObje
     return 1;
 }
 
-static int CheckSetNullHandler(JSON_Parser parser, JSON_Parser_NullHandler handler, JSON_Status expectedStatus)
+static int CheckParserSetNullHandler(JSON_Parser parser, JSON_Parser_NullHandler handler, JSON_Status expectedStatus)
 {
     if (JSON_Parser_SetNullHandler(parser, handler) != expectedStatus)
     {
@@ -508,7 +508,7 @@ static int CheckSetNullHandler(JSON_Parser parser, JSON_Parser_NullHandler handl
     return 1;
 }
 
-static int CheckSetBooleanHandler(JSON_Parser parser, JSON_Parser_BooleanHandler handler, JSON_Status expectedStatus)
+static int CheckParserSetBooleanHandler(JSON_Parser parser, JSON_Parser_BooleanHandler handler, JSON_Status expectedStatus)
 {
     if (JSON_Parser_SetBooleanHandler(parser, handler) != expectedStatus)
     {
@@ -518,7 +518,7 @@ static int CheckSetBooleanHandler(JSON_Parser parser, JSON_Parser_BooleanHandler
     return 1;
 }
 
-static int CheckSetStringHandler(JSON_Parser parser, JSON_Parser_StringHandler handler, JSON_Status expectedStatus)
+static int CheckParserSetStringHandler(JSON_Parser parser, JSON_Parser_StringHandler handler, JSON_Status expectedStatus)
 {
     if (JSON_Parser_SetStringHandler(parser, handler) != expectedStatus)
     {
@@ -528,7 +528,7 @@ static int CheckSetStringHandler(JSON_Parser parser, JSON_Parser_StringHandler h
     return 1;
 }
 
-static int CheckSetNumberHandler(JSON_Parser parser, JSON_Parser_NumberHandler handler, JSON_Status expectedStatus)
+static int CheckParserSetNumberHandler(JSON_Parser parser, JSON_Parser_NumberHandler handler, JSON_Status expectedStatus)
 {
     if (JSON_Parser_SetNumberHandler(parser, handler) != expectedStatus)
     {
@@ -538,7 +538,7 @@ static int CheckSetNumberHandler(JSON_Parser parser, JSON_Parser_NumberHandler h
     return 1;
 }
 
-static int CheckSetRawNumberHandler(JSON_Parser parser, JSON_Parser_RawNumberHandler handler, JSON_Status expectedStatus)
+static int CheckParserSetRawNumberHandler(JSON_Parser parser, JSON_Parser_RawNumberHandler handler, JSON_Status expectedStatus)
 {
     if (JSON_Parser_SetRawNumberHandler(parser, handler) != expectedStatus)
     {
@@ -548,7 +548,7 @@ static int CheckSetRawNumberHandler(JSON_Parser parser, JSON_Parser_RawNumberHan
     return 1;
 }
 
-static int CheckSetSpecialNumberHandler(JSON_Parser parser, JSON_Parser_SpecialNumberHandler handler, JSON_Status expectedStatus)
+static int CheckParserSetSpecialNumberHandler(JSON_Parser parser, JSON_Parser_SpecialNumberHandler handler, JSON_Status expectedStatus)
 {
     if (JSON_Parser_SetSpecialNumberHandler(parser, handler) != expectedStatus)
     {
@@ -558,7 +558,7 @@ static int CheckSetSpecialNumberHandler(JSON_Parser parser, JSON_Parser_SpecialN
     return 1;
 }
 
-static int CheckSetStartObjectHandler(JSON_Parser parser, JSON_Parser_StartObjectHandler handler, JSON_Status expectedStatus)
+static int CheckParserSetStartObjectHandler(JSON_Parser parser, JSON_Parser_StartObjectHandler handler, JSON_Status expectedStatus)
 {
     if (JSON_Parser_SetStartObjectHandler(parser, handler) != expectedStatus)
     {
@@ -568,7 +568,7 @@ static int CheckSetStartObjectHandler(JSON_Parser parser, JSON_Parser_StartObjec
     return 1;
 }
 
-static int CheckSetEndObjectHandler(JSON_Parser parser, JSON_Parser_EndObjectHandler handler, JSON_Status expectedStatus)
+static int CheckParserSetEndObjectHandler(JSON_Parser parser, JSON_Parser_EndObjectHandler handler, JSON_Status expectedStatus)
 {
     if (JSON_Parser_SetEndObjectHandler(parser, handler) != expectedStatus)
     {
@@ -578,7 +578,7 @@ static int CheckSetEndObjectHandler(JSON_Parser parser, JSON_Parser_EndObjectHan
     return 1;
 }
 
-static int CheckSetObjectMemberHandler(JSON_Parser parser, JSON_Parser_ObjectMemberHandler handler, JSON_Status expectedStatus)
+static int CheckParserSetObjectMemberHandler(JSON_Parser parser, JSON_Parser_ObjectMemberHandler handler, JSON_Status expectedStatus)
 {
     if (JSON_Parser_SetObjectMemberHandler(parser, handler) != expectedStatus)
     {
@@ -588,7 +588,7 @@ static int CheckSetObjectMemberHandler(JSON_Parser parser, JSON_Parser_ObjectMem
     return 1;
 }
 
-static int CheckSetStartArrayHandler(JSON_Parser parser, JSON_Parser_StartArrayHandler handler, JSON_Status expectedStatus)
+static int CheckParserSetStartArrayHandler(JSON_Parser parser, JSON_Parser_StartArrayHandler handler, JSON_Status expectedStatus)
 {
     if (JSON_Parser_SetStartArrayHandler(parser, handler) != expectedStatus)
     {
@@ -598,7 +598,7 @@ static int CheckSetStartArrayHandler(JSON_Parser parser, JSON_Parser_StartArrayH
     return 1;
 }
 
-static int CheckSetEndArrayHandler(JSON_Parser parser, JSON_Parser_EndArrayHandler handler, JSON_Status expectedStatus)
+static int CheckParserSetEndArrayHandler(JSON_Parser parser, JSON_Parser_EndArrayHandler handler, JSON_Status expectedStatus)
 {
     if (JSON_Parser_SetEndArrayHandler(parser, handler) != expectedStatus)
     {
@@ -608,7 +608,7 @@ static int CheckSetEndArrayHandler(JSON_Parser parser, JSON_Parser_EndArrayHandl
     return 1;
 }
 
-static int CheckSetArrayItemHandler(JSON_Parser parser, JSON_Parser_ArrayItemHandler handler, JSON_Status expectedStatus)
+static int CheckParserSetArrayItemHandler(JSON_Parser parser, JSON_Parser_ArrayItemHandler handler, JSON_Status expectedStatus)
 {
     if (JSON_Parser_SetArrayItemHandler(parser, handler) != expectedStatus)
     {
@@ -618,7 +618,7 @@ static int CheckSetArrayItemHandler(JSON_Parser parser, JSON_Parser_ArrayItemHan
     return 1;
 }
 
-static int CheckParse(JSON_Parser parser, const char* pBytes, size_t length, JSON_Boolean isFinal, JSON_Status expectedStatus)
+static int CheckParserParse(JSON_Parser parser, const char* pBytes, size_t length, JSON_Boolean isFinal, JSON_Status expectedStatus)
 {
     if (JSON_Parser_Parse(parser, pBytes, length, isFinal) != expectedStatus)
     {
@@ -797,18 +797,18 @@ static void ResetOutput()
 
 static int TryToMisbehaveInCallback(JSON_Parser parser)
 {
-    if (!CheckFreeParser(parser, JSON_Failure) ||
-        !CheckResetParser(parser, JSON_Failure) ||
-        !CheckGetTokenLocation(parser, NULL, JSON_Failure) ||
-        !CheckSetInputEncoding(parser, JSON_UTF32LE, JSON_Failure) ||
-        !CheckSetOutputEncoding(parser, JSON_UTF32LE, JSON_Failure) ||
-        !CheckSetAllowBOM(parser, JSON_True, JSON_Failure) ||
-        !CheckSetAllowComments(parser, JSON_True, JSON_Failure) ||
-        !CheckSetAllowSpecialNumbers(parser, JSON_True, JSON_Failure) ||
-        !CheckSetAllowHexNumbers(parser, JSON_True, JSON_Failure) ||
-        !CheckSetReplaceInvalidEncodingSequences(parser, JSON_True, JSON_Failure) ||
-        !CheckSetTrackObjectMembers(parser, JSON_True, JSON_Failure) ||
-        !CheckParse(parser, " ", 1, JSON_False, JSON_Failure))
+    if (!CheckParserFree(parser, JSON_Failure) ||
+        !CheckParserReset(parser, JSON_Failure) ||
+        !CheckParserGetTokenLocation(parser, NULL, JSON_Failure) ||
+        !CheckParserSetInputEncoding(parser, JSON_UTF32LE, JSON_Failure) ||
+        !CheckParserSetOutputEncoding(parser, JSON_UTF32LE, JSON_Failure) ||
+        !CheckParserSetAllowBOM(parser, JSON_True, JSON_Failure) ||
+        !CheckParserSetAllowComments(parser, JSON_True, JSON_Failure) ||
+        !CheckParserSetAllowSpecialNumbers(parser, JSON_True, JSON_Failure) ||
+        !CheckParserSetAllowHexNumbers(parser, JSON_True, JSON_Failure) ||
+        !CheckParserSetReplaceInvalidEncodingSequences(parser, JSON_True, JSON_Failure) ||
+        !CheckParserSetTrackObjectMembers(parser, JSON_True, JSON_Failure) ||
+        !CheckParserParse(parser, " ", 1, JSON_False, JSON_Failure))
     {
         return 1;
     }
@@ -1194,28 +1194,28 @@ static void RunParseTest(const ParseTest* pTest)
     state.inputEncoding = pTest->inputEncoding;
     ResetOutput();
 
-    if (CheckCreateParserWithCustomMemorySuite(&MallocHandler, &ReallocHandler, &FreeHandler, JSON_Success, &parser) &&
-        CheckSetNullHandler(parser, &NullHandler, JSON_Success) &&
-        CheckSetBooleanHandler(parser, &BooleanHandler, JSON_Success) &&
-        CheckSetStringHandler(parser, &StringHandler, JSON_Success) &&
-        CheckSetNumberHandler(parser, &NumberHandler, JSON_Success) &&
-        CheckSetRawNumberHandler(parser, &RawNumberHandler, JSON_Success) &&
-        CheckSetSpecialNumberHandler(parser, &SpecialNumberHandler, JSON_Success) &&
-        CheckSetStartObjectHandler(parser, &StartObjectHandler, JSON_Success) &&
-        CheckSetEndObjectHandler(parser, &EndObjectHandler, JSON_Success) &&
-        CheckSetObjectMemberHandler(parser, &ObjectMemberHandler, JSON_Success) &&
-        CheckSetStartArrayHandler(parser, &StartArrayHandler, JSON_Success) &&
-        CheckSetEndArrayHandler(parser, &EndArrayHandler, JSON_Success) &&
-        CheckSetArrayItemHandler(parser, &ArrayItemHandler, JSON_Success) &&
-        CheckSetInputEncoding(parser, settings.inputEncoding, JSON_Success) &&
-        CheckSetOutputEncoding(parser, settings.outputEncoding, JSON_Success) &&
-        CheckSetMaxOutputStringLength(parser, settings.maxOutputStringLength, JSON_Success) &&
-        CheckSetAllowBOM(parser, settings.allowBOM, JSON_Success) &&
-        CheckSetAllowComments(parser, settings.allowComments, JSON_Success) &&
-        CheckSetAllowSpecialNumbers(parser, settings.allowSpecialNumbers, JSON_Success) &&
-        CheckSetAllowHexNumbers(parser, settings.allowHexNumbers, JSON_Success) &&
-        CheckSetReplaceInvalidEncodingSequences(parser, settings.replaceInvalidEncodingSequences, JSON_Success) &&
-        CheckSetTrackObjectMembers(parser, settings.trackObjectMembers, JSON_Success))
+    if (CheckParserCreateWithCustomMemorySuite(&MallocHandler, &ReallocHandler, &FreeHandler, JSON_Success, &parser) &&
+        CheckParserSetNullHandler(parser, &NullHandler, JSON_Success) &&
+        CheckParserSetBooleanHandler(parser, &BooleanHandler, JSON_Success) &&
+        CheckParserSetStringHandler(parser, &StringHandler, JSON_Success) &&
+        CheckParserSetNumberHandler(parser, &NumberHandler, JSON_Success) &&
+        CheckParserSetRawNumberHandler(parser, &RawNumberHandler, JSON_Success) &&
+        CheckParserSetSpecialNumberHandler(parser, &SpecialNumberHandler, JSON_Success) &&
+        CheckParserSetStartObjectHandler(parser, &StartObjectHandler, JSON_Success) &&
+        CheckParserSetEndObjectHandler(parser, &EndObjectHandler, JSON_Success) &&
+        CheckParserSetObjectMemberHandler(parser, &ObjectMemberHandler, JSON_Success) &&
+        CheckParserSetStartArrayHandler(parser, &StartArrayHandler, JSON_Success) &&
+        CheckParserSetEndArrayHandler(parser, &EndArrayHandler, JSON_Success) &&
+        CheckParserSetArrayItemHandler(parser, &ArrayItemHandler, JSON_Success) &&
+        CheckParserSetInputEncoding(parser, settings.inputEncoding, JSON_Success) &&
+        CheckParserSetOutputEncoding(parser, settings.outputEncoding, JSON_Success) &&
+        CheckParserSetMaxOutputStringLength(parser, settings.maxOutputStringLength, JSON_Success) &&
+        CheckParserSetAllowBOM(parser, settings.allowBOM, JSON_Success) &&
+        CheckParserSetAllowComments(parser, settings.allowComments, JSON_Success) &&
+        CheckParserSetAllowSpecialNumbers(parser, settings.allowSpecialNumbers, JSON_Success) &&
+        CheckParserSetAllowHexNumbers(parser, settings.allowHexNumbers, JSON_Success) &&
+        CheckParserSetReplaceInvalidEncodingSequences(parser, settings.replaceInvalidEncodingSequences, JSON_Success) &&
+        CheckParserSetTrackObjectMembers(parser, settings.trackObjectMembers, JSON_Success))
     {
         if (JSON_Parser_Parse(parser, pTest->pInput, pTest->length, pTest->isFinal) != JSON_Success ||
             pTest->isFinal)
@@ -1247,11 +1247,11 @@ static void RunParseTest(const ParseTest* pTest)
     ResetOutput();
 }
 
-static void TestParserCreation()
+static void TestParserCreate()
 {
     JSON_Parser parser = NULL;
     printf("Test creating parser ... ");
-    if (CheckCreateParser(NULL, JSON_Success, &parser) &&
+    if (CheckParserCreate(NULL, JSON_Success, &parser) &&
         CheckParserHasDefaultValues(parser))
     {
         printf("OK\n");
@@ -1263,18 +1263,18 @@ static void TestParserCreation()
     JSON_Parser_Free(parser);
 }
 
-static void TestParserCreationWithCustomMemorySuite()
+static void TestParserCreateWithCustomMemorySuite()
 {
     JSON_Parser parser = NULL;
     printf("Test creating parser with custom memory suite ... ");
-    if (CheckCreateParserWithCustomMemorySuite(NULL, NULL, NULL, JSON_Failure, &parser) &&
-        CheckCreateParserWithCustomMemorySuite(&MallocHandler, NULL, NULL, JSON_Failure, &parser) &&
-        CheckCreateParserWithCustomMemorySuite(&MallocHandler, &ReallocHandler, NULL, JSON_Failure, &parser) &
-        CheckCreateParserWithCustomMemorySuite(&MallocHandler, NULL, &FreeHandler, JSON_Failure, &parser) &&
-        CheckCreateParserWithCustomMemorySuite(NULL, &ReallocHandler, NULL, JSON_Failure, &parser) &&
-        CheckCreateParserWithCustomMemorySuite(NULL, &ReallocHandler, &FreeHandler, JSON_Failure, &parser) &&
-        CheckCreateParserWithCustomMemorySuite(NULL, NULL, &FreeHandler, JSON_Failure, &parser) &&
-        CheckCreateParserWithCustomMemorySuite(&MallocHandler, &ReallocHandler, &FreeHandler, JSON_Success, &parser) &&
+    if (CheckParserCreateWithCustomMemorySuite(NULL, NULL, NULL, JSON_Failure, &parser) &&
+        CheckParserCreateWithCustomMemorySuite(&MallocHandler, NULL, NULL, JSON_Failure, &parser) &&
+        CheckParserCreateWithCustomMemorySuite(&MallocHandler, &ReallocHandler, NULL, JSON_Failure, &parser) &
+        CheckParserCreateWithCustomMemorySuite(&MallocHandler, NULL, &FreeHandler, JSON_Failure, &parser) &&
+        CheckParserCreateWithCustomMemorySuite(NULL, &ReallocHandler, NULL, JSON_Failure, &parser) &&
+        CheckParserCreateWithCustomMemorySuite(NULL, &ReallocHandler, &FreeHandler, JSON_Failure, &parser) &&
+        CheckParserCreateWithCustomMemorySuite(NULL, NULL, &FreeHandler, JSON_Failure, &parser) &&
+        CheckParserCreateWithCustomMemorySuite(&MallocHandler, &ReallocHandler, &FreeHandler, JSON_Success, &parser) &&
         CheckParserHasDefaultValues(parser))
     {
         printf("OK\n");
@@ -1286,12 +1286,12 @@ static void TestParserCreationWithCustomMemorySuite()
     JSON_Parser_Free(parser);
 }
 
-static void TestParserCreationMallocFailure()
+static void TestParserCreateMallocFailure()
 {
     JSON_Parser parser = NULL;
     printf("Test creating parser malloc failure ... ");
     s_failMalloc = 1;
-    if (CheckCreateParserWithCustomMemorySuite(&MallocHandler, &ReallocHandler, &FreeHandler, JSON_Failure, &parser))
+    if (CheckParserCreateWithCustomMemorySuite(&MallocHandler, &ReallocHandler, &FreeHandler, JSON_Failure, &parser))
     {
         printf("OK\n");
     }
@@ -1303,7 +1303,7 @@ static void TestParserCreationMallocFailure()
     JSON_Parser_Free(parser);
 }
 
-static void TestSetParserSettings()
+static void TestParserSetSettings()
 {
     JSON_Parser parser = NULL;
     ParserSettings settings;
@@ -1318,17 +1318,17 @@ static void TestSetParserSettings()
     settings.allowHexNumbers = JSON_True;
     settings.replaceInvalidEncodingSequences = JSON_True;
     settings.trackObjectMembers = JSON_True;
-    if (CheckCreateParser(NULL, JSON_Success, &parser) &&
-        CheckSetUserData(parser, settings.userData, JSON_Success) &&
-        CheckSetInputEncoding(parser, settings.inputEncoding, JSON_Success) &&
-        CheckSetOutputEncoding(parser, settings.outputEncoding, JSON_Success) &&
-        CheckSetMaxOutputStringLength(parser, settings.maxOutputStringLength, JSON_Success) &&
-        CheckSetAllowBOM(parser, settings.allowBOM, JSON_Success) &&
-        CheckSetAllowComments(parser, settings.allowComments, JSON_Success) &&
-        CheckSetAllowSpecialNumbers(parser, settings.allowSpecialNumbers, JSON_Success) &&
-        CheckSetAllowHexNumbers(parser, settings.allowHexNumbers, JSON_Success) &&
-        CheckSetReplaceInvalidEncodingSequences(parser, settings.replaceInvalidEncodingSequences, JSON_Success) &&
-        CheckSetTrackObjectMembers(parser, settings.trackObjectMembers, JSON_Success) &&
+    if (CheckParserCreate(NULL, JSON_Success, &parser) &&
+        CheckParserSetUserData(parser, settings.userData, JSON_Success) &&
+        CheckParserSetInputEncoding(parser, settings.inputEncoding, JSON_Success) &&
+        CheckParserSetOutputEncoding(parser, settings.outputEncoding, JSON_Success) &&
+        CheckParserSetMaxOutputStringLength(parser, settings.maxOutputStringLength, JSON_Success) &&
+        CheckParserSetAllowBOM(parser, settings.allowBOM, JSON_Success) &&
+        CheckParserSetAllowComments(parser, settings.allowComments, JSON_Success) &&
+        CheckParserSetAllowSpecialNumbers(parser, settings.allowSpecialNumbers, JSON_Success) &&
+        CheckParserSetAllowHexNumbers(parser, settings.allowHexNumbers, JSON_Success) &&
+        CheckParserSetReplaceInvalidEncodingSequences(parser, settings.replaceInvalidEncodingSequences, JSON_Success) &&
+        CheckParserSetTrackObjectMembers(parser, settings.trackObjectMembers, JSON_Success) &&
         CheckParserSettings(parser, &settings))
     {
         printf("OK\n");
@@ -1340,18 +1340,18 @@ static void TestSetParserSettings()
     JSON_Parser_Free(parser);
 }
 
-static void TestSetInvalidParserSettings()
+static void TestParserSetInvalidSettings()
 {
     JSON_Parser parser = NULL;
     ParserSettings settings;
     printf("Test setting invalid parser settings ... ");
     InitParserSettings(&settings);
-    if (CheckCreateParser(NULL, JSON_Success, &parser) &&
-        CheckSetInputEncoding(parser, (JSON_Encoding)-1, JSON_Failure) &&
-        CheckSetInputEncoding(parser, (JSON_Encoding)(JSON_UTF32BE + 1), JSON_Failure) &&
-        CheckSetOutputEncoding(parser, (JSON_Encoding)-1, JSON_Failure) &&
-        CheckSetOutputEncoding(parser, JSON_UnknownEncoding, JSON_Failure) &&
-        CheckSetOutputEncoding(parser, (JSON_Encoding)(JSON_UTF32BE + 1), JSON_Failure) &&
+    if (CheckParserCreate(NULL, JSON_Success, &parser) &&
+        CheckParserSetInputEncoding(parser, (JSON_Encoding)-1, JSON_Failure) &&
+        CheckParserSetInputEncoding(parser, (JSON_Encoding)(JSON_UTF32BE + 1), JSON_Failure) &&
+        CheckParserSetOutputEncoding(parser, (JSON_Encoding)-1, JSON_Failure) &&
+        CheckParserSetOutputEncoding(parser, JSON_UnknownEncoding, JSON_Failure) &&
+        CheckParserSetOutputEncoding(parser, (JSON_Encoding)(JSON_UTF32BE + 1), JSON_Failure) &&
         CheckParserSettings(parser, &settings))
     {
         printf("OK\n");
@@ -1363,7 +1363,7 @@ static void TestSetInvalidParserSettings()
     JSON_Parser_Free(parser);
 }
 
-static void TestSetParserHandlers()
+static void TestParserSetHandlers()
 {
     JSON_Parser parser = NULL;
     ParserHandlers handlers;
@@ -1381,19 +1381,19 @@ static void TestSetParserHandlers()
     handlers.startArrayHandler = &StartArrayHandler;
     handlers.endArrayHandler = &EndArrayHandler;
     handlers.arrayItemHandler = &ArrayItemHandler;
-    if (CheckCreateParser(NULL, JSON_Success, &parser) &&
-        CheckSetNullHandler(parser, handlers.nullHandler, JSON_Success) &&
-        CheckSetBooleanHandler(parser, handlers.booleanHandler, JSON_Success) &&
-        CheckSetStringHandler(parser, handlers.stringHandler, JSON_Success) &&
-        CheckSetNumberHandler(parser, handlers.numberHandler, JSON_Success) &&
-        CheckSetRawNumberHandler(parser, handlers.rawNumberHandler, JSON_Success) &&
-        CheckSetSpecialNumberHandler(parser, handlers.specialNumberHandler, JSON_Success) &&
-        CheckSetStartObjectHandler(parser, handlers.startObjectHandler, JSON_Success) &&
-        CheckSetEndObjectHandler(parser, handlers.endObjectHandler, JSON_Success) &&
-        CheckSetObjectMemberHandler(parser, handlers.objectMemberHandler, JSON_Success) &&
-        CheckSetStartArrayHandler(parser, handlers.startArrayHandler, JSON_Success) &&
-        CheckSetEndArrayHandler(parser, handlers.endArrayHandler, JSON_Success) &&
-        CheckSetArrayItemHandler(parser, handlers.arrayItemHandler, JSON_Success) &&
+    if (CheckParserCreate(NULL, JSON_Success, &parser) &&
+        CheckParserSetNullHandler(parser, handlers.nullHandler, JSON_Success) &&
+        CheckParserSetBooleanHandler(parser, handlers.booleanHandler, JSON_Success) &&
+        CheckParserSetStringHandler(parser, handlers.stringHandler, JSON_Success) &&
+        CheckParserSetNumberHandler(parser, handlers.numberHandler, JSON_Success) &&
+        CheckParserSetRawNumberHandler(parser, handlers.rawNumberHandler, JSON_Success) &&
+        CheckParserSetSpecialNumberHandler(parser, handlers.specialNumberHandler, JSON_Success) &&
+        CheckParserSetStartObjectHandler(parser, handlers.startObjectHandler, JSON_Success) &&
+        CheckParserSetEndObjectHandler(parser, handlers.endObjectHandler, JSON_Success) &&
+        CheckParserSetObjectMemberHandler(parser, handlers.objectMemberHandler, JSON_Success) &&
+        CheckParserSetStartArrayHandler(parser, handlers.startArrayHandler, JSON_Success) &&
+        CheckParserSetEndArrayHandler(parser, handlers.endArrayHandler, JSON_Success) &&
+        CheckParserSetArrayItemHandler(parser, handlers.arrayItemHandler, JSON_Success) &&
         CheckParserHandlers(parser, &handlers))
     {
         printf("OK\n");
@@ -1405,7 +1405,7 @@ static void TestSetParserHandlers()
     JSON_Parser_Free(parser);
 }
 
-static void TestResetParser()
+static void TestParserReset()
 {
     JSON_Parser parser = NULL;
     ParserState state;
@@ -1415,31 +1415,31 @@ static void TestResetParser()
     InitParserState(&state);
     InitParserSettings(&settings);
     InitParserHandlers(&handlers);
-    if (CheckCreateParser(NULL, JSON_Success, &parser) &&
-        CheckSetUserData(parser, (void*)1, JSON_Success) &&
-        CheckSetInputEncoding(parser, JSON_UTF16LE, JSON_Success) &&
-        CheckSetOutputEncoding(parser, JSON_UTF16LE, JSON_Success) &&
-        CheckSetMaxOutputStringLength(parser, 32, JSON_Success) &&
-        CheckSetAllowBOM(parser, JSON_True, JSON_Success) &&
-        CheckSetAllowComments(parser, JSON_True, JSON_Success) &&
-        CheckSetAllowSpecialNumbers(parser, JSON_True, JSON_Success) &&
-        CheckSetAllowHexNumbers(parser, JSON_True, JSON_Success) &&
-        CheckSetReplaceInvalidEncodingSequences(parser, JSON_True, JSON_Success) &&
-        CheckSetTrackObjectMembers(parser, JSON_True, JSON_Success) &&
-        CheckSetNullHandler(parser, &NullHandler, JSON_Success) &&
-        CheckSetBooleanHandler(parser, &BooleanHandler, JSON_Success) &&
-        CheckSetStringHandler(parser, &StringHandler, JSON_Success) &&
-        CheckSetNumberHandler(parser, &NumberHandler, JSON_Success) &&
-        CheckSetRawNumberHandler(parser, &RawNumberHandler, JSON_Success) &&
-        CheckSetSpecialNumberHandler(parser, &SpecialNumberHandler, JSON_Success) &&
-        CheckSetStartObjectHandler(parser, &StartObjectHandler, JSON_Success) &&
-        CheckSetEndObjectHandler(parser, &EndObjectHandler, JSON_Success) &&
-        CheckSetObjectMemberHandler(parser, &ObjectMemberHandler, JSON_Success) &&
-        CheckSetStartArrayHandler(parser, &StartArrayHandler, JSON_Success) &&
-        CheckSetEndArrayHandler(parser, &EndArrayHandler, JSON_Success) &&
-        CheckSetArrayItemHandler(parser, &ArrayItemHandler, JSON_Success) &&
-        CheckParse(parser, "7\x00", 2, JSON_True, JSON_Success) &&
-        CheckResetParser(parser, JSON_Success) &&
+    if (CheckParserCreate(NULL, JSON_Success, &parser) &&
+        CheckParserSetUserData(parser, (void*)1, JSON_Success) &&
+        CheckParserSetInputEncoding(parser, JSON_UTF16LE, JSON_Success) &&
+        CheckParserSetOutputEncoding(parser, JSON_UTF16LE, JSON_Success) &&
+        CheckParserSetMaxOutputStringLength(parser, 32, JSON_Success) &&
+        CheckParserSetAllowBOM(parser, JSON_True, JSON_Success) &&
+        CheckParserSetAllowComments(parser, JSON_True, JSON_Success) &&
+        CheckParserSetAllowSpecialNumbers(parser, JSON_True, JSON_Success) &&
+        CheckParserSetAllowHexNumbers(parser, JSON_True, JSON_Success) &&
+        CheckParserSetReplaceInvalidEncodingSequences(parser, JSON_True, JSON_Success) &&
+        CheckParserSetTrackObjectMembers(parser, JSON_True, JSON_Success) &&
+        CheckParserSetNullHandler(parser, &NullHandler, JSON_Success) &&
+        CheckParserSetBooleanHandler(parser, &BooleanHandler, JSON_Success) &&
+        CheckParserSetStringHandler(parser, &StringHandler, JSON_Success) &&
+        CheckParserSetNumberHandler(parser, &NumberHandler, JSON_Success) &&
+        CheckParserSetRawNumberHandler(parser, &RawNumberHandler, JSON_Success) &&
+        CheckParserSetSpecialNumberHandler(parser, &SpecialNumberHandler, JSON_Success) &&
+        CheckParserSetStartObjectHandler(parser, &StartObjectHandler, JSON_Success) &&
+        CheckParserSetEndObjectHandler(parser, &EndObjectHandler, JSON_Success) &&
+        CheckParserSetObjectMemberHandler(parser, &ObjectMemberHandler, JSON_Success) &&
+        CheckParserSetStartArrayHandler(parser, &StartArrayHandler, JSON_Success) &&
+        CheckParserSetEndArrayHandler(parser, &EndArrayHandler, JSON_Success) &&
+        CheckParserSetArrayItemHandler(parser, &ArrayItemHandler, JSON_Success) &&
+        CheckParserParse(parser, "7\x00", 2, JSON_True, JSON_Success) &&
+        CheckParserReset(parser, JSON_Success) &&
         CheckParserState(parser, &state) &&
         CheckParserSettings(parser, &settings) &&
         CheckParserHandlers(parser, &handlers))
@@ -1453,59 +1453,59 @@ static void TestResetParser()
     JSON_Parser_Free(parser);
 }
 
-static void TestMisbehaveInCallbacks()
+static void TestParserMisbehaveInCallbacks()
 {
     JSON_Parser parser = NULL;
     printf("Test misbehaving in callbacks ... ");
     s_misbehaveInCallback = 1;
-    if (CheckCreateParser(NULL, JSON_Success, &parser) &&
-        CheckSetNullHandler(parser, &NullHandler, JSON_Success) &&
-        CheckParse(parser, "null", 4, JSON_True, JSON_Success) &&
+    if (CheckParserCreate(NULL, JSON_Success, &parser) &&
+        CheckParserSetNullHandler(parser, &NullHandler, JSON_Success) &&
+        CheckParserParse(parser, "null", 4, JSON_True, JSON_Success) &&
 
-        CheckResetParser(parser, JSON_Success) &&
-        CheckSetBooleanHandler(parser, &BooleanHandler, JSON_Success) &&
-        CheckParse(parser, "true", 4, JSON_True, JSON_Success) &&
+        CheckParserReset(parser, JSON_Success) &&
+        CheckParserSetBooleanHandler(parser, &BooleanHandler, JSON_Success) &&
+        CheckParserParse(parser, "true", 4, JSON_True, JSON_Success) &&
 
-        CheckResetParser(parser, JSON_Success) &&
-        CheckSetStringHandler(parser, &StringHandler, JSON_Success) &&
-        CheckParse(parser, "\"\"", 2, JSON_True, JSON_Success) &&
+        CheckParserReset(parser, JSON_Success) &&
+        CheckParserSetStringHandler(parser, &StringHandler, JSON_Success) &&
+        CheckParserParse(parser, "\"\"", 2, JSON_True, JSON_Success) &&
 
-        CheckResetParser(parser, JSON_Success) &&
-        CheckSetNumberHandler(parser, &NumberHandler, JSON_Success) &&
-        CheckParse(parser, "7", 1, JSON_True, JSON_Success) &&
+        CheckParserReset(parser, JSON_Success) &&
+        CheckParserSetNumberHandler(parser, &NumberHandler, JSON_Success) &&
+        CheckParserParse(parser, "7", 1, JSON_True, JSON_Success) &&
 
-        CheckResetParser(parser, JSON_Success) &&
-        CheckSetRawNumberHandler(parser, &RawNumberHandler, JSON_Success) &&
-        CheckParse(parser, "7", 1, JSON_True, JSON_Success) &&
+        CheckParserReset(parser, JSON_Success) &&
+        CheckParserSetRawNumberHandler(parser, &RawNumberHandler, JSON_Success) &&
+        CheckParserParse(parser, "7", 1, JSON_True, JSON_Success) &&
 
-        CheckResetParser(parser, JSON_Success) &&
-        CheckSetAllowSpecialNumbers(parser, JSON_True, JSON_Success) &&
-        CheckSetSpecialNumberHandler(parser, &SpecialNumberHandler, JSON_Success) &&
-        CheckParse(parser, "NaN", 3, JSON_True, JSON_Success) &&
+        CheckParserReset(parser, JSON_Success) &&
+        CheckParserSetAllowSpecialNumbers(parser, JSON_True, JSON_Success) &&
+        CheckParserSetSpecialNumberHandler(parser, &SpecialNumberHandler, JSON_Success) &&
+        CheckParserParse(parser, "NaN", 3, JSON_True, JSON_Success) &&
 
-        CheckResetParser(parser, JSON_Success) &&
-        CheckSetStartObjectHandler(parser, &StartObjectHandler, JSON_Success) &&
-        CheckParse(parser, "{\"x\":0}", 7, JSON_True, JSON_Success) &&
+        CheckParserReset(parser, JSON_Success) &&
+        CheckParserSetStartObjectHandler(parser, &StartObjectHandler, JSON_Success) &&
+        CheckParserParse(parser, "{\"x\":0}", 7, JSON_True, JSON_Success) &&
 
-        CheckResetParser(parser, JSON_Success) &&
-        CheckSetEndObjectHandler(parser, &EndObjectHandler, JSON_Success) &&
-        CheckParse(parser, "{\"x\":0}", 7, JSON_True, JSON_Success) &&
+        CheckParserReset(parser, JSON_Success) &&
+        CheckParserSetEndObjectHandler(parser, &EndObjectHandler, JSON_Success) &&
+        CheckParserParse(parser, "{\"x\":0}", 7, JSON_True, JSON_Success) &&
 
-        CheckResetParser(parser, JSON_Success) &&
-        CheckSetObjectMemberHandler(parser, &ObjectMemberHandler, JSON_Success) &&
-        CheckParse(parser, "{\"x\":0}", 7, JSON_True, JSON_Success) &&
+        CheckParserReset(parser, JSON_Success) &&
+        CheckParserSetObjectMemberHandler(parser, &ObjectMemberHandler, JSON_Success) &&
+        CheckParserParse(parser, "{\"x\":0}", 7, JSON_True, JSON_Success) &&
 
-        CheckResetParser(parser, JSON_Success) &&
-        CheckSetStartArrayHandler(parser, &StartArrayHandler, JSON_Success) &&
-        CheckParse(parser, "[0]", 3, JSON_True, JSON_Success) &&
+        CheckParserReset(parser, JSON_Success) &&
+        CheckParserSetStartArrayHandler(parser, &StartArrayHandler, JSON_Success) &&
+        CheckParserParse(parser, "[0]", 3, JSON_True, JSON_Success) &&
 
-        CheckResetParser(parser, JSON_Success) &&
-        CheckSetEndArrayHandler(parser, &EndArrayHandler, JSON_Success) &&
-        CheckParse(parser, "[0]", 3, JSON_True, JSON_Success) &&
+        CheckParserReset(parser, JSON_Success) &&
+        CheckParserSetEndArrayHandler(parser, &EndArrayHandler, JSON_Success) &&
+        CheckParserParse(parser, "[0]", 3, JSON_True, JSON_Success) &&
 
-        CheckResetParser(parser, JSON_Success) &&
-        CheckSetArrayItemHandler(parser, &ArrayItemHandler, JSON_Success) &&
-        CheckParse(parser, "[0]", 3, JSON_True, JSON_Success))
+        CheckParserReset(parser, JSON_Success) &&
+        CheckParserSetArrayItemHandler(parser, &ArrayItemHandler, JSON_Success) &&
+        CheckParserParse(parser, "[0]", 3, JSON_True, JSON_Success))
     {
         printf("OK\n");
     }
@@ -1517,7 +1517,7 @@ static void TestMisbehaveInCallbacks()
     JSON_Parser_Free(parser);
 }
 
-static void TestAbortInCallbacks()
+static void TestParserAbortInCallbacks()
 {
     JSON_Parser parser = NULL;
     ParserState state;
@@ -1532,67 +1532,67 @@ static void TestAbortInCallbacks()
     state.finishedParsing = JSON_True;
     state.inputEncoding = JSON_UTF8;
     s_failParseCallback = 1;
-    if (CheckCreateParser(NULL, JSON_Success, &parser) &&
-        CheckSetNullHandler(parser, &NullHandler, JSON_Success) &&
-        CheckParse(parser, " null", 6, JSON_True, JSON_Failure) &&
+    if (CheckParserCreate(NULL, JSON_Success, &parser) &&
+        CheckParserSetNullHandler(parser, &NullHandler, JSON_Success) &&
+        CheckParserParse(parser, " null", 6, JSON_True, JSON_Failure) &&
         CheckParserState(parser, &state) &&
 
-        CheckResetParser(parser, JSON_Success) &&
-        CheckSetBooleanHandler(parser, &BooleanHandler, JSON_Success) &&
-        CheckParse(parser, " true", 6, JSON_True, JSON_Failure) &&
+        CheckParserReset(parser, JSON_Success) &&
+        CheckParserSetBooleanHandler(parser, &BooleanHandler, JSON_Success) &&
+        CheckParserParse(parser, " true", 6, JSON_True, JSON_Failure) &&
         CheckParserState(parser, &state) &&
 
-        CheckResetParser(parser, JSON_Success) &&
-        CheckSetStringHandler(parser, &StringHandler, JSON_Success) &&
-        CheckParse(parser, " \"\"", 3, JSON_True, JSON_Failure) &&
+        CheckParserReset(parser, JSON_Success) &&
+        CheckParserSetStringHandler(parser, &StringHandler, JSON_Success) &&
+        CheckParserParse(parser, " \"\"", 3, JSON_True, JSON_Failure) &&
         CheckParserState(parser, &state) &&
 
-        CheckResetParser(parser, JSON_Success) &&
-        CheckSetNumberHandler(parser, &NumberHandler, JSON_Success) &&
-        CheckParse(parser, " 7", 2, JSON_True, JSON_Failure) &&
+        CheckParserReset(parser, JSON_Success) &&
+        CheckParserSetNumberHandler(parser, &NumberHandler, JSON_Success) &&
+        CheckParserParse(parser, " 7", 2, JSON_True, JSON_Failure) &&
         CheckParserState(parser, &state) &&
 
-        CheckResetParser(parser, JSON_Success) &&
-        CheckSetRawNumberHandler(parser, &RawNumberHandler, JSON_Success) &&
-        CheckParse(parser, " 7", 2, JSON_True, JSON_Failure) &&
+        CheckParserReset(parser, JSON_Success) &&
+        CheckParserSetRawNumberHandler(parser, &RawNumberHandler, JSON_Success) &&
+        CheckParserParse(parser, " 7", 2, JSON_True, JSON_Failure) &&
         CheckParserState(parser, &state) &&
 
-        CheckResetParser(parser, JSON_Success) &&
-        CheckSetAllowSpecialNumbers(parser, JSON_True, JSON_Success) &&
-        CheckSetSpecialNumberHandler(parser, &SpecialNumberHandler, JSON_Success) &&
-        CheckParse(parser, " NaN", 4, JSON_True, JSON_Failure) &&
+        CheckParserReset(parser, JSON_Success) &&
+        CheckParserSetAllowSpecialNumbers(parser, JSON_True, JSON_Success) &&
+        CheckParserSetSpecialNumberHandler(parser, &SpecialNumberHandler, JSON_Success) &&
+        CheckParserParse(parser, " NaN", 4, JSON_True, JSON_Failure) &&
         CheckParserState(parser, &state) &&
 
-        CheckResetParser(parser, JSON_Success) &&
-        CheckSetStartObjectHandler(parser, &StartObjectHandler, JSON_Success) &&
-        CheckParse(parser, " {}", 3, JSON_True, JSON_Failure) &&
+        CheckParserReset(parser, JSON_Success) &&
+        CheckParserSetStartObjectHandler(parser, &StartObjectHandler, JSON_Success) &&
+        CheckParserParse(parser, " {}", 3, JSON_True, JSON_Failure) &&
         CheckParserState(parser, &state) &&
 
-        CheckResetParser(parser, JSON_Success) &&
-        CheckSetEndObjectHandler(parser, &EndObjectHandler, JSON_Success) &&
-        CheckParse(parser, "{}", 2, JSON_True, JSON_Failure) &&
+        CheckParserReset(parser, JSON_Success) &&
+        CheckParserSetEndObjectHandler(parser, &EndObjectHandler, JSON_Success) &&
+        CheckParserParse(parser, "{}", 2, JSON_True, JSON_Failure) &&
         CheckParserState(parser, &state) &&
 
-        CheckResetParser(parser, JSON_Success) &&
-        CheckSetStartArrayHandler(parser, &StartArrayHandler, JSON_Success) &&
-        CheckParse(parser, " []", 3, JSON_True, JSON_Failure) &&
+        CheckParserReset(parser, JSON_Success) &&
+        CheckParserSetStartArrayHandler(parser, &StartArrayHandler, JSON_Success) &&
+        CheckParserParse(parser, " []", 3, JSON_True, JSON_Failure) &&
         CheckParserState(parser, &state) &&
 
-        CheckResetParser(parser, JSON_Success) &&
-        CheckSetEndArrayHandler(parser, &EndArrayHandler, JSON_Success) &&
-        CheckParse(parser, "[]", 2, JSON_True, JSON_Failure) &&
+        CheckParserReset(parser, JSON_Success) &&
+        CheckParserSetEndArrayHandler(parser, &EndArrayHandler, JSON_Success) &&
+        CheckParserParse(parser, "[]", 2, JSON_True, JSON_Failure) &&
         CheckParserState(parser, &state) &&
 
         !!(state.errorLocation.depth = 1) && /* hacky! */
 
-        CheckResetParser(parser, JSON_Success) &&
-        CheckSetObjectMemberHandler(parser, &ObjectMemberHandler, JSON_Success) &&
-        CheckParse(parser, "{\"x\":0}", 7, JSON_True, JSON_Failure) &&
+        CheckParserReset(parser, JSON_Success) &&
+        CheckParserSetObjectMemberHandler(parser, &ObjectMemberHandler, JSON_Success) &&
+        CheckParserParse(parser, "{\"x\":0}", 7, JSON_True, JSON_Failure) &&
         CheckParserState(parser, &state) &&
 
-        CheckResetParser(parser, JSON_Success) &&
-        CheckSetArrayItemHandler(parser, &ArrayItemHandler, JSON_Success) &&
-        CheckParse(parser, "[0]", 3, JSON_True, JSON_Failure) &&
+        CheckParserReset(parser, JSON_Success) &&
+        CheckParserSetArrayItemHandler(parser, &ArrayItemHandler, JSON_Success) &&
+        CheckParserParse(parser, "[0]", 3, JSON_True, JSON_Failure) &&
         CheckParserState(parser, &state))
     {
         printf("OK\n");
@@ -1605,7 +1605,7 @@ static void TestAbortInCallbacks()
     JSON_Parser_Free(parser);
 }
 
-static void TestStringMallocFailure()
+static void TestParserStringMallocFailure()
 {
     int succeeded = 0;
     JSON_Parser parser = NULL;
@@ -1616,8 +1616,8 @@ static void TestStringMallocFailure()
     state.startedParsing = JSON_True;
     state.finishedParsing = JSON_True;
     state.inputEncoding = JSON_UTF8;
-    if (CheckCreateParserWithCustomMemorySuite(&MallocHandler, &ReallocHandler, &FreeHandler, JSON_Success, &parser) &&
-        CheckParse(parser, "\"", 1, JSON_False, JSON_Success))
+    if (CheckParserCreateWithCustomMemorySuite(&MallocHandler, &ReallocHandler, &FreeHandler, JSON_Success, &parser) &&
+        CheckParserParse(parser, "\"", 1, JSON_False, JSON_Success))
     {
         s_failMalloc = 1;
         for (;;)
@@ -1645,7 +1645,7 @@ static void TestStringMallocFailure()
     JSON_Parser_Free(parser);
 }
 
-static void TestStringReallocFailure()
+static void TestParserStringReallocFailure()
 {
     int succeeded = 0;
     JSON_Parser parser = NULL;
@@ -1656,8 +1656,8 @@ static void TestStringReallocFailure()
     state.startedParsing = JSON_True;
     state.finishedParsing = JSON_True;
     state.inputEncoding = JSON_UTF8;
-    if (CheckCreateParserWithCustomMemorySuite(&MallocHandler, &ReallocHandler, &FreeHandler, JSON_Success, &parser) &&
-        CheckParse(parser, "\"", 1, JSON_False, JSON_Success))
+    if (CheckParserCreateWithCustomMemorySuite(&MallocHandler, &ReallocHandler, &FreeHandler, JSON_Success, &parser) &&
+        CheckParserParse(parser, "\"", 1, JSON_False, JSON_Success))
     {
         s_failRealloc = 1;
         for (;;)
@@ -1685,7 +1685,7 @@ static void TestStringReallocFailure()
     JSON_Parser_Free(parser);
 }
 
-static void TestStackMallocFailure()
+static void TestParserStackMallocFailure()
 {
     int succeeded = 0;
     JSON_Parser parser = NULL;
@@ -1696,7 +1696,7 @@ static void TestStackMallocFailure()
     state.startedParsing = JSON_True;
     state.finishedParsing = JSON_True;
     state.inputEncoding = JSON_UTF8;
-    if (CheckCreateParserWithCustomMemorySuite(&MallocHandler, &ReallocHandler, &FreeHandler, JSON_Success, &parser))
+    if (CheckParserCreateWithCustomMemorySuite(&MallocHandler, &ReallocHandler, &FreeHandler, JSON_Success, &parser))
     {
         s_failMalloc = 1;
         for (;;)
@@ -1724,7 +1724,7 @@ static void TestStackMallocFailure()
     JSON_Parser_Free(parser);
 }
 
-static void TestStackReallocFailure()
+static void TestParserStackReallocFailure()
 {
     int succeeded = 0;
     JSON_Parser parser = NULL;
@@ -1735,7 +1735,7 @@ static void TestStackReallocFailure()
     state.startedParsing = JSON_True;
     state.finishedParsing = JSON_True;
     state.inputEncoding = JSON_UTF8;
-    if (CheckCreateParserWithCustomMemorySuite(&MallocHandler, &ReallocHandler, &FreeHandler, JSON_Success, &parser))
+    if (CheckParserCreateWithCustomMemorySuite(&MallocHandler, &ReallocHandler, &FreeHandler, JSON_Success, &parser))
     {
         s_failRealloc = 1;
         for (;;)
@@ -1763,7 +1763,7 @@ static void TestStackReallocFailure()
     JSON_Parser_Free(parser);
 }
 
-static void TestDuplicateMemberTrackingMallocFailure()
+static void TestParserDuplicateMemberTrackingMallocFailure()
 {
     int succeeded = 0;
     JSON_Parser parser = NULL;
@@ -1774,11 +1774,11 @@ static void TestDuplicateMemberTrackingMallocFailure()
     state.startedParsing = JSON_True;
     state.finishedParsing = JSON_True;
     state.inputEncoding = JSON_UTF8;
-    if (CheckCreateParserWithCustomMemorySuite(&MallocHandler, &ReallocHandler, &FreeHandler, JSON_Success, &parser) &&
-        CheckSetTrackObjectMembers(parser, JSON_True, JSON_Success))
+    if (CheckParserCreateWithCustomMemorySuite(&MallocHandler, &ReallocHandler, &FreeHandler, JSON_Success, &parser) &&
+        CheckParserSetTrackObjectMembers(parser, JSON_True, JSON_Success))
     {
         s_failMalloc = 1;
-        if (CheckParse(parser, "{\"a\":0}", 7, JSON_True, JSON_Failure) &&
+        if (CheckParserParse(parser, "{\"a\":0}", 7, JSON_True, JSON_Failure) &&
             CheckParserState(parser, &state))
         {
             succeeded = 1;
@@ -1796,7 +1796,7 @@ static void TestDuplicateMemberTrackingMallocFailure()
     JSON_Parser_Free(parser);
 }
 
-static void TestMissingParser()
+static void TestParserMissing()
 {
     ParserState state;
     ParserSettings settings;
@@ -1809,26 +1809,26 @@ static void TestMissingParser()
     if (CheckParserState(NULL, &state) &&
         CheckParserSettings(NULL, &settings) &&
         CheckParserHandlers(NULL, &handlers) &&
-        CheckFreeParser(NULL, JSON_Failure) &&
-        CheckResetParser(NULL, JSON_Failure) &&
-        CheckSetUserData(NULL, (void*)1, JSON_Failure) &&
-        CheckGetErrorLocation(NULL, &errorLocation, JSON_Failure) &&
-        CheckSetInputEncoding(NULL, JSON_UTF16LE, JSON_Failure) &&
-        CheckSetOutputEncoding(NULL, JSON_UTF16LE, JSON_Failure) &&
-        CheckSetMaxOutputStringLength(NULL, 128, JSON_Failure) &&
-        CheckSetNullHandler(NULL, &NullHandler, JSON_Failure) &&
-        CheckSetBooleanHandler(NULL, &BooleanHandler, JSON_Failure) &&
-        CheckSetStringHandler(NULL, &StringHandler, JSON_Failure) &&
-        CheckSetNumberHandler(NULL, &NumberHandler, JSON_Failure) &&
-        CheckSetRawNumberHandler(NULL, &RawNumberHandler, JSON_Failure) &&
-        CheckSetSpecialNumberHandler(NULL, &SpecialNumberHandler, JSON_Failure) &&
-        CheckSetStartObjectHandler(NULL, &StartObjectHandler, JSON_Failure) &&
-        CheckSetEndObjectHandler(NULL, &EndObjectHandler, JSON_Failure) &&
-        CheckSetObjectMemberHandler(NULL, &ObjectMemberHandler, JSON_Failure) &&
-        CheckSetStartArrayHandler(NULL, &StartArrayHandler, JSON_Failure) &&
-        CheckSetEndArrayHandler(NULL, &EndArrayHandler, JSON_Failure) &&
-        CheckSetArrayItemHandler(NULL, &ArrayItemHandler, JSON_Failure) &&
-        CheckParse(NULL, "7", 1, JSON_True, JSON_Failure))
+        CheckParserFree(NULL, JSON_Failure) &&
+        CheckParserReset(NULL, JSON_Failure) &&
+        CheckParserSetUserData(NULL, (void*)1, JSON_Failure) &&
+        CheckParserGetError(NULL, &errorLocation, JSON_Failure) &&
+        CheckParserSetInputEncoding(NULL, JSON_UTF16LE, JSON_Failure) &&
+        CheckParserSetOutputEncoding(NULL, JSON_UTF16LE, JSON_Failure) &&
+        CheckParserSetMaxOutputStringLength(NULL, 128, JSON_Failure) &&
+        CheckParserSetNullHandler(NULL, &NullHandler, JSON_Failure) &&
+        CheckParserSetBooleanHandler(NULL, &BooleanHandler, JSON_Failure) &&
+        CheckParserSetStringHandler(NULL, &StringHandler, JSON_Failure) &&
+        CheckParserSetNumberHandler(NULL, &NumberHandler, JSON_Failure) &&
+        CheckParserSetRawNumberHandler(NULL, &RawNumberHandler, JSON_Failure) &&
+        CheckParserSetSpecialNumberHandler(NULL, &SpecialNumberHandler, JSON_Failure) &&
+        CheckParserSetStartObjectHandler(NULL, &StartObjectHandler, JSON_Failure) &&
+        CheckParserSetEndObjectHandler(NULL, &EndObjectHandler, JSON_Failure) &&
+        CheckParserSetObjectMemberHandler(NULL, &ObjectMemberHandler, JSON_Failure) &&
+        CheckParserSetStartArrayHandler(NULL, &StartArrayHandler, JSON_Failure) &&
+        CheckParserSetEndArrayHandler(NULL, &EndArrayHandler, JSON_Failure) &&
+        CheckParserSetArrayItemHandler(NULL, &ArrayItemHandler, JSON_Failure) &&
+        CheckParserParse(NULL, "7", 1, JSON_True, JSON_Failure))
     {
         printf("OK\n");
     }
@@ -1838,13 +1838,13 @@ static void TestMissingParser()
     }
 }
 
-static void TestGetErrorLocationNullLocation()
+static void TestParserGetErrorLocationNullLocation()
 {
     JSON_Parser parser = NULL;
     printf("Test get error location with NULL location ... ");
-    if (CheckCreateParserWithCustomMemorySuite(&MallocHandler, &ReallocHandler, &FreeHandler, JSON_Success, &parser) &&
-        CheckParse(parser, "!", 1, JSON_True, JSON_Failure) &&
-        CheckGetErrorLocation(parser, NULL, JSON_Failure))
+    if (CheckParserCreateWithCustomMemorySuite(&MallocHandler, &ReallocHandler, &FreeHandler, JSON_Success, &parser) &&
+        CheckParserParse(parser, "!", 1, JSON_True, JSON_Failure) &&
+        CheckParserGetError(parser, NULL, JSON_Failure))
     {
         printf("OK\n");
     }
@@ -1855,14 +1855,14 @@ static void TestGetErrorLocationNullLocation()
     JSON_Parser_Free(parser);
 }
 
-static void TestGetErrorLocationNoError()
+static void TestParserGetErrorLocationNoError()
 {
     JSON_Parser parser = NULL;
     JSON_Location location = { 100, 200, 300, 400 };
     printf("Test get error location when no error occurred ... ");
-    if (CheckCreateParserWithCustomMemorySuite(&MallocHandler, &ReallocHandler, &FreeHandler, JSON_Success, &parser) &&
-        CheckParse(parser, "7", 1, JSON_True, JSON_Success) &&
-        CheckGetErrorLocation(parser, &location, JSON_Failure))
+    if (CheckParserCreateWithCustomMemorySuite(&MallocHandler, &ReallocHandler, &FreeHandler, JSON_Success, &parser) &&
+        CheckParserParse(parser, "7", 1, JSON_True, JSON_Success) &&
+        CheckParserGetError(parser, &location, JSON_Failure))
     {
         if (location.byte != 100 || location.line != 200 || location.column != 300 || location.depth != 400)
         {
@@ -1881,14 +1881,14 @@ static void TestGetErrorLocationNoError()
     JSON_Parser_Free(parser);
 }
 
-static void TestGetTokenLocationOutsideHandler()
+static void TestParserGetTokenLocationOutsideHandler()
 {
     JSON_Parser parser = NULL;
     JSON_Location location = { 100, 200, 300, 400 };
     printf("Test get token location when not in a parse handler  ... ");
-    if (CheckCreateParserWithCustomMemorySuite(&MallocHandler, &ReallocHandler, &FreeHandler, JSON_Success, &parser) &&
-        CheckParse(parser, "7", 1, JSON_True, JSON_Success) &&
-        CheckGetTokenLocation(parser, &location, JSON_Failure))
+    if (CheckParserCreateWithCustomMemorySuite(&MallocHandler, &ReallocHandler, &FreeHandler, JSON_Success, &parser) &&
+        CheckParserParse(parser, "7", 1, JSON_True, JSON_Success) &&
+        CheckParserGetTokenLocation(parser, &location, JSON_Failure))
     {
         if (location.byte != 100 || location.line != 200 || location.column != 300 || location.depth != 400)
         {
@@ -1907,107 +1907,77 @@ static void TestGetTokenLocationOutsideHandler()
     JSON_Parser_Free(parser);
 }
 
-static void TestErrorStrings()
-{
-    printf("Test error strings ... ");
-    if (CheckErrorString(JSON_Error_None, "no error") &&
-        CheckErrorString(JSON_Error_OutOfMemory, "the parser could not allocate enough memory") &&
-        CheckErrorString(JSON_Error_AbortedByHandler, "parsing was aborted by a handler") &&
-        CheckErrorString(JSON_Error_BOMNotAllowed, "the input begins with a byte-order mark (BOM), which is not allowed by RFC 4627") &&
-        CheckErrorString(JSON_Error_InvalidEncodingSequence, "the input contains a byte or sequence of bytes that is not valid for the input encoding") &&
-        CheckErrorString(JSON_Error_UnknownToken, "the input contains an unknown token") &&
-        CheckErrorString(JSON_Error_UnexpectedToken, "the input contains an unexpected token") &&
-        CheckErrorString(JSON_Error_IncompleteToken,  "the input ends in the middle of a token") &&
-        CheckErrorString(JSON_Error_ExpectedMoreTokens, "the input ends when more tokens are expected") &&
-        CheckErrorString(JSON_Error_UnescapedControlCharacter, "the input contains a string containing an unescaped control character (U+0000 - U+001F)") &&
-        CheckErrorString(JSON_Error_InvalidEscapeSequence, "the input contains a string containing an invalid escape sequence") &&
-        CheckErrorString(JSON_Error_UnpairedSurrogateEscapeSequence, "the input contains a string containing an unmatched UTF-16 surrogate codepoint") &&
-        CheckErrorString(JSON_Error_TooLongString, "the input contains a string that is too long") &&
-        CheckErrorString(JSON_Error_InvalidNumber, "the input contains an invalid number") &&
-        CheckErrorString(JSON_Error_TooLongNumber, "the input contains a number that is too long") &&
-        CheckErrorString(JSON_Error_DuplicateObjectMember, "the input contains an object with duplicate members") &&
-        CheckErrorString((JSON_Error)-1, "") &&
-        CheckErrorString((JSON_Error)1000, ""))
-    {
-        printf("OK\n");
-    }
-    else
-    {
-        s_failureCount++;
-    }
-}
-
-typedef struct tag_IEEE754Test
+typedef struct tag_ParseIEEE754Test
 {
     const char* pInput;
     size_t      length;
     double      expectedValue;
-} IEEE754Test;
+} ParseIEEE754Test;
 
-#define IEEE754_TEST(input, value) { input, sizeof(input) - 1, value },
+#define PARSE_IEEE754_TEST(input, value) { input, sizeof(input) - 1, value },
 
-static const IEEE754Test s_IEEE754Tests[] =
+static const ParseIEEE754Test s_IEEE754Tests[] =
 {
     /* decimal */
 
-    IEEE754_TEST("0", 0.0)
-    IEEE754_TEST("0.0", 0.0)
-    IEEE754_TEST("-0", -0.0)
-    IEEE754_TEST("1", 1.0)
-    IEEE754_TEST("1.0", 1.0)
-    IEEE754_TEST("-1", -1.0)
-    IEEE754_TEST("-1.0", -1.0)
-    IEEE754_TEST("0.5", 0.5)
-    IEEE754_TEST("-0.5", -0.5)
-    IEEE754_TEST("12345", 12345.0)
-    IEEE754_TEST("-12345", -12345.0)
-    IEEE754_TEST("12345e2", 12345.0e2)
-    IEEE754_TEST("12345e+2", 12345.0e2)
-    IEEE754_TEST("0.5e-2", 0.005)
+    PARSE_IEEE754_TEST("0", 0.0)
+    PARSE_IEEE754_TEST("0.0", 0.0)
+    PARSE_IEEE754_TEST("-0", -0.0)
+    PARSE_IEEE754_TEST("1", 1.0)
+    PARSE_IEEE754_TEST("1.0", 1.0)
+    PARSE_IEEE754_TEST("-1", -1.0)
+    PARSE_IEEE754_TEST("-1.0", -1.0)
+    PARSE_IEEE754_TEST("0.5", 0.5)
+    PARSE_IEEE754_TEST("-0.5", -0.5)
+    PARSE_IEEE754_TEST("12345", 12345.0)
+    PARSE_IEEE754_TEST("-12345", -12345.0)
+    PARSE_IEEE754_TEST("12345e2", 12345.0e2)
+    PARSE_IEEE754_TEST("12345e+2", 12345.0e2)
+    PARSE_IEEE754_TEST("0.5e-2", 0.005)
 
     /* hex */
 
-    IEEE754_TEST("0x0", 0.0)
-    IEEE754_TEST("0x1", 1.0)
-    IEEE754_TEST("0x00000000000000000000000000000000000001", 1.0)
-    IEEE754_TEST("0x00000000000000000000000000000000000000", 0.0)
-    IEEE754_TEST("0xdeadBEEF", 3735928559.0)
-    IEEE754_TEST("0xFFFFFFFF", 4294967295.0)
+    PARSE_IEEE754_TEST("0x0", 0.0)
+    PARSE_IEEE754_TEST("0x1", 1.0)
+    PARSE_IEEE754_TEST("0x00000000000000000000000000000000000001", 1.0)
+    PARSE_IEEE754_TEST("0x00000000000000000000000000000000000000", 0.0)
+    PARSE_IEEE754_TEST("0xdeadBEEF", 3735928559.0)
+    PARSE_IEEE754_TEST("0xFFFFFFFF", 4294967295.0)
 
-    IEEE754_TEST("0x20000000000000", 9007199254740992.0)    /* 10...00 | 0 */
-    IEEE754_TEST("0x20000000000001", 9007199254740992.0)    /* 10...00 | 1 */
-    IEEE754_TEST("0x20000000000002", 9007199254740994.0)    /* 10...01 | 0 */
-    IEEE754_TEST("0x20000000000003", 9007199254740996.0)    /* 10...01 | 1 */
+    PARSE_IEEE754_TEST("0x20000000000000", 9007199254740992.0)    /* 10...00 | 0 */
+    PARSE_IEEE754_TEST("0x20000000000001", 9007199254740992.0)    /* 10...00 | 1 */
+    PARSE_IEEE754_TEST("0x20000000000002", 9007199254740994.0)    /* 10...01 | 0 */
+    PARSE_IEEE754_TEST("0x20000000000003", 9007199254740996.0)    /* 10...01 | 1 */
 
-    IEEE754_TEST("0x40000000000000", 18014398509481984.0)   /* 10...00 | 00 */
-    IEEE754_TEST("0x40000000000001", 18014398509481984.0)   /* 10...00 | 01 */
-    IEEE754_TEST("0x40000000000002", 18014398509481984.0)   /* 10...00 | 10 */
-    IEEE754_TEST("0x40000000000003", 18014398509481988.0)   /* 10...00 | 11 */
-    IEEE754_TEST("0x40000000000004", 18014398509481988.0)   /* 10...01 | 00 */
-    IEEE754_TEST("0x40000000000005", 18014398509481988.0)   /* 10...01 | 01 */
-    IEEE754_TEST("0x40000000000006", 18014398509481992.0)   /* 10...01 | 10 */
-    IEEE754_TEST("0x40000000000007", 18014398509481992.0)   /* 10...01 | 11 */
+    PARSE_IEEE754_TEST("0x40000000000000", 18014398509481984.0)   /* 10...00 | 00 */
+    PARSE_IEEE754_TEST("0x40000000000001", 18014398509481984.0)   /* 10...00 | 01 */
+    PARSE_IEEE754_TEST("0x40000000000002", 18014398509481984.0)   /* 10...00 | 10 */
+    PARSE_IEEE754_TEST("0x40000000000003", 18014398509481988.0)   /* 10...00 | 11 */
+    PARSE_IEEE754_TEST("0x40000000000004", 18014398509481988.0)   /* 10...01 | 00 */
+    PARSE_IEEE754_TEST("0x40000000000005", 18014398509481988.0)   /* 10...01 | 01 */
+    PARSE_IEEE754_TEST("0x40000000000006", 18014398509481992.0)   /* 10...01 | 10 */
+    PARSE_IEEE754_TEST("0x40000000000007", 18014398509481992.0)   /* 10...01 | 11 */
 
-    IEEE754_TEST("0x800000000000000", 576460752303423490.0) /* 10...00 | 0000000 */
-    IEEE754_TEST("0x80000000000000F", 576460752303423490.0) /* 10...00 | 0001111 */
-    IEEE754_TEST("0x800000000000040", 576460752303423490.0) /* 10...00 | 1000000 */
-    IEEE754_TEST("0x800000000000041", 576460752303423620.0) /* 10...00 | 1000001 */
+    PARSE_IEEE754_TEST("0x800000000000000", 576460752303423490.0) /* 10...00 | 0000000 */
+    PARSE_IEEE754_TEST("0x80000000000000F", 576460752303423490.0) /* 10...00 | 0001111 */
+    PARSE_IEEE754_TEST("0x800000000000040", 576460752303423490.0) /* 10...00 | 1000000 */
+    PARSE_IEEE754_TEST("0x800000000000041", 576460752303423620.0) /* 10...00 | 1000001 */
 
-    IEEE754_TEST("0x800000000000080", 576460752303423620.0) /* 10...01 | 0000000 */
-    IEEE754_TEST("0x80000000000008F", 576460752303423620.0) /* 10...01 | 0001111 */
-    IEEE754_TEST("0x8000000000000C0", 576460752303423740.0) /* 10...01 | 1000000 */
-    IEEE754_TEST("0x8000000000000C1", 576460752303423740.0) /* 10...01 | 1000001 */
+    PARSE_IEEE754_TEST("0x800000000000080", 576460752303423620.0) /* 10...01 | 0000000 */
+    PARSE_IEEE754_TEST("0x80000000000008F", 576460752303423620.0) /* 10...01 | 0001111 */
+    PARSE_IEEE754_TEST("0x8000000000000C0", 576460752303423740.0) /* 10...01 | 1000000 */
+    PARSE_IEEE754_TEST("0x8000000000000C1", 576460752303423740.0) /* 10...01 | 1000001 */
 
-    IEEE754_TEST("0x1fffffffffffff", 9007199254740991.0)    /* 11...11 |      */
-    IEEE754_TEST("0x3fffffffffffff", 18014398509481984.0)   /* 11...11 | 1    */
-    IEEE754_TEST("0x7fffffffffffff", 36028797018963968.0)   /* 11...11 | 11   */
-    IEEE754_TEST("0xffffffffffffff", 72057594037927936.0)   /* 11...11 | 111  */
-    IEEE754_TEST("0x1ffffffffffffff", 144115188075855870.0) /* 11...11 | 1111 */
+    PARSE_IEEE754_TEST("0x1fffffffffffff", 9007199254740991.0)    /* 11...11 |      */
+    PARSE_IEEE754_TEST("0x3fffffffffffff", 18014398509481984.0)   /* 11...11 | 1    */
+    PARSE_IEEE754_TEST("0x7fffffffffffff", 36028797018963968.0)   /* 11...11 | 11   */
+    PARSE_IEEE754_TEST("0xffffffffffffff", 72057594037927936.0)   /* 11...11 | 111  */
+    PARSE_IEEE754_TEST("0x1ffffffffffffff", 144115188075855870.0) /* 11...11 | 1111 */
 };
 
 static JSON_Parser_HandlerResult JSON_CALL CheckIEEE754InterpretationNumberHandler(JSON_Parser parser, double value)
 {
-    const IEEE754Test* pTest = (const IEEE754Test*)JSON_Parser_GetUserData(parser);
+    const ParseIEEE754Test* pTest = (const ParseIEEE754Test*)JSON_Parser_GetUserData(parser);
     if (value != pTest->expectedValue)
     {
         printf("FAILURE: expected value to be %f instead of %f\n", pTest->expectedValue, value);
@@ -2017,14 +1987,14 @@ static JSON_Parser_HandlerResult JSON_CALL CheckIEEE754InterpretationNumberHandl
     return JSON_Parser_ContinueParsing;
 }
 
-static void RunIEEE754Test(const IEEE754Test* pTest)
+static void RunParseIEEE754Test(const ParseIEEE754Test* pTest)
 {
     JSON_Parser parser = NULL;
     printf("Test IEEE 754 interpretation of %s ... ", pTest->pInput);
-    if (CheckCreateParserWithCustomMemorySuite(&MallocHandler, &ReallocHandler, &FreeHandler, JSON_Success, &parser) &&
-        CheckSetNumberHandler(parser, &CheckIEEE754InterpretationNumberHandler, JSON_Success) &&
-        CheckSetAllowHexNumbers(parser, JSON_True, JSON_Success) &&
-        CheckSetUserData(parser, (void*)pTest, JSON_Success))
+    if (CheckParserCreateWithCustomMemorySuite(&MallocHandler, &ReallocHandler, &FreeHandler, JSON_Success, &parser) &&
+        CheckParserSetNumberHandler(parser, &CheckIEEE754InterpretationNumberHandler, JSON_Success) &&
+        CheckParserSetAllowHexNumbers(parser, JSON_True, JSON_Success) &&
+        CheckParserSetUserData(parser, (void*)pTest, JSON_Success))
     {
         if (JSON_Parser_Parse(parser, pTest->pInput, pTest->length, JSON_True) == JSON_Success)
         {
@@ -2038,12 +2008,12 @@ static void RunIEEE754Test(const IEEE754Test* pTest)
     JSON_Parser_Free(parser);
 }
 
-static void TestIEEE754NumberInterpretation()
+static void TestParserIEEE754NumberInterpretation()
 {
     size_t i;
     for  (i = 0; i < sizeof(s_IEEE754Tests)/sizeof(s_IEEE754Tests[0]); i++)
     {
-        RunIEEE754Test(&s_IEEE754Tests[i]);
+        RunParseIEEE754Test(&s_IEEE754Tests[i]);
     }
 }
 
@@ -2702,12 +2672,42 @@ PARSE_TEST("multi-line input error (7)", Standard, "[\r\n\"x\r\n", FINAL, UTF8, 
 
 };
 
-static void TestParse()
+static void TestParserParse()
 {
     size_t i;
     for  (i = 0; i < sizeof(s_parseTests)/sizeof(s_parseTests[0]); i++)
     {
         RunParseTest(&s_parseTests[i]);
+    }
+}
+
+static void TestErrorStrings()
+{
+    printf("Test error strings ... ");
+    if (CheckErrorString(JSON_Error_None, "no error") &&
+        CheckErrorString(JSON_Error_OutOfMemory, "the parser could not allocate enough memory") &&
+        CheckErrorString(JSON_Error_AbortedByHandler, "parsing was aborted by a handler") &&
+        CheckErrorString(JSON_Error_BOMNotAllowed, "the input begins with a byte-order mark (BOM), which is not allowed by RFC 4627") &&
+        CheckErrorString(JSON_Error_InvalidEncodingSequence, "the input contains a byte or sequence of bytes that is not valid for the input encoding") &&
+        CheckErrorString(JSON_Error_UnknownToken, "the input contains an unknown token") &&
+        CheckErrorString(JSON_Error_UnexpectedToken, "the input contains an unexpected token") &&
+        CheckErrorString(JSON_Error_IncompleteToken,  "the input ends in the middle of a token") &&
+        CheckErrorString(JSON_Error_ExpectedMoreTokens, "the input ends when more tokens are expected") &&
+        CheckErrorString(JSON_Error_UnescapedControlCharacter, "the input contains a string containing an unescaped control character (U+0000 - U+001F)") &&
+        CheckErrorString(JSON_Error_InvalidEscapeSequence, "the input contains a string containing an invalid escape sequence") &&
+        CheckErrorString(JSON_Error_UnpairedSurrogateEscapeSequence, "the input contains a string containing an unmatched UTF-16 surrogate codepoint") &&
+        CheckErrorString(JSON_Error_TooLongString, "the input contains a string that is too long") &&
+        CheckErrorString(JSON_Error_InvalidNumber, "the input contains an invalid number") &&
+        CheckErrorString(JSON_Error_TooLongNumber, "the input contains a number that is too long") &&
+        CheckErrorString(JSON_Error_DuplicateObjectMember, "the input contains an object with duplicate members") &&
+        CheckErrorString((JSON_Error)-1, "") &&
+        CheckErrorString((JSON_Error)1000, ""))
+    {
+        printf("OK\n");
+    }
+    else
+    {
+        s_failureCount++;
     }
 }
 
@@ -2730,27 +2730,27 @@ int main(int argc, char* argv[])
     (void)argc; /* unused */
     (void)argv; /* unused */
 
-    TestParserCreation();
-    TestParserCreationWithCustomMemorySuite();
-    TestParserCreationMallocFailure();
-    TestMissingParser();
-    TestGetErrorLocationNullLocation();
-    TestGetErrorLocationNoError();
-    TestGetTokenLocationOutsideHandler();
-    TestSetParserSettings();
-    TestSetInvalidParserSettings();
-    TestSetParserHandlers();
-    TestResetParser();
-    TestMisbehaveInCallbacks();
-    TestAbortInCallbacks();
-    TestStringMallocFailure();
-    TestStringReallocFailure();
-    TestStackMallocFailure();
-    TestStackReallocFailure();
-    TestDuplicateMemberTrackingMallocFailure();
+    TestParserCreate();
+    TestParserCreateWithCustomMemorySuite();
+    TestParserCreateMallocFailure();
+    TestParserMissing();
+    TestParserGetErrorLocationNullLocation();
+    TestParserGetErrorLocationNoError();
+    TestParserGetTokenLocationOutsideHandler();
+    TestParserSetSettings();
+    TestParserSetInvalidSettings();
+    TestParserSetHandlers();
+    TestParserReset();
+    TestParserMisbehaveInCallbacks();
+    TestParserAbortInCallbacks();
+    TestParserStringMallocFailure();
+    TestParserStringReallocFailure();
+    TestParserStackMallocFailure();
+    TestParserStackReallocFailure();
+    TestParserDuplicateMemberTrackingMallocFailure();
+    TestParserIEEE754NumberInterpretation();
+    TestParserParse();
     TestErrorStrings();
-    TestIEEE754NumberInterpretation();
-    TestParse();
     TestNoLeaks();
     if (!s_failureCount)
     {
