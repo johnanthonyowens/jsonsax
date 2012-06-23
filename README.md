@@ -34,10 +34,7 @@ following caveats:
    array. This deviation is consistent with the behavior of the JSON.parse()
    function present in ECMAScript 5 and other common JSON parsers.
 
-2. Number values are limited to 63 characters in length (imposing limits on the
-   length of numbers is permitted by RFC 4637).
-
-3. Detection of duplicate object members is not enabled by default (to avoid
+2. Detection of duplicate object members is not enabled by default (to avoid
    memory overhead) but can be enabled if desired. Clients can also choose to
    implement duplicate detection themselves.
 
@@ -46,7 +43,7 @@ or BE). By default it automatically detects the input encoding; clients can also
 explicitly specify the input encoding on a parser-by-parser basis.
 
 The encoding of string values passed by the parser to the client can be UTF-8,
-UTF-16 (LE or BE), or UTF-32 (LE or BE). Clients can specify the output encoding
+UTF-16 (LE or BE), or UTF-32 (LE or BE). Clients can specify the string encoding
 on a parser-by-parser basis.
 
 By default, the parser is strict when decoding the input stream, and will fail
@@ -72,6 +69,16 @@ of which can be enabled on a parser-by-parser basis. These include:
 - Allowing the JSON text to contain Javascript-style comments.
 - Allowing the "special" number literals NaN, Infinity, and -Infinity.
 - Allowing Javascript-style hexadecimal numbers.
+
+The JSONSAX library also includes a JSON writer that provides a fast and
+reliable way for clients to create JSON documents that are guaranteed to be
+well-formed and properly encoded.
+
+The writer can encode its output in UTF-8, UTF-16 (LE or BE), or UTF-32
+(LE or BE). String values can be passed to the writer in any of these
+encodings, and will be decoded, have escape sequences substituted as
+appropriate, and encoded in the desired output encoding before being sent to
+the writer's output handler.
 
 The JSONSAX library is licensed under the MIT License. The full license is
 contained in the accompanying LICENSE file.
