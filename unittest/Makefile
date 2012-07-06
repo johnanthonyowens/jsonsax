@@ -25,6 +25,14 @@ else
     CFLAGS += -O3
 endif
 
+ifdef JSON_NO_PARSER
+	CFLAGS += -D JSON_NO_PARSER
+endif
+
+ifdef JSON_NO_WRITER
+	CFLAGS += -D JSON_NO_WRITER
+endif
+
 CFLAGS += -I$(ROOTDIR) -pedantic
 ifdef ANSI
     CFLAGS += -ansi

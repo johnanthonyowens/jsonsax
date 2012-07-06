@@ -109,6 +109,17 @@
 #ifndef JSONSAX_H_INCLUDED
 #define JSONSAX_H_INCLUDED
 
+#define JSON_MAJOR_VERSION 0
+#define JSON_MINOR_VERSION 9
+#define JSON_MICRO_VERSION 0
+
+/* JSON_NO_PARSER and JSON_NO_WRITER, if defined, remove the corresponding
+ * APIs and functionality from the library.
+ */
+#if defined(JSON_NO_PARSER) && defined(JSON_NO_WRITER)
+#error JSON_NO_PARSER and JSON_NO_WRITER cannot both be defined!
+#endif
+
 #include <stddef.h> /* for size_t and NULL */
 
 /* The library API is C and should not be subjected to C++ name mangling. */
@@ -280,6 +291,10 @@ typedef struct tag_JSON_MemorySuite
     JSON_FreeHandler    free;
 } JSON_MemorySuite;
 
+/******************** JSON Parser ********************/
+
+#ifndef JSON_NO_PARSER
+
 /* Parser instance. */
 struct JSON_Parser_Data; /* opaque data */
 typedef struct JSON_Parser_Data* JSON_Parser;
@@ -371,12 +386,26 @@ JSON_API(JSON_Status) JSON_Parser_SetStringEncoding(JSON_Parser parser, JSON_Enc
 JSON_API(size_t) JSON_Parser_GetMaxStringLength(JSON_Parser parser);
 JSON_API(JSON_Status) JSON_Parser_SetMaxStringLength(JSON_Parser parser, size_t maxLength);
 
+/* Get and set the number encoding for a parser instance.
+ *
+ * This setting controls the encoding of the number values that are
+ * passed to the number handler.
+ *
+ * The default value of this setting is JSON_UTF8.
+ *
+ * This setting cannot be set to JSON_UnknownEncoding.
+ *
+ * This setting cannot be changed once the parser has started parsing.
+ */
+JSON_API(JSON_Encoding) JSON_Parser_GetNumberEncoding(JSON_Parser parser);
+JSON_API(JSON_Status) JSON_Parser_SetNumberEncoding(JSON_Parser parser, JSON_Encoding encoding);
+
 /* Get and set the maximum length of numbers that a parser instance allows.
  *
- * This setting controls the maximum length, in bytes, of the numbers that
- * are passed to the number handler. If the parser encounters a number that,
- * when encoded in ASCII, is longer than the maximum number length, it
- * triggers the JSON_TooLongNumber error.
+ * This setting controls the maximum length, in bytes (NOT characters), of
+ * the encoded numbers that are passed to the number handler. If the parser
+ * encounters a number that, when encoded in the number encoding, is longer
+ * than the maximum number length, it triggers the JSON_TooLongNumber error.
  *
  * The default value of this setting is SIZE_MAX.
  *
@@ -453,7 +482,7 @@ JSON_API(JSON_Status) JSON_Parser_SetAllowHexNumbers(JSON_Parser parser, JSON_Bo
 
 /* Get and set whether a parser instance replaces invalid encoding sequences
  * it encounters in the input stream with the Unicode replacement character
- * U+FFFD rather than triggering an error.
+ * (U+FFFD) rather than triggering an error.
  *
  * The default value of this setting is JSON_False.
  *
@@ -579,7 +608,7 @@ JSON_API(JSON_Status) JSON_Parser_SetBooleanHandler(JSON_Parser parser, JSON_Par
 /* Get and set the handler that is called when a parser instance encounters
  * a JSON string value.
  *
- * The pBytes parameter points to a buffer containing the string value,
+ * The pValue parameter points to a buffer containing the string value,
  * encoded according to the parser instance's string encoding setting. The
  * buffer is null-terminated (the null terminator character is also encoded).
  * Note, however, that JSON strings may contain embedded null characters,
@@ -598,7 +627,7 @@ JSON_API(JSON_Status) JSON_Parser_SetBooleanHandler(JSON_Parser parser, JSON_Par
  * since such characters may have been present in the original input, and
  * not inserted by a replacement operation.
  */
-typedef JSON_Parser_HandlerResult (JSON_CALL * JSON_Parser_StringHandler)(JSON_Parser parser, const char* pBytes, size_t length, JSON_StringAttributes attributes);
+typedef JSON_Parser_HandlerResult (JSON_CALL * JSON_Parser_StringHandler)(JSON_Parser parser, const char* pValue, size_t length, JSON_StringAttributes attributes);
 JSON_API(JSON_Parser_StringHandler) JSON_Parser_GetStringHandler(JSON_Parser parser);
 JSON_API(JSON_Status) JSON_Parser_SetStringHandler(JSON_Parser parser, JSON_Parser_StringHandler handler);
 
@@ -611,17 +640,16 @@ JSON_API(JSON_Status) JSON_Parser_SetStringHandler(JSON_Parser parser, JSON_Pars
  * bignums. For this reason, the parser does not attempt to interpret
  * number values, but leaves this to the client.
  *
- * The pValue parameter points to a null-terminated buffer containing the
- * number value's text as it appeared in the input. The buffer is always
- * encoded as ASCII, regardless of the parser instance's encoding settings.
- * The text is guaranteed to contain only characters allowed in JSON number
+ * The pValue parameter points to a buffer containing the number value,
+ * encoded according to the parser instance's number encoding setting. The
+ * buffer is null-terminated (the null terminator character is also encoded).
+ * The buffer is guaranteed to contain only characters allowed in JSON number
  * values, that is: '0' - '9', '+', '-', '.', 'e', and 'E'; if the option
  * to allow hex numbers is enabled, the text may also contain the characters
  * 'x', 'X', 'a' - 'f', and 'A' - 'F'.
  *
- * The length parameter specifies the number of bytes (which is also
- * the number of characters) in the buffer, not including the encoded null
- * terminator.
+ * The length parameter specifies the number of bytes (NOT characters) in
+ * the encoded number, not including the encoded null terminator.
  *
  * The attributes parameter provides information about the number.
  */
@@ -653,7 +681,7 @@ JSON_API(JSON_Status) JSON_Parser_SetEndObjectHandler(JSON_Parser parser, JSON_P
 /* Get and set the handler that is called when a parser instance encounters
  * an object member name.
  *
- * The pBytes parameter points to a buffer containing the member name,
+ * The pValue parameter points to a buffer containing the member name,
  * encoded according to the parser instance's string encoding setting. The
  * buffer is null-terminated (the null terminator character is also encoded).
  * Note, however, that JSON strings may contain embedded null characters,
@@ -678,7 +706,7 @@ JSON_API(JSON_Status) JSON_Parser_SetEndObjectHandler(JSON_Parser parser, JSON_P
  * checking without incurring the additional memory overhead associated
  * with enabling the TrackObjectMembers setting.
  */
-typedef JSON_Parser_HandlerResult (JSON_CALL * JSON_Parser_ObjectMemberHandler)(JSON_Parser parser, const char* pBytes, size_t length, JSON_StringAttributes attributes);
+typedef JSON_Parser_HandlerResult (JSON_CALL * JSON_Parser_ObjectMemberHandler)(JSON_Parser parser, const char* pValue, size_t length, JSON_StringAttributes attributes);
 JSON_API(JSON_Parser_ObjectMemberHandler) JSON_Parser_GetObjectMemberHandler(JSON_Parser parser);
 JSON_API(JSON_Status) JSON_Parser_SetObjectMemberHandler(JSON_Parser parser, JSON_Parser_ObjectMemberHandler handler);
 
@@ -718,6 +746,12 @@ JSON_API(JSON_Status) JSON_Parser_SetArrayItemHandler(JSON_Parser parser, JSON_P
  * parser instance has already finished parsing.
  */
 JSON_API(JSON_Status) JSON_Parser_Parse(JSON_Parser parser, const char* pBytes, size_t length, JSON_Boolean isFinal);
+
+#endif /* JSON_NO_PARSER */
+
+/******************** JSON Writer ********************/
+
+#ifndef JSON_NO_WRITER
 
 /* Writer instance. */
 struct JSON_Writer_Data; /* opaque data */
@@ -790,7 +824,7 @@ JSON_API(JSON_Status) JSON_Writer_SetUseCRLF(JSON_Writer writer, JSON_Boolean us
 
 /* Get and set whether a writer instance replaces invalid encoding sequences
  * it encounters in string tokens with the Unicode replacement character
- * U+FFFD rather than triggering an error.
+ * (U+FFFD) rather than triggering an error.
  *
  * The default value of this setting is JSON_False.
  *
@@ -869,7 +903,7 @@ JSON_API(JSON_Status) JSON_Writer_WriteBoolean(JSON_Writer writer, JSON_Boolean 
 
 /* Write a JSON string value to the output.
  *
- * The pBytes parameter points to a buffer containing the string to be
+ * The pValue parameter points to a buffer containing the string to be
  * written. The buffer does NOT need to be null-terminated. This
  * parameter can be null if and only if the length parameter is zero.
  *
@@ -878,7 +912,7 @@ JSON_API(JSON_Status) JSON_Writer_WriteBoolean(JSON_Writer writer, JSON_Boolean 
  * NOT include the null terminator.
  *
  * The encoding parameter specifies the encoding of the text pointed
- * to by pBytes. This parameter cannot be JSON_UnknownEncoding.
+ * to by pValue. This parameter cannot be JSON_UnknownEncoding.
  *
  * If the string contains invalid encoding sequences and the option to
  * replace invalid encoding sequences with the Unicode replacement
@@ -912,25 +946,32 @@ JSON_API(JSON_Status) JSON_Writer_WriteBoolean(JSON_Writer writer, JSON_Boolean 
  *   introduced it in the output as a replacement for an invalid encoding
  *   sequence in the original string.
  */
-JSON_API(JSON_Status) JSON_Writer_WriteString(JSON_Writer writer, const char* pBytes, size_t length, JSON_Encoding encoding);
+JSON_API(JSON_Status) JSON_Writer_WriteString(JSON_Writer writer, const char* pValue, size_t length, JSON_Encoding encoding);
 
 /* Write a JSON number value to the output.
  *
- * The pValue parameter points to a buffer containing the number's JSON
- * text representation, encoded as ASCII. The buffer does NOT need to be
- * null-terminated. This parameter cannot be null.
+ * The pValue parameter points to a buffer containing the number to be
+ * written. The buffer does NOT need to be null-terminated.
  *
- * The length parameter specifies the number of bytes (which is also the
- * number of characters) in the buffer. If the buffer is null-terminated,
- * the length should NOT include the null terminator. This parameter
- * cannot be zero.
+ * The length parameter specifies the number of bytes (NOT characters)
+ * in the buffer. If the buffer is null-terminated, the length should
+ * NOT include the null terminator.
+ *
+ * The encoding parameter specifies the encoding of the text pointed
+ * to by pValue. This parameter cannot be JSON_UnknownEncoding.
+ *
+ * If the number contains an invalid encoding sequence, the writer sets
+ * its error to JSON_Error_InvalidEncodingSequence and returns failure,
+ * regardless of whether the option to replace invalid encoding sequences
+ * with the Unicode replacement character (U+FFFD) is enabled (that
+ * setting only affects writing of string values).
  *
  * The number must be a valid JSON number as described by RFC 4627, or a
  * hexadecimal number conforming to the syntax of HexIntegerLiteral, as
  * described in section 7.8.3 of ECMA-262. Otherwise, the writer sets its
  * error to JSON_Error_InvalidNumber and returns failure.
  */
-JSON_API(JSON_Status) JSON_Writer_WriteNumber(JSON_Writer writer, const char* pValue, size_t length);
+JSON_API(JSON_Status) JSON_Writer_WriteNumber(JSON_Writer writer, const char* pValue, size_t length, JSON_Encoding encoding);
 
 /* Write a JSON "special" number literal to the output. */
 JSON_API(JSON_Status) JSON_Writer_WriteSpecialNumber(JSON_Writer writer, JSON_SpecialNumber value);
@@ -958,6 +999,10 @@ JSON_API(JSON_Status) JSON_Writer_WriteSpace(JSON_Writer writer, size_t numberOf
 
 /* Write a newline sequence to the output. */
 JSON_API(JSON_Status) JSON_Writer_WriteNewLine(JSON_Writer writer);
+
+#endif /* JSON_NO_WRITER */
+
+/******************** Miscellaneous API ********************/
 
 /* Get a constant, null-terminated, ASCII string describing an error code. */
 JSON_API(const char*) JSON_ErrorString(JSON_Error error);

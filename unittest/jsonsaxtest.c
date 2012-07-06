@@ -35,6 +35,329 @@ static int s_misbehaveInHandler = 0;
 static size_t s_blocksAllocated = 0;
 static size_t s_bytesAllocated = 0;
 
+#define HANDLER_STRING(p) ((p) ? "non-NULL" : "NULL")
+
+/* The length and content of this array MUST correspond exactly with the
+   JSON_Error_XXX enumeration values defined in jsonsax.h. */
+static const char* errorNames[] =
+{
+    "",
+    "OutOfMemory",
+    "AbortedByHandler",
+    "BOMNotAllowed",
+    "InvalidEncodingSequence",
+    "UnknownToken",
+    "UnexpectedToken",
+    "IncompleteToken",
+    "ExpectedMoreTokens",
+    "UnescapedControlCharacter",
+    "InvalidEscapeSequence",
+    "UnpairedSurrogateEscapeSequence",
+    "TooLongString",
+    "InvalidNumber",
+    "TooLongNumber",
+    "DuplicateObjectMember"
+};
+
+static void* JSON_CALL ReallocHandler(void* caller, void* ptr, size_t size)
+{
+    size_t* pBlock = NULL;
+    (void)caller; /* unused */
+    if ((!ptr && !s_failMalloc) || (ptr && !s_failRealloc))
+    {
+        size_t newBlockSize = sizeof(size_t) + size;
+        size_t oldBlockSize;
+        pBlock = (size_t*)ptr;
+        if (pBlock)
+        {
+            pBlock--; /* actual block begins before client's pointer */
+            oldBlockSize = *pBlock;
+        }
+        else
+        {
+            oldBlockSize = 0;
+        }
+        pBlock = (size_t*)realloc(pBlock, newBlockSize);
+        if (pBlock)
+        {
+            if (!oldBlockSize)
+            {
+                s_blocksAllocated++;
+            }
+            s_bytesAllocated += newBlockSize - oldBlockSize;
+            *pBlock = newBlockSize;
+            pBlock++; /* return address to memory after block size */
+        }
+    }
+    return pBlock;
+}
+
+static void JSON_CALL FreeHandler(void* caller, void* ptr)
+{
+    (void)caller; /* unused */
+    if (ptr)
+    {
+        size_t* pBlock = (size_t*)ptr;
+        pBlock--; /* actual block begins before client's pointer */
+        s_blocksAllocated--;
+        s_bytesAllocated -= *pBlock;
+        free(pBlock);
+    }
+}
+
+static char s_outputBuffer[4096]; /* big enough for all unit tests */
+size_t s_outputLength = 0;
+
+static void OutputFormatted(const char* pFormat, ...)
+{
+    va_list args;
+    int length;
+    va_start(args, pFormat);
+    length = vsprintf(&s_outputBuffer[s_outputLength], pFormat, args);
+    va_end(args);
+    s_outputLength += length;
+    s_outputBuffer[s_outputLength] = 0;
+}
+
+static void OutputCharacter(char c)
+{
+    s_outputBuffer[s_outputLength] = c;
+    s_outputLength++;
+    s_outputBuffer[s_outputLength] = 0;
+}
+
+static void OutputSeparator()
+{
+    if (s_outputLength && s_outputBuffer[s_outputLength] != ' ')
+    {
+        OutputCharacter(' ');
+    }
+}
+
+static void OutputByteCode(unsigned char b)
+{
+    static const char hexDigits[] = { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F' };
+    OutputCharacter(hexDigits[b >> 4]);
+    OutputCharacter(hexDigits[b & 0xF]);
+}
+
+static int IsSimpleCharacter(unsigned char b)
+{
+    return b > 0x20 && b < 0x7F && b != '_';
+}
+
+static void OutputByteSequence(const unsigned char* pBytes, size_t length, JSON_Encoding encoding)
+{
+    size_t i;
+    switch (encoding)
+    {
+    case JSON_UTF8:
+        for (i = 0; i < length; i++)
+        {
+            if (IsSimpleCharacter(pBytes[i]))
+            {
+                OutputCharacter(pBytes[i]);
+            }
+            else
+            {
+                OutputCharacter('<');
+                OutputByteCode(pBytes[i]);
+                OutputCharacter('>');
+            }
+        }
+        break;
+
+    case JSON_UTF16LE:
+        for (i = 0; i < length; i += 2)
+        {
+            if (IsSimpleCharacter(pBytes[i]) &&
+                pBytes[i + 1] == 0)
+            {
+                OutputCharacter(pBytes[i]);
+                OutputCharacter('_');
+            }
+            else
+            {
+                OutputCharacter('<');
+                OutputByteCode(pBytes[i]);
+                OutputCharacter(' ');
+                OutputByteCode(pBytes[i + 1]);
+                OutputCharacter('>');
+            }
+        }
+        break;
+
+    case JSON_UTF16BE:
+        for (i = 0; i < length; i += 2)
+        {
+            if (IsSimpleCharacter(pBytes[i + 1]) &&
+                pBytes[i] == 0)
+            {
+                OutputCharacter('_');
+                OutputCharacter(pBytes[i + 1]);
+            }
+            else
+            {
+                OutputCharacter('<');
+                OutputByteCode(pBytes[i]);
+                OutputCharacter(' ');
+                OutputByteCode(pBytes[i + 1]);
+                OutputCharacter('>');
+            }
+        }
+        break;
+
+    case JSON_UTF32LE:
+        for (i = 0; i < length; i += 4)
+        {
+            if (IsSimpleCharacter(pBytes[i]) &&
+                pBytes[i + 1] == 0 &&
+                pBytes[i + 2] == 0 &&
+                pBytes[i + 3] == 0)
+            {
+                OutputCharacter(pBytes[i]);
+                OutputCharacter('_');
+                OutputCharacter('_');
+                OutputCharacter('_');
+            }
+            else
+            {
+                OutputCharacter('<');
+                OutputByteCode(pBytes[i]);
+                OutputCharacter(' ');
+                OutputByteCode(pBytes[i + 1]);
+                OutputCharacter(' ');
+                OutputByteCode(pBytes[i + 2]);
+                OutputCharacter(' ');
+                OutputByteCode(pBytes[i + 3]);
+                OutputCharacter('>');
+            }
+        }
+        break;
+
+    case JSON_UTF32BE:
+        for (i = 0; i < length; i += 4)
+        {
+            if (IsSimpleCharacter(pBytes[i + 3]) &&
+                pBytes[i] == 0 &&
+                pBytes[i + 1] == 0 &&
+                pBytes[i + 2] == 0)
+            {
+                OutputCharacter('_');
+                OutputCharacter('_');
+                OutputCharacter('_');
+                OutputCharacter(pBytes[i + 3]);
+            }
+            else
+            {
+                OutputCharacter('<');
+                OutputByteCode(pBytes[i]);
+                OutputCharacter(' ');
+                OutputByteCode(pBytes[i + 1]);
+                OutputCharacter(' ');
+                OutputByteCode(pBytes[i + 2]);
+                OutputCharacter(' ');
+                OutputByteCode(pBytes[i + 3]);
+                OutputCharacter('>');
+            }
+        }
+        break;
+
+    default:
+        break;
+    }
+}
+
+static void OutputStringBytes(const unsigned char* pBytes, size_t length, JSON_StringAttributes attributes, JSON_Encoding encoding)
+{
+    if (attributes != JSON_SimpleString)
+    {
+        if (attributes & JSON_ContainsNullCharacter)
+        {
+            OutputCharacter('z');
+        }
+        if (attributes & JSON_ContainsControlCharacter)
+        {
+            OutputCharacter('c');
+        }
+        if (attributes & JSON_ContainsNonASCIICharacter)
+        {
+            OutputCharacter('a');
+        }
+        if (attributes & JSON_ContainsNonBMPCharacter)
+        {
+            OutputCharacter('b');
+        }
+        if (attributes & JSON_ContainsReplacedCharacter)
+        {
+            OutputCharacter('r');
+        }
+        if (length)
+        {
+            OutputCharacter(' ');
+        }
+    }
+    OutputByteSequence(pBytes, length, encoding);
+}
+
+#ifndef JSON_NO_PARSER
+
+static void OutputNumber(const unsigned char* pValue, size_t length, JSON_NumberAttributes attributes, JSON_Encoding encoding)
+{
+    if (attributes != JSON_SimpleNumber)
+    {
+        if (attributes & JSON_IsNegative)
+        {
+            OutputCharacter('-');
+        }
+        if (attributes & JSON_IsHex)
+        {
+            OutputCharacter('x');
+        }
+        if (attributes & JSON_ContainsDecimalPoint)
+        {
+            OutputCharacter('.');
+        }
+        if (attributes & JSON_ContainsExponent)
+        {
+            OutputCharacter('e');
+        }
+        if (attributes & JSON_ContainsNegativeExponent)
+        {
+            OutputCharacter('-');
+        }
+        OutputCharacter(' ');
+    }
+    OutputByteSequence((const unsigned char*)pValue, length, encoding);
+}
+
+static void OutputLocation(const JSON_Location* pLocation)
+{
+    OutputFormatted("%d,%d,%d,%d", (int)pLocation->byte, (int)pLocation->line, (int)pLocation->column, (int)pLocation->depth);
+}
+
+#endif
+
+static int CheckOutput(const char* pExpectedOutput)
+{
+    if (strcmp(pExpectedOutput, s_outputBuffer))
+    {
+        printf("FAILURE: output does not match expected\n"
+               "  EXPECTED %s\n"
+               "  ACTUAL   %s\n", pExpectedOutput, s_outputBuffer);
+        return 0;
+    }
+    return 1;
+}
+
+static void ResetOutput()
+{
+    s_outputLength = 0;
+    s_outputBuffer[0] = 0;
+}
+
+#ifndef JSON_NO_PARSER
+
 typedef struct tag_ParserState
 {
     JSON_Error    error;
@@ -108,6 +431,7 @@ typedef struct tag_ParserSettings
     void*         userData;
     JSON_Encoding inputEncoding;
     JSON_Encoding stringEncoding;
+    JSON_Encoding numberEncoding;
     size_t        maxStringLength;
     size_t        maxNumberLength;
     JSON_Boolean  allowBOM;
@@ -123,6 +447,7 @@ static void InitParserSettings(ParserSettings* pSettings)
     pSettings->userData = NULL;
     pSettings->inputEncoding = JSON_UnknownEncoding;
     pSettings->stringEncoding = JSON_UTF8;
+    pSettings->numberEncoding = JSON_UTF8;
     pSettings->maxStringLength = (size_t)-1;
     pSettings->maxNumberLength = (size_t)-1;
     pSettings->allowBOM = JSON_False;
@@ -138,6 +463,7 @@ static void GetParserSettings(JSON_Parser parser, ParserSettings* pSettings)
     pSettings->userData = JSON_Parser_GetUserData(parser);
     pSettings->inputEncoding = JSON_Parser_GetInputEncoding(parser);
     pSettings->stringEncoding = JSON_Parser_GetStringEncoding(parser);
+    pSettings->numberEncoding = JSON_Parser_GetNumberEncoding(parser);
     pSettings->maxStringLength = JSON_Parser_GetMaxStringLength(parser);
     pSettings->maxNumberLength = JSON_Parser_GetMaxNumberLength(parser);
     pSettings->allowBOM = JSON_Parser_GetAllowBOM(parser);
@@ -153,6 +479,7 @@ static int ParserSettingsAreIdentical(const ParserSettings* pSettings1, const Pa
     return (pSettings1->userData == pSettings2->userData &&
             pSettings1->inputEncoding == pSettings2->inputEncoding &&
             pSettings1->stringEncoding == pSettings2->stringEncoding &&
+            pSettings1->numberEncoding == pSettings2->numberEncoding &&
             pSettings1->maxStringLength == pSettings2->maxStringLength &&
             pSettings1->maxNumberLength == pSettings2->maxNumberLength &&
             pSettings1->allowBOM == pSettings2->allowBOM &&
@@ -176,12 +503,14 @@ static int CheckParserSettings(JSON_Parser parser, const ParserSettings* pExpect
                "  JSON_Parser_GetUserData()                        %8p   %8p\n"
                "  JSON_Parser_GetInputEncoding()                   %8d   %8d\n"
                "  JSON_Parser_GetStringEncoding()                  %8d   %8d\n"
-               "  JSON_Parser_GetMaxStringLength()           %8d   %8d\n"
+               "  JSON_Parser_GetNumberEncoding()                  %8d   %8d\n"
+               "  JSON_Parser_GetMaxStringLength()                 %8d   %8d\n"
                "  JSON_Parser_GetMaxNumberLength()                 %8d   %8d\n"
                ,
                pExpectedSettings->userData, actualSettings.userData,
                (int)pExpectedSettings->inputEncoding, (int)actualSettings.inputEncoding,
                (int)pExpectedSettings->stringEncoding, (int)actualSettings.stringEncoding,
+               (int)pExpectedSettings->numberEncoding, (int)actualSettings.numberEncoding,
                (int)pExpectedSettings->maxStringLength, (int)actualSettings.maxStringLength,
                (int)pExpectedSettings->maxNumberLength, (int)actualSettings.maxNumberLength
             );
@@ -266,8 +595,6 @@ static int ParserHandlersAreIdentical(const ParserHandlers* pHandlers1, const Pa
             pHandlers1->endArrayHandler == pHandlers2->endArrayHandler &&
             pHandlers1->arrayItemHandler == pHandlers2->arrayItemHandler);
 }
-
-#define HANDLER_STRING(p) ((p) ? "non-NULL" : "NULL")
 
 static int CheckParserHandlers(JSON_Parser parser, const ParserHandlers* pExpectedHandlers)
 {
@@ -416,6 +743,16 @@ static int CheckParserSetStringEncoding(JSON_Parser parser, JSON_Encoding encodi
     if (JSON_Parser_SetStringEncoding(parser, encoding) != expectedStatus)
     {
         printf("FAILURE: expected JSON_Parser_SetStringEncoding() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
+        return 0;
+    }
+    return 1;
+}
+
+static int CheckParserSetNumberEncoding(JSON_Parser parser, JSON_Encoding encoding, JSON_Status expectedStatus)
+{
+    if (JSON_Parser_SetNumberEncoding(parser, encoding) != expectedStatus)
+    {
+        printf("FAILURE: expected JSON_Parser_SetNumberEncoding() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
         return 0;
     }
     return 1;
@@ -631,305 +968,6 @@ static int CheckParserParse(JSON_Parser parser, const char* pBytes, size_t lengt
     return 1;
 }
 
-static int CheckErrorString(JSON_Error error, const char* pExpectedMessage)
-{
-    const char* pActualMessage = JSON_ErrorString(error);
-    if (strcmp(pExpectedMessage, pActualMessage))
-    {
-        printf("FAILURE: expected JSON_ErrorString() to return \"%s\" instead of \"%s\"\n", pExpectedMessage, pActualMessage);
-        return 0;
-    }
-    return 1;
-}
-
-static void* JSON_CALL ReallocHandler(void* caller, void* ptr, size_t size)
-{
-    size_t* pBlock = NULL;
-    (void)caller; /* unused */
-    if ((!ptr && !s_failMalloc) || (ptr && !s_failRealloc))
-    {
-        size_t newBlockSize = sizeof(size_t) + size;
-        size_t oldBlockSize;
-        pBlock = (size_t*)ptr;
-        if (pBlock)
-        {
-            pBlock--; /* actual block begins before client's pointer */
-            oldBlockSize = *pBlock;
-        }
-        else
-        {
-            oldBlockSize = 0;
-        }
-        pBlock = (size_t*)realloc(pBlock, newBlockSize);
-        if (pBlock)
-        {
-            if (!oldBlockSize)
-            {
-                s_blocksAllocated++;
-            }
-            s_bytesAllocated += newBlockSize - oldBlockSize;
-            *pBlock = newBlockSize;
-            pBlock++; /* return address to memory after block size */
-        }
-    }
-    return pBlock;
-}
-
-static void JSON_CALL FreeHandler(void* caller, void* ptr)
-{
-    (void)caller; /* unused */
-    if (ptr)
-    {
-        size_t* pBlock = (size_t*)ptr;
-        pBlock--; /* actual block begins before client's pointer */
-        s_blocksAllocated--;
-        s_bytesAllocated -= *pBlock;
-        free(pBlock);
-    }
-}
-
-static char s_outputBuffer[4096]; /* big enough for all unit tests */
-size_t s_outputLength = 0;
-
-static void OutputFormatted(const char* pFormat, ...)
-{
-    va_list args;
-    int length;
-    va_start(args, pFormat);
-    length = vsprintf(&s_outputBuffer[s_outputLength], pFormat, args);
-    va_end(args);
-    s_outputLength += length;
-    s_outputBuffer[s_outputLength] = 0;
-}
-
-static void OutputCharacter(char c)
-{
-    s_outputBuffer[s_outputLength] = c;
-    s_outputLength++;
-    s_outputBuffer[s_outputLength] = 0;
-}
-
-static void OutputSeparator()
-{
-    if (s_outputLength && s_outputBuffer[s_outputLength] != ' ')
-    {
-        OutputCharacter(' ');
-    }
-}
-
-static void OutputByteCode(unsigned char b)
-{
-    static const char hexDigits[] = { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F' };
-    OutputCharacter(hexDigits[b >> 4]);
-    OutputCharacter(hexDigits[b & 0xF]);
-}
-
-static int IsSimpleCharacter(unsigned char b)
-{
-    return b > 0x20 && b < 0x7F && b != '_';
-}
-
-static void OutputStringBytes(const unsigned char* pBytes, size_t length, JSON_StringAttributes attributes, JSON_Encoding encoding)
-{
-    size_t i;
-    if (attributes != JSON_SimpleString)
-    {
-        if (attributes & JSON_ContainsNullCharacter)
-        {
-            OutputCharacter('z');
-        }
-        if (attributes & JSON_ContainsControlCharacter)
-        {
-            OutputCharacter('c');
-        }
-        if (attributes & JSON_ContainsNonASCIICharacter)
-        {
-            OutputCharacter('a');
-        }
-        if (attributes & JSON_ContainsNonBMPCharacter)
-        {
-            OutputCharacter('b');
-        }
-        if (attributes & JSON_ContainsReplacedCharacter)
-        {
-            OutputCharacter('r');
-        }
-        if (length)
-        {
-            OutputCharacter(' ');
-        }
-    }
-    switch (encoding)
-    {
-    case JSON_UTF8:
-        for (i = 0; i < length; i++)
-        {
-            if (IsSimpleCharacter(pBytes[i]))
-            {
-                OutputCharacter(pBytes[i]);
-            }
-            else
-            {
-                OutputCharacter('<');
-                OutputByteCode(pBytes[i]);
-                OutputCharacter('>');
-            }
-        }
-        break;
-
-    case JSON_UTF16LE:
-        for (i = 0; i < length; i += 2)
-        {
-            if (IsSimpleCharacter(pBytes[i]) &&
-                pBytes[i + 1] == 0)
-            {
-                OutputCharacter(pBytes[i]);
-                OutputCharacter('_');
-            }
-            else
-            {
-                OutputCharacter('<');
-                OutputByteCode(pBytes[i]);
-                OutputCharacter(' ');
-                OutputByteCode(pBytes[i + 1]);
-                OutputCharacter('>');
-            }
-        }
-        break;
-
-    case JSON_UTF16BE:
-        for (i = 0; i < length; i += 2)
-        {
-            if (IsSimpleCharacter(pBytes[i + 1]) &&
-                pBytes[i] == 0)
-            {
-                OutputCharacter('_');
-                OutputCharacter(pBytes[i + 1]);
-            }
-            else
-            {
-                OutputCharacter('<');
-                OutputByteCode(pBytes[i]);
-                OutputCharacter(' ');
-                OutputByteCode(pBytes[i + 1]);
-                OutputCharacter('>');
-            }
-        }
-        break;
-
-    case JSON_UTF32LE:
-        for (i = 0; i < length; i += 4)
-        {
-            if (IsSimpleCharacter(pBytes[i]) &&
-                pBytes[i + 1] == 0 &&
-                pBytes[i + 2] == 0 &&
-                pBytes[i + 3] == 0)
-            {
-                OutputCharacter(pBytes[i]);
-                OutputCharacter('_');
-                OutputCharacter('_');
-                OutputCharacter('_');
-            }
-            else
-            {
-                OutputCharacter('<');
-                OutputByteCode(pBytes[i]);
-                OutputCharacter(' ');
-                OutputByteCode(pBytes[i + 1]);
-                OutputCharacter(' ');
-                OutputByteCode(pBytes[i + 2]);
-                OutputCharacter(' ');
-                OutputByteCode(pBytes[i + 3]);
-                OutputCharacter('>');
-            }
-        }
-        break;
-
-    case JSON_UTF32BE:
-        for (i = 0; i < length; i += 4)
-        {
-            if (IsSimpleCharacter(pBytes[i + 3]) &&
-                pBytes[i] == 0 &&
-                pBytes[i + 1] == 0 &&
-                pBytes[i + 2] == 0)
-            {
-                OutputCharacter('_');
-                OutputCharacter('_');
-                OutputCharacter('_');
-                OutputCharacter(pBytes[i + 3]);
-            }
-            else
-            {
-                OutputCharacter('<');
-                OutputByteCode(pBytes[i]);
-                OutputCharacter(' ');
-                OutputByteCode(pBytes[i + 1]);
-                OutputCharacter(' ');
-                OutputByteCode(pBytes[i + 2]);
-                OutputCharacter(' ');
-                OutputByteCode(pBytes[i + 3]);
-                OutputCharacter('>');
-            }
-        }
-        break;
-
-    default:
-        break;
-    }
-}
-
-static void OutputNumber(const char* pBytes, JSON_NumberAttributes attributes)
-{
-    if (attributes != JSON_SimpleNumber)
-    {
-        if (attributes & JSON_IsNegative)
-        {
-            OutputCharacter('-');
-        }
-        if (attributes & JSON_IsHex)
-        {
-            OutputCharacter('x');
-        }
-        if (attributes & JSON_ContainsDecimalPoint)
-        {
-            OutputCharacter('.');
-        }
-        if (attributes & JSON_ContainsExponent)
-        {
-            OutputCharacter('e');
-        }
-        if (attributes & JSON_ContainsNegativeExponent)
-        {
-            OutputCharacter('-');
-        }
-        OutputCharacter(' ');
-    }
-    OutputFormatted("%s", pBytes);
-}
-
-static void OutputLocation(const JSON_Location* pLocation)
-{
-    OutputFormatted("%d,%d,%d,%d", (int)pLocation->byte, (int)pLocation->line, (int)pLocation->column, (int)pLocation->depth);
-}
-
-static int CheckOutput(const char* pExpectedOutput)
-{
-    if (strcmp(pExpectedOutput, s_outputBuffer))
-    {
-        printf("FAILURE: output does not match expected\n"
-               "  EXPECTED %s\n"
-               "  ACTUAL   %s\n", pExpectedOutput, s_outputBuffer);
-        return 0;
-    }
-    return 1;
-}
-
-static void ResetOutput()
-{
-    s_outputLength = 0;
-    s_outputBuffer[0] = 0;
-}
-
 static int TryToMisbehaveInParseHandler(JSON_Parser parser)
 {
     if (!CheckParserFree(parser, JSON_Failure) ||
@@ -937,6 +975,9 @@ static int TryToMisbehaveInParseHandler(JSON_Parser parser)
         !CheckParserGetTokenLocation(parser, NULL, JSON_Failure) ||
         !CheckParserSetInputEncoding(parser, JSON_UTF32LE, JSON_Failure) ||
         !CheckParserSetStringEncoding(parser, JSON_UTF32LE, JSON_Failure) ||
+        !CheckParserSetNumberEncoding(parser, JSON_UTF32LE, JSON_Failure) ||
+        !CheckParserSetMaxStringLength(parser, 1, JSON_Failure) ||
+        !CheckParserSetMaxNumberLength(parser, 1, JSON_Failure) ||
         !CheckParserSetAllowBOM(parser, JSON_True, JSON_Failure) ||
         !CheckParserSetAllowComments(parser, JSON_True, JSON_Failure) ||
         !CheckParserSetAllowSpecialNumbers(parser, JSON_True, JSON_Failure) ||
@@ -1033,7 +1074,7 @@ static JSON_Parser_HandlerResult JSON_CALL BooleanHandler(JSON_Parser parser, JS
     return JSON_Parser_Continue;
 }
 
-static JSON_Parser_HandlerResult JSON_CALL StringHandler(JSON_Parser parser, const char* pBytes, size_t length, JSON_StringAttributes attributes)
+static JSON_Parser_HandlerResult JSON_CALL StringHandler(JSON_Parser parser, const char* pValue, size_t length, JSON_StringAttributes attributes)
 {
     JSON_Location location;
     if (s_failHandler)
@@ -1050,7 +1091,7 @@ static JSON_Parser_HandlerResult JSON_CALL StringHandler(JSON_Parser parser, con
     }
     OutputSeparator();
     OutputFormatted("s(");
-    OutputStringBytes((const unsigned char*)pBytes, length, attributes, JSON_Parser_GetStringEncoding(parser));
+    OutputStringBytes((const unsigned char*)pValue, length, attributes, JSON_Parser_GetStringEncoding(parser));
     OutputFormatted("):");
     OutputLocation(&location);
     return JSON_Parser_Continue;
@@ -1067,17 +1108,13 @@ static JSON_Parser_HandlerResult JSON_CALL NumberHandler(JSON_Parser parser, con
     {
         return JSON_Parser_Abort;
     }
-    if (strlen(pValue) != length)
-    {
-        return JSON_Parser_Abort;
-    }
     if (JSON_Parser_GetTokenLocation(parser, &location) != JSON_Success)
     {
         return JSON_Parser_Abort;
     }
     OutputSeparator();
     OutputFormatted("#(");
-    OutputNumber(pValue, attributes);
+    OutputNumber((const unsigned char*)pValue, length, attributes, JSON_Parser_GetNumberEncoding(parser));
     OutputFormatted("):");
     OutputLocation(&location);
     return JSON_Parser_Continue;
@@ -1162,7 +1199,7 @@ static JSON_Parser_HandlerResult JSON_CALL EndObjectHandler(JSON_Parser parser)
     return JSON_Parser_Continue;
 }
 
-static JSON_Parser_HandlerResult JSON_CALL ObjectMemberHandler(JSON_Parser parser, const char* pBytes, size_t length, JSON_StringAttributes attributes)
+static JSON_Parser_HandlerResult JSON_CALL ObjectMemberHandler(JSON_Parser parser, const char* pValue, size_t length, JSON_StringAttributes attributes)
 {
     JSON_Location location;
     if (s_failHandler)
@@ -1173,7 +1210,7 @@ static JSON_Parser_HandlerResult JSON_CALL ObjectMemberHandler(JSON_Parser parse
     {
         return JSON_Parser_Abort;
     }
-    if (attributes == JSON_SimpleString && !strcmp(pBytes, "duplicate"))
+    if (attributes == JSON_SimpleString && !strcmp(pValue, "duplicate"))
     {
         return JSON_Parser_TreatAsDuplicateObjectMember;
     }
@@ -1183,7 +1220,7 @@ static JSON_Parser_HandlerResult JSON_CALL ObjectMemberHandler(JSON_Parser parse
     }
     OutputSeparator();
     OutputFormatted("m(");
-    OutputStringBytes((const unsigned char*)pBytes, length, attributes, JSON_Parser_GetStringEncoding(parser));
+    OutputStringBytes((const unsigned char*)pValue, length, attributes, JSON_Parser_GetStringEncoding(parser));
     OutputFormatted("):");
     OutputLocation(&location);
     return JSON_Parser_Continue;
@@ -1252,28 +1289,6 @@ static JSON_Parser_HandlerResult JSON_CALL ArrayItemHandler(JSON_Parser parser)
     return JSON_Parser_Continue;
 }
 
-/* The length and content of this array MUST correspond exactly with the
-   JSON_Error_XXX enumeration values defined in jsonsax.h. */
-static const char* errorNames[] =
-{
-    "",
-    "OutOfMemory",
-    "AbortedByHandler",
-    "BOMNotAllowed",
-    "InvalidEncodingSequence",
-    "UnknownToken",
-    "UnexpectedToken",
-    "IncompleteToken",
-    "ExpectedMoreTokens",
-    "UnescapedControlCharacter",
-    "InvalidEscapeSequence",
-    "UnpairedSurrogateEscapeSequence",
-    "TooLongString",
-    "InvalidNumber",
-    "TooLongNumber",
-    "DuplicateObjectMember"
-};
-
 typedef enum tag_ParserParam
 {
     Standard = 0,
@@ -1341,7 +1356,7 @@ static void RunParseTest(const ParseTest* pTest)
     }
     if ((pTest->parserParams & 0xF0) != DefaultOut)
     {
-        settings.stringEncoding = (JSON_Encoding)((pTest->parserParams >> 4) & 0xF);
+        settings.stringEncoding = settings.numberEncoding = (JSON_Encoding)((pTest->parserParams >> 4) & 0xF);
     }
     if ((pTest->parserParams & 0x300) != DefaultMaxStringLength)
     {
@@ -1377,6 +1392,7 @@ static void RunParseTest(const ParseTest* pTest)
         CheckParserSetArrayItemHandler(parser, &ArrayItemHandler, JSON_Success) &&
         CheckParserSetInputEncoding(parser, settings.inputEncoding, JSON_Success) &&
         CheckParserSetStringEncoding(parser, settings.stringEncoding, JSON_Success) &&
+        CheckParserSetNumberEncoding(parser, settings.numberEncoding, JSON_Success) &&
         CheckParserSetMaxStringLength(parser, settings.maxStringLength, JSON_Success) &&
         CheckParserSetMaxNumberLength(parser, settings.maxNumberLength, JSON_Success) &&
         CheckParserSetAllowBOM(parser, settings.allowBOM, JSON_Success) &&
@@ -1472,7 +1488,10 @@ static void TestParserSetSettings()
     InitParserSettings(&settings);
     settings.userData = (void*)1;
     settings.inputEncoding = JSON_UTF16LE;
-    settings.stringEncoding = JSON_UTF16LE;
+    settings.stringEncoding = JSON_UTF32LE;
+    settings.numberEncoding = JSON_UTF32BE;
+    settings.maxStringLength = 2;
+    settings.maxNumberLength = 3;
     settings.allowBOM = JSON_True;
     settings.allowComments = JSON_True;
     settings.allowSpecialNumbers = JSON_True;
@@ -1483,6 +1502,7 @@ static void TestParserSetSettings()
         CheckParserSetUserData(parser, settings.userData, JSON_Success) &&
         CheckParserSetInputEncoding(parser, settings.inputEncoding, JSON_Success) &&
         CheckParserSetStringEncoding(parser, settings.stringEncoding, JSON_Success) &&
+        CheckParserSetNumberEncoding(parser, settings.numberEncoding, JSON_Success) &&
         CheckParserSetMaxStringLength(parser, settings.maxStringLength, JSON_Success) &&
         CheckParserSetMaxNumberLength(parser, settings.maxNumberLength, JSON_Success) &&
         CheckParserSetAllowBOM(parser, settings.allowBOM, JSON_Success) &&
@@ -1514,6 +1534,9 @@ static void TestParserSetInvalidSettings()
         CheckParserSetStringEncoding(parser, (JSON_Encoding)-1, JSON_Failure) &&
         CheckParserSetStringEncoding(parser, JSON_UnknownEncoding, JSON_Failure) &&
         CheckParserSetStringEncoding(parser, (JSON_Encoding)(JSON_UTF32BE + 1), JSON_Failure) &&
+        CheckParserSetNumberEncoding(parser, (JSON_Encoding)-1, JSON_Failure) &&
+        CheckParserSetNumberEncoding(parser, JSON_UnknownEncoding, JSON_Failure) &&
+        CheckParserSetNumberEncoding(parser, (JSON_Encoding)(JSON_UTF32BE + 1), JSON_Failure) &&
         CheckParserParse(parser, NULL, 1, JSON_False, JSON_Failure) &&
         CheckParserSettings(parser, &settings))
     {
@@ -1582,6 +1605,7 @@ static void TestParserReset()
         CheckParserSetUserData(parser, (void*)1, JSON_Success) &&
         CheckParserSetInputEncoding(parser, JSON_UTF16LE, JSON_Success) &&
         CheckParserSetStringEncoding(parser, JSON_UTF16LE, JSON_Success) &&
+        CheckParserSetNumberEncoding(parser, JSON_UTF16LE, JSON_Success) &&
         CheckParserSetMaxStringLength(parser, 32, JSON_Success) &&
         CheckParserSetMaxNumberLength(parser, 32, JSON_Success) &&
         CheckParserSetAllowBOM(parser, JSON_True, JSON_Success) &&
@@ -1970,6 +1994,7 @@ static void TestParserMissing()
         CheckParserGetError(NULL, &errorLocation, JSON_Failure) &&
         CheckParserSetInputEncoding(NULL, JSON_UTF16LE, JSON_Failure) &&
         CheckParserSetStringEncoding(NULL, JSON_UTF16LE, JSON_Failure) &&
+        CheckParserSetNumberEncoding(NULL, JSON_UTF16LE, JSON_Failure) &&
         CheckParserSetMaxStringLength(NULL, 128, JSON_Failure) &&
         CheckParserSetMaxNumberLength(NULL, 128, JSON_Failure) &&
         CheckParserSetEncodingDetectedHandler(NULL, &EncodingDetectedHandler, JSON_Failure) &&
@@ -2449,16 +2474,21 @@ PARSE_TEST("1.23e+456 (1)", Standard, "1.23e+456", FINAL, UTF8, "u(8) #(.e 1.23e
 PARSE_TEST("1.23e+456 (2)", Standard, " 1.23e+456 ", FINAL, UTF8, "u(8) #(.e 1.23e+456):1,0,1,0")
 PARSE_TEST("1.23e-456 (1)", Standard, "1.23e-456", FINAL, UTF8, "u(8) #(.e- 1.23e-456):0,0,0,0")
 PARSE_TEST("1.23e-456 (2)", Standard, " 1.23e-456 ", FINAL, UTF8, "u(8) #(.e- 1.23e-456):1,0,1,0")
+PARSE_TEST("-1.23e-456 -> UTF-16LE", UTF16LEOut, "-1.23e-456", FINAL, UTF8, "u(8) #(-.e- -_1_._2_3_e_-_4_5_6_):0,0,0,0")
+PARSE_TEST("-1.23e-456 -> UTF-16BE", UTF16BEOut, "-1.23e-456", FINAL, UTF8, "u(8) #(-.e- _-_1_._2_3_e_-_4_5_6):0,0,0,0")
+PARSE_TEST("-1.23e-456 -> UTF-32LE", UTF32LEOut, "-1.23e-456", FINAL, UTF8, "u(8) #(-.e- -___1___.___2___3___e___-___4___5___6___):0,0,0,0")
+PARSE_TEST("-1.23e-456 -> UTF-32BE", UTF32BEOut, "-1.23e-456", FINAL, UTF8, "u(8) #(-.e- ___-___1___.___2___3___e___-___4___5___6):0,0,0,0")
+
 PARSE_TEST("max length number (1)", MaxNumberLength1, "1", FINAL, UTF8, "u(8) #(1):0,0,0,0")
 PARSE_TEST("max length number (2)", MaxNumberLength2, "-1", FINAL, UTF8, "u(8) #(- -1):0,0,0,0")
-PARSE_TEST("number encoded in UTF-16LE (1)", UTF16LEIn | UTF16LEOut, "0\x00", FINAL, UTF16LE, "#(0):0,0,0,0")
-PARSE_TEST("number encoded in UTF-16LE (2)", UTF16LEIn | UTF16LEOut, "-\x00" "1\x00" ".\x00" "2\x00" "3\x00" "e\x00" "-\x00" "4\x00" "5\x00" "6\x00", FINAL, UTF16LE, "#(-.e- -1.23e-456):0,0,0,0")
-PARSE_TEST("number encoded in UTF-16BE (1)", UTF16BEIn | UTF16BEOut, "\x00" "0", FINAL, UTF16BE, "#(0):0,0,0,0")
-PARSE_TEST("number encoded in UTF-16BE (2)", UTF16BEIn | UTF16BEOut, "\x00" "-\x00" "1\x00" ".\x00" "2\x00" "3\x00" "e\x00" "-\x00" "4\x00" "5\x00" "6", FINAL, UTF16BE, "#(-.e- -1.23e-456):0,0,0,0")
-PARSE_TEST("number encoded in UTF-32LE (1)", UTF32LEIn | UTF32LEOut, "0\x00\x00\x00", FINAL, UTF32LE, "#(0):0,0,0,0")
-PARSE_TEST("number encoded in UTF-32LE (2)", UTF32LEIn | UTF32LEOut, "-\x00\x00\x00" "1\x00\x00\x00" ".\x00\x00\x00" "2\x00\x00\x00" "3\x00\x00\x00" "e\x00\x00\x00" "-\x00\x00\x00" "4\x00\x00\x00" "5\x00\x00\x00" "6\x00\x00\x00", FINAL, UTF32LE, "#(-.e- -1.23e-456):0,0,0,0")
-PARSE_TEST("number encoded in UTF-32BE (1)", UTF32BEIn | UTF32BEOut, "\x00\x00\x00" "0", FINAL, UTF32BE, "#(0):0,0,0,0")
-PARSE_TEST("number encoded in UTF-32BE (2)", UTF32BEIn | UTF32BEOut, "\x00\x00\x00" "-\x00\x00\x00" "1\x00\x00\x00" ".\x00\x00\x00" "2\x00\x00\x00" "3\x00\x00\x00" "e\x00\x00\x00" "-\x00\x00\x00" "4\x00\x00\x00" "5\x00\x00\x00" "6", FINAL, UTF32BE, "#(-.e- -1.23e-456):0,0,0,0")
+PARSE_TEST("number encoded in UTF-16LE (1)", UTF16LEIn, "0\x00", FINAL, UTF16LE, "#(0):0,0,0,0")
+PARSE_TEST("number encoded in UTF-16LE (2)", UTF16LEIn, "-\x00" "1\x00" ".\x00" "2\x00" "3\x00" "e\x00" "-\x00" "4\x00" "5\x00" "6\x00", FINAL, UTF16LE, "#(-.e- -1.23e-456):0,0,0,0")
+PARSE_TEST("number encoded in UTF-16BE (1)", UTF16BEIn, "\x00" "0", FINAL, UTF16BE, "#(0):0,0,0,0")
+PARSE_TEST("number encoded in UTF-16BE (2)", UTF16BEIn, "\x00" "-\x00" "1\x00" ".\x00" "2\x00" "3\x00" "e\x00" "-\x00" "4\x00" "5\x00" "6", FINAL, UTF16BE, "#(-.e- -1.23e-456):0,0,0,0")
+PARSE_TEST("number encoded in UTF-32LE (1)", UTF32LEIn, "0\x00\x00\x00", FINAL, UTF32LE, "#(0):0,0,0,0")
+PARSE_TEST("number encoded in UTF-32LE (2)", UTF32LEIn, "-\x00\x00\x00" "1\x00\x00\x00" ".\x00\x00\x00" "2\x00\x00\x00" "3\x00\x00\x00" "e\x00\x00\x00" "-\x00\x00\x00" "4\x00\x00\x00" "5\x00\x00\x00" "6\x00\x00\x00", FINAL, UTF32LE, "#(-.e- -1.23e-456):0,0,0,0")
+PARSE_TEST("number encoded in UTF-32BE (1)", UTF32BEIn, "\x00\x00\x00" "0", FINAL, UTF32BE, "#(0):0,0,0,0")
+PARSE_TEST("number encoded in UTF-32BE (2)", UTF32BEIn, "\x00\x00\x00" "-\x00\x00\x00" "1\x00\x00\x00" ".\x00\x00\x00" "2\x00\x00\x00" "3\x00\x00\x00" "e\x00\x00\x00" "-\x00\x00\x00" "4\x00\x00\x00" "5\x00\x00\x00" "6", FINAL, UTF32BE, "#(-.e- -1.23e-456):0,0,0,0")
 PARSE_TEST("number cannot have leading + sign", Standard, "+7", FINAL, UTF8, "u(8) !(UnknownToken):0,0,0,0")
 PARSE_TEST("number cannot have digits after leading 0 (1)", Standard, "00", FINAL, UTF8, "u(8) !(InvalidNumber):0,0,0,0")
 PARSE_TEST("number cannot have digits after leading 0 (2)", Standard, "01", FINAL, UTF8, "u(8) !(InvalidNumber):0,0,0,0")
@@ -2500,6 +2530,10 @@ PARSE_TEST("hex number requires  digit after X", AllowHexNumbers, "0Xx", FINAL, 
 PARSE_TEST("too long hex number (1)", AllowHexNumbers | MaxNumberLength0, "0x0", FINAL, UTF8, "u(8) !(TooLongNumber):0,0,0,0")
 PARSE_TEST("too long hex number (2)", AllowHexNumbers | MaxNumberLength1, "0x0", FINAL, UTF8, "u(8) !(TooLongNumber):0,0,0,0")
 PARSE_TEST("too long hex number (3)", AllowHexNumbers | MaxNumberLength2, "0x0", FINAL, UTF8, "u(8) !(TooLongNumber):0,0,0,0")
+PARSE_TEST("hex number -> UTF-16LE", AllowHexNumbers | UTF16LEOut, "0x0123456789abcdefABCDEF", FINAL, UTF8, "u(8) #(x 0_x_0_1_2_3_4_5_6_7_8_9_a_b_c_d_e_f_A_B_C_D_E_F_):0,0,0,0")
+PARSE_TEST("hex number -> UTF-16BE", AllowHexNumbers | UTF16BEOut, "0x0123456789abcdefABCDEF", FINAL, UTF8, "u(8) #(x _0_x_0_1_2_3_4_5_6_7_8_9_a_b_c_d_e_f_A_B_C_D_E_F):0,0,0,0")
+PARSE_TEST("hex number -> UTF-32LE", AllowHexNumbers | UTF32LEOut, "0x0123456789abcdefABCDEF", FINAL, UTF8, "u(8) #(x 0___x___0___1___2___3___4___5___6___7___8___9___a___b___c___d___e___f___A___B___C___D___E___F___):0,0,0,0")
+PARSE_TEST("hex number -> UTF-32BE", AllowHexNumbers | UTF32BEOut, "0x0123456789abcdefABCDEF", FINAL, UTF8, "u(8) #(x ___0___x___0___1___2___3___4___5___6___7___8___9___a___b___c___d___e___f___A___B___C___D___E___F):0,0,0,0")
 
 /* strings */
 
@@ -2733,6 +2767,10 @@ static void TestParserParse()
         RunParseTest(&s_parseTests[i]);
     }
 }
+
+#endif /* JSON_NO_PARSER */
+
+#ifndef JSON_NO_WRITER
 
 typedef struct tag_WriterState
 {
@@ -2996,9 +3034,9 @@ static int CheckWriterWriteBoolean(JSON_Writer writer, JSON_Boolean value, JSON_
     return 1;
 }
 
-static int CheckWriterWriteString(JSON_Writer writer, const char* pBytes, size_t length, JSON_Encoding encoding, JSON_Status expectedStatus)
+static int CheckWriterWriteString(JSON_Writer writer, const char* pValue, size_t length, JSON_Encoding encoding, JSON_Status expectedStatus)
 {
-    if (JSON_Writer_WriteString(writer, pBytes, length, encoding) != expectedStatus)
+    if (JSON_Writer_WriteString(writer, pValue, length, encoding) != expectedStatus)
     {
         printf("FAILURE: expected JSON_Writer_WriteString() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
         return 0;
@@ -3006,9 +3044,9 @@ static int CheckWriterWriteString(JSON_Writer writer, const char* pBytes, size_t
     return 1;
 }
 
-static int CheckWriterWriteNumber(JSON_Writer writer, const char* pValue, size_t length, JSON_Status expectedStatus)
+static int CheckWriterWriteNumber(JSON_Writer writer, const char* pValue, size_t length, JSON_Encoding encoding, JSON_Status expectedStatus)
 {
-    if (JSON_Writer_WriteNumber(writer, pValue, length) != expectedStatus)
+    if (JSON_Writer_WriteNumber(writer, pValue, length, encoding) != expectedStatus)
     {
         printf("FAILURE: expected JSON_Writer_WriteNumber() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
         return 0;
@@ -3116,7 +3154,7 @@ static int TryToMisbehaveInWriteHandler(JSON_Writer writer)
         !CheckWriterWriteNull(writer, JSON_Failure) ||
         !CheckWriterWriteBoolean(writer, JSON_True, JSON_Failure) ||
         !CheckWriterWriteString(writer, "abc", 3, JSON_UTF8, JSON_Failure) ||
-        !CheckWriterWriteNumber(writer, "0", 1, JSON_Failure) ||
+        !CheckWriterWriteNumber(writer, "0", 1, JSON_UTF8, JSON_Failure) ||
         !CheckWriterWriteSpecialNumber(writer, JSON_NaN, JSON_Failure) ||
         !CheckWriterWriteStartObject(writer, JSON_Failure) ||
         !CheckWriterWriteEndObject(writer, JSON_Failure) ||
@@ -3218,7 +3256,7 @@ static void TestWriterMissing()
         CheckWriterWriteNull(NULL, JSON_Failure) &&
         CheckWriterWriteBoolean(NULL, JSON_True, JSON_Failure) &&
         CheckWriterWriteString(NULL, "abc", 3, JSON_UTF8, JSON_Failure) &&
-        CheckWriterWriteNumber(NULL, "0", 1, JSON_Failure) &&
+        CheckWriterWriteNumber(NULL, "0", 1, JSON_UTF8, JSON_Failure) &&
         CheckWriterWriteSpecialNumber(NULL, JSON_NaN, JSON_Failure) &&
         CheckWriterWriteStartObject(NULL, JSON_Failure) &&
         CheckWriterWriteEndObject(NULL, JSON_Failure) &&
@@ -3275,7 +3313,9 @@ static void TestWriterSetInvalidSettings()
         CheckWriterWriteString(writer, NULL, 1, JSON_UTF8, JSON_Failure) &&
         CheckWriterWriteString(writer, "a", 1, JSON_UnknownEncoding, JSON_Failure) &&
         CheckWriterWriteString(writer, "a", 1, (JSON_Encoding)(JSON_UTF32BE + 1), JSON_Failure) &&
-        CheckWriterWriteNumber(writer, NULL, 1, JSON_Failure) &&
+        CheckWriterWriteNumber(writer, NULL, 1, JSON_UTF8, JSON_Failure) &&
+        CheckWriterWriteNumber(writer, "0", 1, JSON_UnknownEncoding, JSON_Failure) &&
+        CheckWriterWriteNumber(writer, "0", 1, (JSON_Encoding)(JSON_UTF32BE + 1), JSON_Failure) &&
         CheckWriterSettings(writer, &settings))
     {
         printf("OK\n");
@@ -3910,7 +3950,7 @@ static void RunWriteNumberTest(const WriteTest* pTest)
         CheckWriterSetOutputHandler(writer, &OutputHandler, JSON_Success) &&
         CheckWriterSetOutputEncoding(writer, settings.outputEncoding, JSON_Success))
     {
-        if (JSON_Writer_WriteNumber(writer, pTest->pInput, pTest->length) != JSON_Success)
+        if (JSON_Writer_WriteNumber(writer, pTest->pInput, pTest->length, pTest->inputEncoding) != JSON_Success)
         {
             state.error = JSON_Writer_GetError(writer);
             if (state.error != JSON_Error_None)
@@ -3936,43 +3976,74 @@ static void RunWriteNumberTest(const WriteTest* pTest)
     ResetOutput();
 }
 
-#define WRITE_NUMBER_TEST(name, out_enc, input, output) { name, JSON_UnknownEncoding, JSON_##out_enc, NO_REPLACE, input, sizeof(input) - 1, output },
+#define WRITE_NUMBER_TEST(name, in_enc, out_enc, input, output) { name, JSON_##in_enc, JSON_##out_enc, NO_REPLACE, input, sizeof(input) - 1, output },
 
 static const WriteTest s_writeNumberTests[] =
 {
 
-WRITE_NUMBER_TEST("-0.1e+2 -> UTF-8",       UTF8,    "-0.1e+2", "-0.1e+2")
-WRITE_NUMBER_TEST("-0.1e+2 -> UTF-16LE",    UTF16LE, "-0.1e+2", "-_0_._1_e_+_2_")
-WRITE_NUMBER_TEST("-0.1e+2 -> UTF-16BE",    UTF16BE, "-0.1e+2", "_-_0_._1_e_+_2")
-WRITE_NUMBER_TEST("-0.1e+2 -> UTF-32LE",    UTF32LE, "-0.1e+2", "-___0___.___1___e___+___2___")
-WRITE_NUMBER_TEST("-0.1e+2 -> UTF-32BE",    UTF32BE, "-0.1e+2", "___-___0___.___1___e___+___2")
+WRITE_NUMBER_TEST("-0.1e+2 UTF-8 -> UTF-8",    UTF8, UTF8,    "-0.1e+2", "-0.1e+2")
+WRITE_NUMBER_TEST("-0.1e+2 UTF-8 -> UTF-16LE", UTF8, UTF16LE, "-0.1e+2", "-_0_._1_e_+_2_")
+WRITE_NUMBER_TEST("-0.1e+2 UTF-8 -> UTF-16BE", UTF8, UTF16BE, "-0.1e+2", "_-_0_._1_e_+_2")
+WRITE_NUMBER_TEST("-0.1e+2 UTF-8 -> UTF-32LE", UTF8, UTF32LE, "-0.1e+2", "-___0___.___1___e___+___2___")
+WRITE_NUMBER_TEST("-0.1e+2 UTF-8 -> UTF-32BE", UTF8, UTF32BE, "-0.1e+2", "___-___0___.___1___e___+___2")
 
-WRITE_NUMBER_TEST("bad decimal (1)", UTF8, "-", "!(InvalidNumber)")
-WRITE_NUMBER_TEST("bad decimal (2)", UTF8, " ", "!(InvalidNumber)")
-WRITE_NUMBER_TEST("bad decimal (3)", UTF8, " 1", "!(InvalidNumber)")
-WRITE_NUMBER_TEST("bad decimal (4)", UTF8, "1 ", "!(InvalidNumber)")
-WRITE_NUMBER_TEST("bad decimal (5)", UTF8, "01", "!(InvalidNumber)")
-WRITE_NUMBER_TEST("bad decimal (6)", UTF8, "1x", "!(InvalidNumber)")
-WRITE_NUMBER_TEST("bad decimal (7)", UTF8, "1.", "!(InvalidNumber)")
-WRITE_NUMBER_TEST("bad decimal (8)", UTF8, "1e", "!(InvalidNumber)")
-WRITE_NUMBER_TEST("bad decimal (9)", UTF8, "1e+", "!(InvalidNumber)")
-WRITE_NUMBER_TEST("bad decimal (10)", UTF8, "1e-", "!(InvalidNumber)")
-WRITE_NUMBER_TEST("bad decimal (11)", UTF8, "1ex", "!(InvalidNumber)")
+WRITE_NUMBER_TEST("-0.1e+2 UTF-16LE -> UTF-8", UTF16LE, UTF8,    "-\x00" "0\x00" ".\x00" "1\x00" "e\x00" "+\x00" "2\x00", "-0.1e+2")
+WRITE_NUMBER_TEST("-0.1e+2 UTF-16BE -> UTF-8", UTF16BE, UTF8,    "\x00" "-\x00" "0\x00" ".\x00" "1\x00" "e\x00" "+\x00" "2", "-0.1e+2")
+WRITE_NUMBER_TEST("-0.1e+2 UTF-32LE -> UTF-8", UTF32LE, UTF8,    "-\x00\x00\x00" "0\x00\x00\x00" ".\x00\x00\x00" "1\x00\x00\x00" "e\x00\x00\x00" "+\x00\x00\x00" "2\x00\x00\x00", "-0.1e+2")
+WRITE_NUMBER_TEST("-0.1e+2 UTF-32BE -> UTF-8", UTF32BE, UTF8,    "\x00\x00\x00" "-\x00\x00\x00" "0\x00\x00\x00" ".\x00\x00\x00" "1\x00\x00\x00" "e\x00\x00\x00" "+\x00\x00\x00" "2", "-0.1e+2")
 
-WRITE_NUMBER_TEST("hex (1)", UTF8, "0x0", "0x0")
-WRITE_NUMBER_TEST("hex (1)", UTF8, "0X0", "0X0")
-WRITE_NUMBER_TEST("hex (2)", UTF8, "0x0123456789ABCDEF", "0x0123456789ABCDEF")
-WRITE_NUMBER_TEST("hex (3)", UTF8, "0X0123456789abcdef", "0X0123456789abcdef")
+WRITE_NUMBER_TEST("bad decimal (1)",  UTF8, UTF8, "-", "- !(InvalidNumber)")
+WRITE_NUMBER_TEST("bad decimal (2)",  UTF8, UTF8, " ", "!(InvalidNumber)")
+WRITE_NUMBER_TEST("bad decimal (3)",  UTF8, UTF8, " 1", "!(InvalidNumber)")
+WRITE_NUMBER_TEST("bad decimal (4)",  UTF8, UTF8, "1 ", "1 !(InvalidNumber)")
+WRITE_NUMBER_TEST("bad decimal (5)",  UTF8, UTF8, "01", "0 !(InvalidNumber)")
+WRITE_NUMBER_TEST("bad decimal (6)",  UTF8, UTF8, "1x", "1 !(InvalidNumber)")
+WRITE_NUMBER_TEST("bad decimal (7)",  UTF8, UTF8, "1.", "1. !(InvalidNumber)")
+WRITE_NUMBER_TEST("bad decimal (8)",  UTF8, UTF8, "1e", "1e !(InvalidNumber)")
+WRITE_NUMBER_TEST("bad decimal (9)",  UTF8, UTF8, "1e+", "1e+ !(InvalidNumber)")
+WRITE_NUMBER_TEST("bad decimal (10)", UTF8, UTF8, "1e-", "1e- !(InvalidNumber)")
+WRITE_NUMBER_TEST("bad decimal (11)", UTF8, UTF8, "1ex", "1e !(InvalidNumber)")
 
-WRITE_NUMBER_TEST("bad hex not allowed (1)", UTF8, "0x", "!(InvalidNumber)")
-WRITE_NUMBER_TEST("bad hex not allowed (2)", UTF8, "0X", "!(InvalidNumber)")
-WRITE_NUMBER_TEST("bad hex not allowed (3)", UTF8, "0x1.", "!(InvalidNumber)")
-WRITE_NUMBER_TEST("bad hex not allowed (4)", UTF8, "0x1.0", "!(InvalidNumber)")
-WRITE_NUMBER_TEST("bad hex not allowed (5)", UTF8, "0x1e+", "!(InvalidNumber)")
-WRITE_NUMBER_TEST("bad hex not allowed (6)", UTF8, "0x1e-", "!(InvalidNumber)")
-WRITE_NUMBER_TEST("bad hex not allowed (7)", UTF8, "0x1e+1", "!(InvalidNumber)")
-WRITE_NUMBER_TEST("bad hex not allowed (8)", UTF8, "0x1e-1", "!(InvalidNumber)")
-WRITE_NUMBER_TEST("bad hex not allowed (9)", UTF8, "-0x1", "!(InvalidNumber)")
+WRITE_NUMBER_TEST("hex (1)", UTF8, UTF8, "0x0", "0x0")
+WRITE_NUMBER_TEST("hex (1)", UTF8, UTF8, "0X0", "0X0")
+WRITE_NUMBER_TEST("hex (2)", UTF8, UTF8, "0x0123456789ABCDEF", "0x0123456789ABCDEF")
+WRITE_NUMBER_TEST("hex (3)", UTF8, UTF8, "0X0123456789abcdef", "0X0123456789abcdef")
+
+WRITE_NUMBER_TEST("bad hex not allowed (1)", UTF8, UTF8, "0x", "0x !(InvalidNumber)")
+WRITE_NUMBER_TEST("bad hex not allowed (2)", UTF8, UTF8, "0X", "0X !(InvalidNumber)")
+WRITE_NUMBER_TEST("bad hex not allowed (3)", UTF8, UTF8, "0x1.", "0x1 !(InvalidNumber)")
+WRITE_NUMBER_TEST("bad hex not allowed (4)", UTF8, UTF8, "0x1.0", "0x1 !(InvalidNumber)")
+WRITE_NUMBER_TEST("bad hex not allowed (5)", UTF8, UTF8, "0x1e+", "0x1e !(InvalidNumber)")
+WRITE_NUMBER_TEST("bad hex not allowed (6)", UTF8, UTF8, "0x1e-", "0x1e !(InvalidNumber)")
+WRITE_NUMBER_TEST("bad hex not allowed (7)", UTF8, UTF8, "0x1e+1", "0x1e !(InvalidNumber)")
+WRITE_NUMBER_TEST("bad hex not allowed (8)", UTF8, UTF8, "0x1e-1", "0x1e !(InvalidNumber)")
+WRITE_NUMBER_TEST("bad hex not allowed (9)", UTF8, UTF8, "-0x1", "-0 !(InvalidNumber)")
+
+WRITE_NUMBER_TEST("invalid UTF-8 encoding (1)", UTF8, UTF8, "1.\x80", "1. !(InvalidEncodingSequence)")
+WRITE_NUMBER_TEST("invalid UTF-8 encoding (2)", UTF8, UTF8, "1.\xC2", "1. !(InvalidEncodingSequence)")
+WRITE_NUMBER_TEST("invalid UTF-8 encoding (3)", UTF8, UTF8, "1.\xE0\xBF", "1. !(InvalidEncodingSequence)")
+WRITE_NUMBER_TEST("invalid UTF-8 encoding (4)", UTF8, UTF8, "1.\xF0\xBF\xBF", "1. !(InvalidEncodingSequence)")
+WRITE_NUMBER_TEST("invalid UTF-8 encoding (5)", UTF8, UTF8, "1.\xC0\x80", "1. !(InvalidEncodingSequence)")
+WRITE_NUMBER_TEST("invalid UTF-8 encoding (6)", UTF8, UTF8, "1.\xC1\x80", "1. !(InvalidEncodingSequence)")
+WRITE_NUMBER_TEST("invalid UTF-8 encoding (7)", UTF8, UTF8, "1.\xE0\x80\x80", "1. !(InvalidEncodingSequence)")
+WRITE_NUMBER_TEST("invalid UTF-8 encoding (8)", UTF8, UTF8, "1.\xE0\x9F\x80", "1. !(InvalidEncodingSequence)")
+WRITE_NUMBER_TEST("invalid UTF-8 encoding (9)", UTF8, UTF8, "1.\xED\xA0\x80", "1. !(InvalidEncodingSequence)")
+WRITE_NUMBER_TEST("invalid UTF-8 encoding (10)", UTF8, UTF8, "1.\xED\xBF\x80", "1. !(InvalidEncodingSequence)")
+WRITE_NUMBER_TEST("invalid UTF-8 encoding (11)", UTF8, UTF8, "1.\xF0\x80\x80\x80", "1. !(InvalidEncodingSequence)")
+WRITE_NUMBER_TEST("invalid UTF-8 encoding (12)", UTF8, UTF8, "1.\xF0\x8F\x80\x80", "1. !(InvalidEncodingSequence)")
+WRITE_NUMBER_TEST("invalid UTF-8 encoding (13)", UTF8, UTF8, "1.\xF4\x90\x80\x80", "1. !(InvalidEncodingSequence)")
+WRITE_NUMBER_TEST("invalid UTF-16LE encoding (1)", UTF16LE, UTF8, "1\x00.", "1 !(InvalidEncodingSequence)")
+WRITE_NUMBER_TEST("invalid UTF-16LE encoding (2)", UTF16LE, UTF8, "1\x00\x00\xD8", "1 !(InvalidEncodingSequence)")
+WRITE_NUMBER_TEST("invalid UTF-16LE encoding (3)", UTF16LE, UTF8, "1\x00\xFF\xDB", "1 !(InvalidEncodingSequence)")
+WRITE_NUMBER_TEST("invalid UTF-16BE encoding (1)", UTF16BE, UTF8, "\x00" "1\x00", "1 !(InvalidEncodingSequence)")
+WRITE_NUMBER_TEST("invalid UTF-16BE encoding (2)", UTF16BE, UTF8, "\x00" "1\xD8\x00", "1 !(InvalidEncodingSequence)")
+WRITE_NUMBER_TEST("invalid UTF-16BE encoding (3)", UTF16BE, UTF8, "\x00" "1\xDB\xFF", "1 !(InvalidEncodingSequence)")
+WRITE_NUMBER_TEST("invalid UTF-32LE encoding (1)", UTF32LE, UTF8, "1\x00\x00\x00.\x00\x00", "1 !(InvalidEncodingSequence)")
+WRITE_NUMBER_TEST("invalid UTF-32LE encoding (2)", UTF32LE, UTF8, "1\x00\x00\x00\x00\xD8\x00\x00", "1 !(InvalidEncodingSequence)")
+WRITE_NUMBER_TEST("invalid UTF-32LE encoding (3)", UTF32LE, UTF8, "1\x00\x00\x00\x00\x00\x00\x01", "1 !(InvalidEncodingSequence)")
+WRITE_NUMBER_TEST("invalid UTF-32BE encoding (1)", UTF32BE, UTF8, "\x00\x00\x00" "1\x00\x00\x00", "1 !(InvalidEncodingSequence)")
+WRITE_NUMBER_TEST("invalid UTF-32BE encoding (2)", UTF32BE, UTF8, "\x00\x00\x00" "1\x00\x00\xDB\x00", "1 !(InvalidEncodingSequence)")
+WRITE_NUMBER_TEST("invalid UTF-32BE encoding (3)", UTF32BE, UTF8, "\x00\x00\x00" "1\x01\x00\x00\x00", "1 !(InvalidEncodingSequence)")
 
 };
 
@@ -3991,8 +4062,10 @@ static void TestWriterWriteNumberWithInvalidParameters()
     printf("Test writing number with invalid parameters ... ");
 
     if (CheckWriterCreateWithCustomMemorySuite(&ReallocHandler, &FreeHandler, JSON_Success, &writer) &&
-        CheckWriterWriteNumber(writer, NULL, 1, JSON_Failure) &&
-        CheckWriterWriteNumber(writer, "1", 2, JSON_Failure))
+        CheckWriterWriteNumber(writer, NULL, 1, JSON_UTF8, JSON_Failure) &&
+        CheckWriterWriteNumber(writer, "1", 1, JSON_UnknownEncoding, JSON_Failure) &&
+        CheckWriterWriteNumber(writer, "1", 1, (JSON_Encoding)(JSON_UTF32BE + 1), JSON_Failure) &&
+        CheckWriterWriteNumber(writer, "1!", 2, JSON_UTF8, JSON_Failure))
     {
         printf("OK\n");
     }
@@ -4101,7 +4174,7 @@ static void RunWriteArrayTest(const WriteTest* pTest)
             JSON_Writer_WriteStartArray(writer) != JSON_Success ||
             JSON_Writer_WriteEndArray(writer) != JSON_Success ||
             JSON_Writer_WriteComma(writer) != JSON_Success ||
-            JSON_Writer_WriteNumber(writer, "0", 1) != JSON_Success ||
+            JSON_Writer_WriteNumber(writer, "0", 1, JSON_UTF8) != JSON_Success ||
             JSON_Writer_WriteComma(writer) != JSON_Success ||
             JSON_Writer_WriteString(writer, "a", 1, JSON_UTF8) != JSON_Success ||
             JSON_Writer_WriteEndArray(writer) != JSON_Success)
@@ -4177,7 +4250,7 @@ static void RunWriteObjectTest(const WriteTest* pTest)
             JSON_Writer_WriteComma(writer) != JSON_Success ||
             JSON_Writer_WriteString(writer, "b", 1, JSON_UTF8) != JSON_Success ||
             JSON_Writer_WriteColon(writer) != JSON_Success ||
-            JSON_Writer_WriteNumber(writer, "0", 1) != JSON_Success ||
+            JSON_Writer_WriteNumber(writer, "0", 1, JSON_UTF8) != JSON_Success ||
             JSON_Writer_WriteEndObject(writer) != JSON_Success)
         {
             state.error = JSON_Writer_GetError(writer);
@@ -4382,6 +4455,19 @@ static void TestWriterWriteNewLine()
     }
 }
 
+#endif /* JSON_NO_WRITER */
+
+static int CheckErrorString(JSON_Error error, const char* pExpectedMessage)
+{
+    const char* pActualMessage = JSON_ErrorString(error);
+    if (strcmp(pExpectedMessage, pActualMessage))
+    {
+        printf("FAILURE: expected JSON_ErrorString() to return \"%s\" instead of \"%s\"\n", pExpectedMessage, pActualMessage);
+        return 0;
+    }
+    return 1;
+}
+
 static void TestErrorStrings()
 {
     printf("Test error strings ... ");
@@ -4431,6 +4517,7 @@ int main(int argc, char* argv[])
     (void)argc; /* unused */
     (void)argv; /* unused */
 
+#ifndef JSON_NO_PARSER
     TestParserCreate();
     TestParserCreateWithCustomMemorySuite();
     TestParserCreateMallocFailure();
@@ -4450,7 +4537,9 @@ int main(int argc, char* argv[])
     TestParserStackReallocFailure();
     TestParserDuplicateMemberTrackingMallocFailure();
     TestParserParse();
+#endif
 
+#ifndef JSON_NO_WRITER
     TestWriterCreate();
     TestWriterCreateWithCustomMemorySuite();
     TestWriterCreateMallocFailure();
@@ -4474,6 +4563,7 @@ int main(int argc, char* argv[])
     TestWriterWriteObject();
     TestWriterWriteSpace();
     TestWriterWriteNewLine();
+#endif
 
     TestErrorStrings();
     TestNoLeaks();
@@ -4481,6 +4571,9 @@ int main(int argc, char* argv[])
     if (s_failureCount)
     {
         printf("Error: %d failures.\n", s_failureCount);
+    }
+    else
+    {
         printf("All tests passed.\n");
     }
     return s_failureCount;

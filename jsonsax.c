@@ -40,10 +40,11 @@ typedef unsigned __int32 uint32_t;
 #include "jsonsax.h"
 
 /* Default allocation constants. */
-#define DEFAULT_TOKEN_BYTES_LENGTH 64
-#define DEFAULT_SYMBOL_STACK_SIZE  32
+#define DEFAULT_TOKEN_BYTES_LENGTH 64 /* MUST be a power of 2 */
+#define DEFAULT_SYMBOL_STACK_SIZE  32 /* MUST be a power of 2 */
 
 /* Especially-relevant Unicode codepoints. */
+#define NULL_CODEPOINT                  0x0000
 #define BACKSPACE_CODEPOINT             0x0008
 #define TAB_CODEPOINT                   0x0009
 #define LINE_FEED_CODEPOINT             0x000A
@@ -125,6 +126,28 @@ static void JSON_CALL DefaultFreeHandler(void* userData, void* ptr)
 }
 
 static const JSON_MemorySuite defaultMemorySuite = { NULL, &DefaultReallocHandler, &DefaultFreeHandler };
+
+static byte* DoubleBuffer(const JSON_MemorySuite* pMemorySuite, byte* pDefaultBuffer, byte* pBuffer, size_t length)
+{
+    size_t newLength = length * 2;
+    if (newLength < length)
+    {
+        pBuffer = NULL;
+    }
+    else if (pBuffer == pDefaultBuffer)
+    {
+        pBuffer = (byte*)pMemorySuite->realloc(pMemorySuite->userData, NULL, newLength);
+        if (pBuffer)
+        {
+            memcpy(pBuffer, pDefaultBuffer, length);
+        }
+    }
+    else
+    {
+        pBuffer = (byte*)pMemorySuite->realloc(pMemorySuite->userData, pBuffer, newLength);
+    }
+    return pBuffer;
+}
 
 /******************** Unicode Decoder ********************/
 
@@ -623,6 +646,41 @@ static size_t EncodeCodepoint(Codepoint c, Encoding encoding, byte* pBytes)
     return length;
 }
 
+/******************** JSON Lexer States ********************/
+
+/* Mutually-exclusive lexer states. */
+#define LEXING_WHITESPACE                                     0
+#define LEXING_LITERAL                                        1
+#define LEXING_STRING                                         2
+#define LEXING_STRING_ESCAPE                                  3
+#define LEXING_STRING_HEX_ESCAPE_BYTE_1                       4
+#define LEXING_STRING_HEX_ESCAPE_BYTE_2                       5
+#define LEXING_STRING_HEX_ESCAPE_BYTE_3                       6
+#define LEXING_STRING_HEX_ESCAPE_BYTE_4                       7
+#define LEXING_STRING_HEX_ESCAPE_BYTE_5                       8
+#define LEXING_STRING_HEX_ESCAPE_BYTE_6                       9
+#define LEXING_STRING_HEX_ESCAPE_BYTE_7                       10
+#define LEXING_STRING_HEX_ESCAPE_BYTE_8                       11
+#define LEXING_STRING_TRAILING_SURROGATE_HEX_ESCAPE_BACKSLASH 12
+#define LEXING_STRING_TRAILING_SURROGATE_HEX_ESCAPE_U         13
+#define LEXING_NUMBER_AFTER_MINUS                             14
+#define LEXING_NUMBER_AFTER_LEADING_ZERO                      15
+#define LEXING_NUMBER_AFTER_LEADING_NEGATIVE_ZERO             16
+#define LEXING_NUMBER_AFTER_X                                 17
+#define LEXING_NUMBER_HEX_DIGITS                              18
+#define LEXING_NUMBER_DECIMAL_DIGITS                          19
+#define LEXING_NUMBER_AFTER_DOT                               20
+#define LEXING_NUMBER_FRACTIONAL_DIGITS                       21
+#define LEXING_NUMBER_AFTER_E                                 22
+#define LEXING_NUMBER_AFTER_EXPONENT_SIGN                     23
+#define LEXING_NUMBER_EXPONENT_DIGITS                         24
+#define LEXING_COMMENT_AFTER_SLASH                            25
+#define LEXING_SINGLE_LINE_COMMENT                            26
+#define LEXING_MULTI_LINE_COMMENT                             27
+#define LEXING_MULTI_LINE_COMMENT_AFTER_STAR                  28
+#define LEXER_ERROR                                           255
+typedef byte LexerState;
+
 /******************** JSON Grammarian ********************/
 
 /* The JSON grammar comprises the following productions:
@@ -767,45 +825,6 @@ static int Grammarian_FinishedDocument(Grammarian grammarian)
     return !grammarian->stackUsed;
 }
 
-static JSON_Status Grammarian_EnsureSymbolStackSlotAvailable(Grammarian grammarian, const JSON_MemorySuite* pMemorySuite)
-{
-    /* Make sure the symbol stack has enough space for one more symbol. */
-    if (grammarian->stackUsed < grammarian->stackSize)
-    {
-        /* The current stack is big enough. */
-    }
-    else if (grammarian->stackSize * sizeof(Symbol) == SIZE_MAX)
-    {
-        /* Required size is greater than the maximum allocatable size. */
-        return JSON_Failure;
-    }
-    else
-    {
-        /* We're going to need a bigger boat. */
-        size_t newSize = grammarian->stackSize * 2;
-        Symbol* pStack;
-        if (grammarian->pStack == grammarian->defaultStack)
-        {
-            pStack = (Symbol*)pMemorySuite->realloc(pMemorySuite->userData, NULL, newSize * sizeof(Symbol));
-            if (pStack)
-            {
-                memcpy(pStack, grammarian->defaultStack, grammarian->stackUsed * sizeof(Symbol));
-            }
-        }
-        else
-        {
-            pStack = (Symbol*)pMemorySuite->realloc(pMemorySuite->userData, grammarian->pStack, newSize * sizeof(Symbol));
-        }
-        if (!pStack)
-        {
-            return JSON_Failure;
-        }
-        grammarian->pStack = pStack;
-        grammarian->stackSize = newSize;
-    }
-    return JSON_Success;
-}
-
 static GrammarianOutput Grammarian_ProcessToken(Grammarian grammarian, Symbol token, const JSON_MemorySuite* pMemorySuite)
 {
     /* The order and number of the rows and columns in this table must
@@ -892,9 +911,17 @@ static GrammarianOutput Grammarian_ProcessToken(Grammarian grammarian, Symbol to
                     grammarian->pStack[grammarian->stackUsed - 1] = pRule->symbolToPush1;
                     if (pRule->symbolToPush2 != T_NONE)
                     {
-                        if (!Grammarian_EnsureSymbolStackSlotAvailable(grammarian, pMemorySuite))
+                        /* The rule replaces the top symbol with 2 symbols.
+                           Make sure the stack has room for the second one. */
+                        if (grammarian->stackUsed == grammarian->stackSize)
                         {
-                            return GRAMMARIAN_OUTPUT(SYMBOL_STACK_FULL, EMIT_NOTHING);
+                            Symbol* pBiggerStack = DoubleBuffer(pMemorySuite, grammarian->defaultStack, grammarian->pStack, grammarian->stackSize);
+                            if (!pBiggerStack)
+                            {
+                                return GRAMMARIAN_OUTPUT(SYMBOL_STACK_FULL, EMIT_NOTHING);
+                            }
+                            grammarian->pStack = pBiggerStack;
+                            grammarian->stackSize *= 2;
                         }
                         grammarian->pStack[grammarian->stackUsed] = pRule->symbolToPush2;
                         grammarian->stackUsed++;
@@ -914,6 +941,8 @@ static GrammarianOutput Grammarian_ProcessToken(Grammarian grammarian, Symbol to
 
 /******************** JSON Parser ********************/
 
+#ifndef JSON_NO_PARSER
+
 /* Combinable parser state flags. */
 #define PARSER_RESET                 0x00
 #define PARSER_STARTED               0x01
@@ -932,37 +961,6 @@ typedef byte ParserState;
 #define PARSER_REPLACE_INVALID       0x10
 #define PARSER_TRACK_OBJECT_MEMBERS  0x20
 typedef byte ParserFlags;
-
-/* Mutually-exclusive lexer states. */
-#define LEXING_WHITESPACE                                     0
-#define LEXING_LITERAL                                        1
-#define LEXING_STRING                                         2
-#define LEXING_STRING_ESCAPE                                  3
-#define LEXING_STRING_HEX_ESCAPE_BYTE_1                       4
-#define LEXING_STRING_HEX_ESCAPE_BYTE_2                       5
-#define LEXING_STRING_HEX_ESCAPE_BYTE_3                       6
-#define LEXING_STRING_HEX_ESCAPE_BYTE_4                       7
-#define LEXING_STRING_HEX_ESCAPE_BYTE_5                       8
-#define LEXING_STRING_HEX_ESCAPE_BYTE_6                       9
-#define LEXING_STRING_HEX_ESCAPE_BYTE_7                       10
-#define LEXING_STRING_HEX_ESCAPE_BYTE_8                       11
-#define LEXING_STRING_TRAILING_SURROGATE_HEX_ESCAPE_BACKSLASH 12
-#define LEXING_STRING_TRAILING_SURROGATE_HEX_ESCAPE_U         13
-#define LEXING_NUMBER_AFTER_MINUS                             14
-#define LEXING_NUMBER_AFTER_LEADING_ZERO                      15
-#define LEXING_NUMBER_AFTER_X                                 16
-#define LEXING_NUMBER_HEX_DIGITS                              17
-#define LEXING_NUMBER_DECIMAL_DIGITS                          18
-#define LEXING_NUMBER_AFTER_DOT                               19
-#define LEXING_NUMBER_FRACTIONAL_DIGITS                       20
-#define LEXING_NUMBER_AFTER_E                                 21
-#define LEXING_NUMBER_AFTER_EXPONENT_SIGN                     22
-#define LEXING_NUMBER_EXPONENT_DIGITS                         23
-#define LEXING_COMMENT_AFTER_SLASH                            24
-#define LEXING_SINGLE_LINE_COMMENT                            25
-#define LEXING_MULTI_LINE_COMMENT                             26
-#define LEXING_MULTI_LINE_COMMENT_AFTER_STAR                  27
-typedef byte LexerState;
 
 /* Sentinel value for parser error location offset. */
 #define ERROR_LOCATION_IS_TOKEN_START 0xFF
@@ -995,6 +993,7 @@ struct JSON_Parser_Data
     ParserFlags                         flags;
     Encoding                            inputEncoding;
     Encoding                            stringEncoding;
+    Encoding                            numberEncoding;
     Symbol                              token;
     TokenAttributes                     tokenAttributes;
     Error                               error;
@@ -1144,6 +1143,7 @@ static void JSON_Parser_ResetData(JSON_Parser parser, int isInitialized)
     parser->flags = PARSER_DEFAULT_FLAGS;
     parser->inputEncoding = JSON_UnknownEncoding;
     parser->stringEncoding = JSON_UTF8;
+    parser->numberEncoding = JSON_UTF8;
     parser->token = T_NONE;
     parser->tokenAttributes = 0;
     parser->error = JSON_Error_None;
@@ -1200,107 +1200,70 @@ static void JSON_Parser_ResetData(JSON_Parser parser, int isInitialized)
     parser->state = PARSER_RESET; /* do this last! */
 }
 
-static JSON_Status JSON_Parser_WriteTokenBytes(JSON_Parser parser, const byte* pBytes, size_t length)
+static void JSON_Parser_NullTerminateToken(JSON_Parser parser)
 {
-    /* Make sure the output buffer has enough space for the new bytes. */
-    byte* pTokenBytes = NULL;
-    size_t requiredLength = parser->tokenBytesUsed + length;
-    if (requiredLength < length)
-    {
-        /* Required length is greater than the maximum allocatable length. */
-    }
-    else
-    {
-        if (requiredLength <= parser->tokenBytesLength)
-        {
-            /* The current buffer is big enough. */
-            pTokenBytes = parser->pTokenBytes;
-        }
-        else
-        {
-            /* We're going to need a bigger boat. */
-            size_t newLength = parser->tokenBytesLength * 2;
-            if (newLength < requiredLength)
-            {
-                newLength = requiredLength;
-            }
-            if (parser->pTokenBytes == parser->defaultTokenBytes)
-            {
-                pTokenBytes = (byte*)parser->memorySuite.realloc(parser->memorySuite.userData, NULL, newLength);
-                if (pTokenBytes)
-                {
-                    memcpy(pTokenBytes, parser->defaultTokenBytes, parser->tokenBytesUsed);
-                }
-            }
-            else
-            {
-                pTokenBytes = (byte*)parser->memorySuite.realloc(parser->memorySuite.userData, parser->pTokenBytes, newLength);
-            }
-            if (pTokenBytes)
-            {
-                parser->pTokenBytes = pTokenBytes;
-                parser->tokenBytesLength = newLength;
-            }
-        }
-    }
-    if (!pTokenBytes)
-    {
-        JSON_Parser_SetErrorAtCodepoint(parser, JSON_Error_OutOfMemory);
-        return JSON_Failure;
-    }
-    while (parser->tokenBytesUsed < requiredLength)
-    {
-        pTokenBytes[parser->tokenBytesUsed] = *pBytes;
-        parser->tokenBytesUsed++;
-        pBytes++;
-    }
-    return JSON_Success;
+    /* Because we always ensure that there are LONGEST_ENCODING_SEQUENCE bytes
+       available at the end of the token buffer when we record codepoints, we
+       can write the null terminator to the buffer with impunity. */
+    static const byte nullTerminatorBytes[LONGEST_ENCODING_SEQUENCE] = { 0 };
+    Encoding encoding = (parser->token == T_NUMBER) ? parser->numberEncoding : parser->stringEncoding;
+    memcpy(parser->pTokenBytes + parser->tokenBytesUsed, nullTerminatorBytes, SHORTEST_ENCODING_SEQUENCE(encoding));
 }
 
-static JSON_Status JSON_Parser_WriteTokenCharacter(JSON_Parser parser, Codepoint c)
+static JSON_Status JSON_Parser_RecordTokenCodepoint(JSON_Parser parser, Codepoint c)
 {
-    byte bytes[LONGEST_ENCODING_SEQUENCE];
-    size_t length;
+    Encoding encoding;
+    size_t maxLength;
     if (parser->token == T_NUMBER)
     {
-        /* Number token is encoded in ASCII. */
-        if (parser->tokenBytesUsed == parser->maxNumberLength)
-        {
-            JSON_Parser_SetErrorAtToken(parser, JSON_Error_TooLongNumber);
-            return JSON_Failure;
-        }
-        bytes[0] = (byte)c;
-        length = 1;
+        encoding = parser->numberEncoding;
+        maxLength = parser->maxNumberLength;
     }
     else
     {
-        /* String token is encoded in the output encoding. */
-        length = EncodeCodepoint(c, parser->stringEncoding, bytes);
-        if (parser->tokenBytesUsed + length > parser->maxStringLength)
+        encoding = parser->stringEncoding;
+        maxLength = parser->maxStringLength;
+        if (parser->token == T_STRING)
         {
-            JSON_Parser_SetErrorAtToken(parser, JSON_Error_TooLongString);
-            return JSON_Failure;
-        }
-        if (!c)
-        {
-            parser->tokenAttributes |= JSON_ContainsNullCharacter | JSON_ContainsControlCharacter;
-        }
-        else if (c < FIRST_NON_CONTROL_CODEPOINT)
-        {
-            parser->tokenAttributes |= JSON_ContainsControlCharacter;
-        }
-        else if (c >= FIRST_NON_BMP_CODEPOINT)
-        {
-            parser->tokenAttributes |= JSON_ContainsNonASCIICharacter | JSON_ContainsNonBMPCharacter;
-        }
-        else if (c >= FIRST_NON_ASCII_CODEPOINT)
-        {
-            parser->tokenAttributes |= JSON_ContainsNonASCIICharacter;
+            if (!c)
+            {
+                parser->tokenAttributes |= JSON_ContainsNullCharacter | JSON_ContainsControlCharacter;
+            }
+            else if (c < FIRST_NON_CONTROL_CODEPOINT)
+            {
+                parser->tokenAttributes |= JSON_ContainsControlCharacter;
+            }
+            else if (c >= FIRST_NON_BMP_CODEPOINT)
+            {
+                parser->tokenAttributes |= JSON_ContainsNonASCIICharacter | JSON_ContainsNonBMPCharacter;
+            }
+            else if (c >= FIRST_NON_ASCII_CODEPOINT)
+            {
+                parser->tokenAttributes |= JSON_ContainsNonASCIICharacter;
+            }
         }
     }
-    if (!JSON_Parser_WriteTokenBytes(parser, bytes, length))
+    /* We always ensure that there are LONGEST_ENCODING_SEQUENCE bytes
+       available in the buffer for the next codepoint, so we don't have to
+       check whether there is room when we decode a new codepoint, and if
+       there isn't another codepoint, we have space already allocated for
+       the encoded null terminator.*/
+    parser->tokenBytesUsed += EncodeCodepoint(c, encoding, parser->pTokenBytes + parser->tokenBytesUsed);
+    if (parser->tokenBytesUsed > maxLength)
     {
+        JSON_Parser_SetErrorAtToken(parser, parser->token == T_NUMBER ? JSON_Error_TooLongNumber : JSON_Error_TooLongString);
         return JSON_Failure;
+    }
+    if (parser->tokenBytesUsed > parser->tokenBytesLength - LONGEST_ENCODING_SEQUENCE)
+    {
+        byte* pBiggerBuffer = DoubleBuffer(&parser->memorySuite, parser->defaultTokenBytes, parser->pTokenBytes, parser->tokenBytesLength);
+        if (!pBiggerBuffer)
+        {
+            JSON_Parser_SetErrorAtCodepoint(parser, JSON_Error_OutOfMemory);
+            return JSON_Failure;
+        }
+        parser->pTokenBytes = pBiggerBuffer;
+        parser->tokenBytesLength *= 2;
     }
     return JSON_Success;
 }
@@ -1351,25 +1314,15 @@ static JSON_Status JSON_Parser_CallBooleanHandler(JSON_Parser parser)
     return JSON_Success;
 }
 
-static const byte nullTerminatorUTF[LONGEST_ENCODING_SEQUENCE] = { 0 };
-
 static JSON_Status JSON_Parser_CallStringHandler(JSON_Parser parser, int isObjectMember)
 {
     JSON_Parser_StringHandler handler = isObjectMember ? parser->objectMemberHandler : parser->stringHandler;
     if (handler)
     {
-        /* Strings should be null-terminated in the appropriate output encoding
-           before being passed to parse handlers. Note that the length passed
-           to the handler does not include the null terminator, so we need to
-           save the length before we null-terminate the string. */
         JSON_Parser_HandlerResult result;
-        size_t lengthNotIncludingNullTerminator = parser->tokenBytesUsed;
-        if (!JSON_Parser_WriteTokenBytes(parser, nullTerminatorUTF, SHORTEST_ENCODING_SEQUENCE(parser->stringEncoding)))
-        {
-            return JSON_Failure;
-        }
+        JSON_Parser_NullTerminateToken(parser);
         SET_FLAGS_ON(parser->state, PARSER_IN_TOKEN_HANDLER);
-        result = handler(parser, (const char*)parser->pTokenBytes, lengthNotIncludingNullTerminator, parser->tokenAttributes);
+        result = handler(parser, (const char*)parser->pTokenBytes, parser->tokenBytesUsed, parser->tokenAttributes);
         SET_FLAGS_OFF(parser->state, PARSER_IN_TOKEN_HANDLER);
         if (result != JSON_Parser_Continue)
         {
@@ -1385,16 +1338,10 @@ static JSON_Status JSON_Parser_CallNumberHandler(JSON_Parser parser)
 {
     if (parser->numberHandler)
     {
-        /* Numbers should be null-terminated with a single null terminator byte
-           before being passed to the handler. */
         JSON_Parser_HandlerResult result;
-        size_t lengthNotIncludingNullTerminator = parser->tokenBytesUsed;
-        if (!JSON_Parser_WriteTokenBytes(parser, nullTerminatorUTF, 1))
-        {
-            return JSON_Failure;
-        }
+        JSON_Parser_NullTerminateToken(parser);
         SET_FLAGS_ON(parser->state, PARSER_IN_TOKEN_HANDLER);
-        result = parser->numberHandler(parser, (const char*)parser->pTokenBytes, lengthNotIncludingNullTerminator, parser->tokenAttributes);
+        result = parser->numberHandler(parser, (const char*)parser->pTokenBytes, parser->tokenBytesUsed, parser->tokenAttributes);
         SET_FLAGS_OFF(parser->state, PARSER_IN_TOKEN_HANDLER);
         if (result != JSON_Parser_Continue)
         {
@@ -1989,7 +1936,7 @@ reprocess:
             if (c == '0')
             {
                 codepointToOutput = '0';
-                parser->lexerState = LEXING_NUMBER_AFTER_LEADING_ZERO;
+                parser->lexerState = LEXING_NUMBER_AFTER_LEADING_NEGATIVE_ZERO;
             }
             else if (c >= '1' && c <= '9')
             {
@@ -2007,6 +1954,7 @@ reprocess:
         break;
 
     case LEXING_NUMBER_AFTER_LEADING_ZERO:
+    case LEXING_NUMBER_AFTER_LEADING_NEGATIVE_ZERO:
         if (c == '.')
         {
             codepointToOutput = '.';
@@ -2024,7 +1972,8 @@ reprocess:
             JSON_Parser_SetErrorAtToken(parser, JSON_Error_InvalidNumber);
             return JSON_Failure;
         }
-        else if ((c == 'x' || c == 'X') && !GET_FLAGS(parser->tokenAttributes, JSON_IsNegative) &&
+        else if ((c == 'x' || c == 'X') &&
+                 parser->lexerState == LEXING_NUMBER_AFTER_LEADING_ZERO &&
                  GET_FLAGS(parser->flags, PARSER_ALLOW_HEX_NUMBERS))
         {
             codepointToOutput = c;
@@ -2247,7 +2196,7 @@ reprocess:
 
     if (codepointToOutput != EOF_CODEPOINT)
     {
-        if (!JSON_Parser_WriteTokenCharacter(parser, codepointToOutput))
+        if (!JSON_Parser_RecordTokenCodepoint(parser, codepointToOutput))
         {
             return JSON_Failure;
         }
@@ -2712,6 +2661,21 @@ JSON_Status JSON_CALL JSON_Parser_SetMaxStringLength(JSON_Parser parser, size_t 
     return JSON_Success;
 }
 
+JSON_Encoding JSON_CALL JSON_Parser_GetNumberEncoding(JSON_Parser parser)
+{
+    return parser ? (JSON_Encoding)parser->numberEncoding : JSON_UTF8;
+}
+
+JSON_Status JSON_CALL JSON_Parser_SetNumberEncoding(JSON_Parser parser, JSON_Encoding encoding)
+{
+    if (!parser || encoding <= JSON_UnknownEncoding || encoding > JSON_UTF32BE || GET_FLAGS(parser->state, PARSER_STARTED))
+    {
+        return JSON_Failure;
+    }
+    parser->numberEncoding = (Encoding)encoding;
+    return JSON_Success;
+}
+
 size_t JSON_CALL JSON_Parser_GetMaxNumberLength(JSON_Parser parser)
 {
     return parser ? parser->maxNumberLength : SIZE_MAX;
@@ -3078,7 +3042,11 @@ JSON_Status JSON_CALL JSON_Parser_Parse(JSON_Parser parser, const char* pBytes, 
     return status;
 }
 
+#endif /* JSON_NO_PARSER */
+
 /******************** JSON Writer ********************/
+
+#ifndef JSON_NO_WRITER
 
 /* Combinable writer state flags. */
 #define WRITER_RESET            0x0
@@ -3390,35 +3358,250 @@ static JSON_Status JSON_Writer_OutputString(JSON_Writer writer, const byte* pByt
     return JSON_Success;
 }
 
-/* This function assumes that pBytes points to is a valid, ASCII-encoded
-   JSON number value. */
-static JSON_Status JSON_Writer_OutputNumber(JSON_Writer writer, const byte* pBytes, size_t length)
+static LexerState LexNumberCharacter(LexerState state, Codepoint c)
 {
-    if (writer->outputEncoding == JSON_UTF8)
+    switch (state)
     {
-        /* Since the input is already in UTF-8, we can pass it
-           through to the output handler directly. */
-        if (!JSON_Writer_OutputBytes(writer, pBytes, length))
+    case LEXING_WHITESPACE:
+        if (c == '-')
         {
-            return JSON_Failure;
+            state = LEXING_NUMBER_AFTER_MINUS;
         }
-    }
-    else
-    {
-        WriteBufferData bufferData;
-        size_t i;
-        WriteBuffer_Reset(&bufferData);
-        for (i = 0; i < length; i++)
+        else if (c == '0')
         {
-            if (!WriteBuffer_WriteCodepoint(&bufferData, writer, pBytes[i]))
+            state = LEXING_NUMBER_AFTER_LEADING_ZERO;
+        }
+        else if (c >= '1' && c <= '9')
+        {
+            state = LEXING_NUMBER_DECIMAL_DIGITS;
+        }
+        else
+        {
+            state = LEXER_ERROR;
+        }
+        break;
+
+    case LEXING_NUMBER_AFTER_MINUS:
+        if (c == '0')
+        {
+            state = LEXING_NUMBER_AFTER_LEADING_NEGATIVE_ZERO;
+        }
+        else if (c >= '1' && c <= '9')
+        {
+            state = LEXING_NUMBER_DECIMAL_DIGITS;
+        }
+        else
+        {
+            state = LEXER_ERROR;
+        }
+        break;
+
+    case LEXING_NUMBER_AFTER_LEADING_ZERO:
+    case LEXING_NUMBER_AFTER_LEADING_NEGATIVE_ZERO:
+        if (c == '.')
+        {
+            state = LEXING_NUMBER_AFTER_DOT;
+        }
+        else if (c == 'e' || c == 'E')
+        {
+            state = LEXING_NUMBER_AFTER_E;
+        }
+        else if ((c == 'x' || c == 'X') && state == LEXING_NUMBER_AFTER_LEADING_ZERO)
+        {
+            state = LEXING_NUMBER_AFTER_X;
+        }
+        else if (c == EOF_CODEPOINT)
+        {
+            state = LEXING_WHITESPACE;
+        }
+        else
+        {
+            state = LEXER_ERROR;
+        }
+        break;
+
+    case LEXING_NUMBER_AFTER_X:
+        if ((c >= '0' && c <= '9') || (c >= 'A' && c <= 'F') || (c >= 'a' && c <= 'f'))
+        {
+            state = LEXING_NUMBER_HEX_DIGITS;
+        }
+        else
+        {
+            state = LEXER_ERROR;
+        }
+        break;
+
+    case LEXING_NUMBER_HEX_DIGITS:
+        if ((c >= '0' && c <= '9') || (c >= 'A' && c <= 'F') || (c >= 'a' && c <= 'f'))
+        {
+            /* Still LEXING_NUMBER_HEX_DIGITS. */
+        }
+        else if (c == EOF_CODEPOINT)
+        {
+            state = LEXING_WHITESPACE;
+        }
+        else
+        {
+            state = LEXER_ERROR;
+        }
+        break;
+
+    case LEXING_NUMBER_DECIMAL_DIGITS:
+        if (c >= '0' && c <= '9')
+        {
+            /* Still LEXING_NUMBER_DECIMAL_DIGITS. */
+        }
+        else if (c == '.')
+        {
+            state = LEXING_NUMBER_AFTER_DOT;
+        }
+        else if (c == 'e' || c == 'E')
+        {
+            state = LEXING_NUMBER_AFTER_E;
+        }
+        else if (c == EOF_CODEPOINT)
+        {
+            state = LEXING_WHITESPACE;
+        }
+        else
+        {
+            state = LEXER_ERROR;
+        }
+        break;
+
+    case LEXING_NUMBER_AFTER_DOT:
+        if (c >= '0' && c <= '9')
+        {
+            state = LEXING_NUMBER_FRACTIONAL_DIGITS;
+        }
+        else
+        {
+            state = LEXER_ERROR;
+        }
+        break;
+
+    case LEXING_NUMBER_FRACTIONAL_DIGITS:
+        if (c >= '0' && c <= '9')
+        {
+            /* Still LEXING_NUMBER_FRACTIONAL_DIGITS. */
+        }
+        else if (c == 'e' || c == 'E')
+        {
+            state = LEXING_NUMBER_AFTER_E;
+        }
+        else if (c == EOF_CODEPOINT)
+        {
+            state = LEXING_WHITESPACE;
+        }
+        else
+        {
+            state = LEXER_ERROR;
+        }
+        break;
+
+    case LEXING_NUMBER_AFTER_E:
+        if (c == '+' || c == '-')
+        {
+            state = LEXING_NUMBER_AFTER_EXPONENT_SIGN;
+        }
+        else if (c >= '0' && c <= '9')
+        {
+            state = LEXING_NUMBER_EXPONENT_DIGITS;
+        }
+        else
+        {
+            state = LEXER_ERROR;
+        }
+        break;
+
+    case LEXING_NUMBER_AFTER_EXPONENT_SIGN:
+        if (c >= '0' && c <= '9')
+        {
+            state = LEXING_NUMBER_EXPONENT_DIGITS;
+        }
+        else
+        {
+            state = LEXER_ERROR;
+        }
+        break;
+
+    case LEXING_NUMBER_EXPONENT_DIGITS:
+        if (c >= '0' && c <= '9')
+        {
+            /* Still LEXING_NUMBER_EXPONENT_DIGITS. */
+        }
+        else if (c == EOF_CODEPOINT)
+        {
+            state = LEXING_WHITESPACE;
+        }
+        else
+        {
+            state = LEXER_ERROR;
+        }
+        break;
+    }
+    return state;
+}
+
+static JSON_Status JSON_Writer_OutputNumber(JSON_Writer writer, const byte* pBytes, size_t length, Encoding encoding)
+{
+    DecoderData decoderData;
+    WriteBufferData bufferData;
+    LexerState lexerState = LEXING_WHITESPACE;
+    size_t i;
+    Decoder_Reset(&decoderData);
+    WriteBuffer_Reset(&bufferData);
+    for (i = 0; i < length; i++)
+    {
+        DecoderOutput output = Decoder_ProcessByte(&decoderData, encoding, pBytes[i]);
+        DecoderResultCode result = DECODER_RESULT_CODE(output);
+        Codepoint c;
+        switch (result)
+        {
+        case SEQUENCE_PENDING:
+            break;
+
+        case SEQUENCE_COMPLETE:
+            c = DECODER_CODEPOINT(output);
+            lexerState = LexNumberCharacter(lexerState, c);
+            if (lexerState == LEXER_ERROR)
+            {
+                /* Output whatever valid bytes we've accumulated before failing. */
+                if (WriteBuffer_Flush(&bufferData, writer))
+                {
+                    JSON_Writer_SetError(writer, JSON_Error_InvalidNumber);
+                }
+                return JSON_Failure;
+            }
+            if (!WriteBuffer_WriteCodepoint(&bufferData, writer, c))
             {
                 return JSON_Failure;
             }
-        }
-        if (!WriteBuffer_Flush(&bufferData, writer))
-        {
+            break;
+
+        case SEQUENCE_INVALID_INCLUSIVE:
+        case SEQUENCE_INVALID_EXCLUSIVE:
+            /* Output whatever valid bytes we've accumulated before failing. */
+            if (WriteBuffer_Flush(&bufferData, writer))
+            {
+                JSON_Writer_SetError(writer, JSON_Error_InvalidEncodingSequence);
+            }
             return JSON_Failure;
         }
+    }
+    if (!WriteBuffer_Flush(&bufferData, writer))
+    {
+        return JSON_Failure;
+    }
+    if (Decoder_SequencePending(&decoderData))
+    {
+        JSON_Writer_SetError(writer, JSON_Error_InvalidEncodingSequence);
+        return JSON_Failure;
+    }
+    if (LexNumberCharacter(lexerState, EOF_CODEPOINT) == LEXER_ERROR)
+    {
+        JSON_Writer_SetError(writer, JSON_Error_InvalidNumber);
+        return JSON_Failure;
     }
     return JSON_Success;
 }
@@ -3463,192 +3646,6 @@ static JSON_Status JSON_Writer_WriteSimpleToken(JSON_Writer writer, Symbol token
         SET_FLAGS_OFF(writer->state, WRITER_IN_PROTECTED_API);
     }
     return status;
-}
-
-static int IsValidNumber(const byte* pValue, size_t length)
-{
-    LexerState state = LEXING_WHITESPACE;
-    int isNegative = 0;
-    size_t i;
-    for (i = 0; i < length; i++)
-    {
-        char c = pValue[i];
-        switch (state)
-        {
-        case LEXING_WHITESPACE:
-            if (c == '-')
-            {
-                isNegative = 1;
-                state = LEXING_NUMBER_AFTER_MINUS;
-            }
-            else if (c == '0')
-            {
-                state = LEXING_NUMBER_AFTER_LEADING_ZERO;
-            }
-            else if (c >= '1' && c <= '9')
-            {
-                state = LEXING_NUMBER_DECIMAL_DIGITS;
-            }
-            else
-            {
-                return 0;
-            }
-            break;
-
-        case LEXING_NUMBER_AFTER_MINUS:
-            if (c == '0')
-            {
-                state = LEXING_NUMBER_AFTER_LEADING_ZERO;
-            }
-            else if (c >= '1' && c <= '9')
-            {
-                state = LEXING_NUMBER_DECIMAL_DIGITS;
-            }
-            else
-            {
-                return 0;
-            }
-            break;
-
-        case LEXING_NUMBER_AFTER_LEADING_ZERO:
-            if (c == '.')
-            {
-                state = LEXING_NUMBER_AFTER_DOT;
-            }
-            else if (c == 'e' || c == 'E')
-            {
-                state = LEXING_NUMBER_AFTER_E;
-            }
-            else if ((c == 'x' || c == 'X') && !isNegative)
-            {
-                state = LEXING_NUMBER_AFTER_X;
-            }
-            else
-            {
-                return 0;
-            }
-            break;
-
-        case LEXING_NUMBER_AFTER_X:
-            if ((c >= '0' && c <= '9') || (c >= 'A' && c <= 'F') || (c >= 'a' && c <= 'f'))
-            {
-                state = LEXING_NUMBER_HEX_DIGITS;
-            }
-            else
-            {
-                return 0;
-            }
-            break;
-
-        case LEXING_NUMBER_HEX_DIGITS:
-            if ((c >= '0' && c <= '9') || (c >= 'A' && c <= 'F') || (c >= 'a' && c <= 'f'))
-            {
-                /* Still LEXING_NUMBER_HEX_DIGITS. */
-            }
-            else
-            {
-                return 0;
-            }
-            break;
-
-        case LEXING_NUMBER_DECIMAL_DIGITS:
-            if (c >= '0' && c <= '9')
-            {
-                /* Still LEXING_NUMBER_DECIMAL_DIGITS. */
-            }
-            else if (c == '.')
-            {
-                state = LEXING_NUMBER_AFTER_DOT;
-            }
-            else if (c == 'e' || c == 'E')
-            {
-                state = LEXING_NUMBER_AFTER_E;
-            }
-            else
-            {
-                return 0;
-            }
-            break;
-
-        case LEXING_NUMBER_AFTER_DOT:
-            if (c >= '0' && c <= '9')
-            {
-                state = LEXING_NUMBER_FRACTIONAL_DIGITS;
-            }
-            else
-            {
-                return 0;
-            }
-            break;
-
-        case LEXING_NUMBER_FRACTIONAL_DIGITS:
-            if (c >= '0' && c <= '9')
-            {
-                /* Still LEXING_NUMBER_FRACTIONAL_DIGITS. */
-            }
-            else if (c == 'e' || c == 'E')
-            {
-                state = LEXING_NUMBER_AFTER_E;
-            }
-            else
-            {
-                return 0;
-            }
-            break;
-
-        case LEXING_NUMBER_AFTER_E:
-            if (c == '+' || c == '-')
-            {
-                state = LEXING_NUMBER_AFTER_EXPONENT_SIGN;
-            }
-            else if (c >= '0' && c <= '9')
-            {
-                state = LEXING_NUMBER_EXPONENT_DIGITS;
-            }
-            else
-            {
-                return 0;
-            }
-            break;
-
-        case LEXING_NUMBER_AFTER_EXPONENT_SIGN:
-            if (c >= '0' && c <= '9')
-            {
-                state = LEXING_NUMBER_EXPONENT_DIGITS;
-            }
-            else
-            {
-                return 0;
-            }
-            break;
-
-        case LEXING_NUMBER_EXPONENT_DIGITS:
-            if (c >= '0' && c <= '9')
-            {
-                /* Still LEXING_NUMBER_EXPONENT_DIGITS. */
-            }
-            else
-            {
-                return 0;
-            }
-            break;
-        }
-    }
-    return (state == LEXING_NUMBER_AFTER_LEADING_ZERO ||
-            state == LEXING_NUMBER_HEX_DIGITS ||
-            state == LEXING_NUMBER_DECIMAL_DIGITS ||
-            state == LEXING_NUMBER_FRACTIONAL_DIGITS ||
-            state == LEXING_NUMBER_EXPONENT_DIGITS);
-}
-
-static JSON_Status JSON_Writer_CheckNumber(JSON_Writer writer, const byte* pValue, size_t length)
-{
-    if (!IsValidNumber(pValue, length))
-    {
-        JSON_Writer_SetError(writer, JSON_Error_InvalidNumber);
-        return JSON_Failure;
-    }
-    return JSON_Success;
 }
 
 /* Writer API functions. */
@@ -3824,31 +3821,32 @@ JSON_Status JSON_CALL JSON_Writer_WriteBoolean(JSON_Writer writer, JSON_Boolean 
     return JSON_Writer_WriteSimpleToken(writer, token, encodings, length);
 }
 
-JSON_Status JSON_CALL JSON_Writer_WriteString(JSON_Writer writer, const char* pBytes, size_t length, JSON_Encoding encoding)
+JSON_Status JSON_CALL JSON_Writer_WriteString(JSON_Writer writer, const char* pValue, size_t length, JSON_Encoding encoding)
 {
     JSON_Status status = JSON_Failure;
-    if (writer && (pBytes || !length) && encoding > JSON_UnknownEncoding && encoding <= JSON_UTF32BE &&
+    if (writer && (pValue || !length) && encoding > JSON_UnknownEncoding && encoding <= JSON_UTF32BE &&
         !GET_FLAGS(writer->state, WRITER_IN_PROTECTED_API) && writer->error == JSON_Error_None)
     {
         SET_FLAGS_ON(writer->state, WRITER_STARTED | WRITER_IN_PROTECTED_API);
         if (JSON_Writer_ProcessToken(writer, T_STRING))
         {
-            status = JSON_Writer_OutputString(writer, (const byte*)pBytes, length, (Encoding)encoding);
+            status = JSON_Writer_OutputString(writer, (const byte*)pValue, length, (Encoding)encoding);
         }
         SET_FLAGS_OFF(writer->state, WRITER_IN_PROTECTED_API);
     }
     return status;
 }
 
-JSON_Status JSON_CALL JSON_Writer_WriteNumber(JSON_Writer writer, const char* pValue, size_t length)
+JSON_Status JSON_CALL JSON_Writer_WriteNumber(JSON_Writer writer, const char* pValue, size_t length, JSON_Encoding encoding)
 {
     JSON_Status status = JSON_Failure;
-    if (writer && pValue && length && !GET_FLAGS(writer->state, WRITER_IN_PROTECTED_API) && writer->error == JSON_Error_None)
+    if (writer && pValue && length && encoding > JSON_UnknownEncoding && encoding <= JSON_UTF32BE &&
+        !GET_FLAGS(writer->state, WRITER_IN_PROTECTED_API) && writer->error == JSON_Error_None)
     {
         SET_FLAGS_ON(writer->state, WRITER_STARTED | WRITER_IN_PROTECTED_API);
-        if (JSON_Writer_ProcessToken(writer, T_NUMBER) && JSON_Writer_CheckNumber(writer, (const byte*)pValue, length))
+        if (JSON_Writer_ProcessToken(writer, T_NUMBER))
         {
-            status = JSON_Writer_OutputNumber(writer, (const byte*)pValue, length);
+            status = JSON_Writer_OutputNumber(writer, (const byte*)pValue, length, (Encoding)encoding);
         }
         SET_FLAGS_OFF(writer->state, WRITER_IN_PROTECTED_API);
     }
@@ -3988,6 +3986,8 @@ JSON_Status JSON_CALL JSON_Writer_WriteNewLine(JSON_Writer writer)
     }
     return status;
 }
+
+#endif /* JSON_NO_WRITER */
 
 /******************** Miscellaneous API ********************/
 
