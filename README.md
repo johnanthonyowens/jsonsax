@@ -17,9 +17,10 @@ library.
 Callback-based parsers are significantly more difficult to use than those that
 simply build and return DOM representations of the input, but they are useful
 in situations where the client wants to build a custom DOM representation of the
-input without incurring the overhead of a generic "intermediate" DOM
-representation built by the parser, or where the client wants to perform
-processing that doesn't require creating any kind of DOM at all.
+input without incurring the overhead of a generic "intermediate" DOM built by
+the parser -- for example, adding JSON serialization support to a higher-level
+programming language -- or where the client wants to perform processing that
+doesn't require creating any kind of DOM at all, like pretty printing.
 
 Because the JSONSAX parser is stream-oriented, clients have absolute flexibility
 to provide input asynchronously as it is available to them, in whatever size
@@ -42,9 +43,14 @@ The parser can parse input encoded in UTF-8, UTF-16 (LE or BE), and UTF-32 (LE
 or BE). By default it automatically detects the input encoding; clients can also
 explicitly specify the input encoding on a parser-by-parser basis.
 
-The encoding of string values passed by the parser to the client can be UTF-8,
-UTF-16 (LE or BE), or UTF-32 (LE or BE). Clients can specify the string encoding
-on a parser-by-parser basis.
+Clients can control, on a parser-by-parser basis, whether the string values
+that are passed to them by the parser are encoded as UTF-8, UTF-16 (LE or BE),
+or UTF-32 (LE or BE).
+
+For maximum flexibility and portability, number values are passed by the parser
+to the client as strings. Clients can control, on a parser-by-parser basis,
+whether the number values that are passed to them by the parser are encoded as
+UTF-8, UTF-16 (LE or BE), or UTF-32 (LE or BE).
 
 By default, the parser is strict when decoding the input stream, and will fail
 if it encounters an encoding sequence that is not valid for the input
@@ -78,7 +84,9 @@ The writer can encode its output in UTF-8, UTF-16 (LE or BE), or UTF-32
 (LE or BE). String values can be passed to the writer in any of these
 encodings, and will be decoded, have escape sequences substituted as
 appropriate, and encoded in the desired output encoding before being sent to
-the writer's output handler.
+the writer's output handler. Number values can also be passed to the writer
+in any of these encodings, and will be decoded, checked for well-formedness,
+and encoded in the desired output encoding before being output.
 
 The JSONSAX library is licensed under the MIT License. The full license is
 contained in the accompanying LICENSE file.
