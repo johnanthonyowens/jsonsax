@@ -1322,7 +1322,7 @@ static JSON_Status JSON_Parser_CallStringHandler(JSON_Parser parser, int isObjec
         JSON_Parser_HandlerResult result;
         JSON_Parser_NullTerminateToken(parser);
         SET_FLAGS_ON(parser->state, PARSER_IN_TOKEN_HANDLER);
-        result = handler(parser, (const char*)parser->pTokenBytes, parser->tokenBytesUsed, parser->tokenAttributes);
+        result = handler(parser, (char*)parser->pTokenBytes, parser->tokenBytesUsed, parser->tokenAttributes);
         SET_FLAGS_OFF(parser->state, PARSER_IN_TOKEN_HANDLER);
         if (result != JSON_Parser_Continue)
         {
@@ -1341,7 +1341,7 @@ static JSON_Status JSON_Parser_CallNumberHandler(JSON_Parser parser)
         JSON_Parser_HandlerResult result;
         JSON_Parser_NullTerminateToken(parser);
         SET_FLAGS_ON(parser->state, PARSER_IN_TOKEN_HANDLER);
-        result = parser->numberHandler(parser, (const char*)parser->pTokenBytes, parser->tokenBytesUsed, parser->tokenAttributes);
+        result = parser->numberHandler(parser, (char*)parser->pTokenBytes, parser->tokenBytesUsed, parser->tokenAttributes);
         SET_FLAGS_OFF(parser->state, PARSER_IN_TOKEN_HANDLER);
         if (result != JSON_Parser_Continue)
         {
@@ -3990,6 +3990,12 @@ JSON_Status JSON_CALL JSON_Writer_WriteNewLine(JSON_Writer writer)
 #endif /* JSON_NO_WRITER */
 
 /******************** Miscellaneous API ********************/
+
+const JSON_Version* JSON_CALL JSON_LibraryVersion()
+{
+    static JSON_Version version = { JSON_MAJOR_VERSION, JSON_MINOR_VERSION, JSON_MICRO_VERSION };
+    return &version;
+}
 
 const char* JSON_CALL JSON_ErrorString(JSON_Error error)
 {

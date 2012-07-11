@@ -1074,7 +1074,7 @@ static JSON_Parser_HandlerResult JSON_CALL BooleanHandler(JSON_Parser parser, JS
     return JSON_Parser_Continue;
 }
 
-static JSON_Parser_HandlerResult JSON_CALL StringHandler(JSON_Parser parser, const char* pValue, size_t length, JSON_StringAttributes attributes)
+static JSON_Parser_HandlerResult JSON_CALL StringHandler(JSON_Parser parser, char* pValue, size_t length, JSON_StringAttributes attributes)
 {
     JSON_Location location;
     if (s_failHandler)
@@ -1094,10 +1094,11 @@ static JSON_Parser_HandlerResult JSON_CALL StringHandler(JSON_Parser parser, con
     OutputStringBytes((const unsigned char*)pValue, length, attributes, JSON_Parser_GetStringEncoding(parser));
     OutputFormatted("):");
     OutputLocation(&location);
+    memset(pValue, 0, length); /* test that the buffer is really writable */
     return JSON_Parser_Continue;
 }
 
-static JSON_Parser_HandlerResult JSON_CALL NumberHandler(JSON_Parser parser, const char* pValue, size_t length, JSON_NumberAttributes attributes)
+static JSON_Parser_HandlerResult JSON_CALL NumberHandler(JSON_Parser parser, char* pValue, size_t length, JSON_NumberAttributes attributes)
 {
     JSON_Location location;
     if (s_failHandler)
@@ -1117,6 +1118,7 @@ static JSON_Parser_HandlerResult JSON_CALL NumberHandler(JSON_Parser parser, con
     OutputNumber((const unsigned char*)pValue, length, attributes, JSON_Parser_GetNumberEncoding(parser));
     OutputFormatted("):");
     OutputLocation(&location);
+    memset(pValue, 0, length); /* test that the buffer is really writable */
     return JSON_Parser_Continue;
 }
 
@@ -1199,7 +1201,7 @@ static JSON_Parser_HandlerResult JSON_CALL EndObjectHandler(JSON_Parser parser)
     return JSON_Parser_Continue;
 }
 
-static JSON_Parser_HandlerResult JSON_CALL ObjectMemberHandler(JSON_Parser parser, const char* pValue, size_t length, JSON_StringAttributes attributes)
+static JSON_Parser_HandlerResult JSON_CALL ObjectMemberHandler(JSON_Parser parser, char* pValue, size_t length, JSON_StringAttributes attributes)
 {
     JSON_Location location;
     if (s_failHandler)
@@ -1223,6 +1225,7 @@ static JSON_Parser_HandlerResult JSON_CALL ObjectMemberHandler(JSON_Parser parse
     OutputStringBytes((const unsigned char*)pValue, length, attributes, JSON_Parser_GetStringEncoding(parser));
     OutputFormatted("):");
     OutputLocation(&location);
+    memset(pValue, 0, length); /* test that the buffer is really writable */
     return JSON_Parser_Continue;
 }
 
@@ -4457,6 +4460,22 @@ static void TestWriterWriteNewLine()
 
 #endif /* JSON_NO_WRITER */
 
+static void TestLibraryVersion()
+{
+    const JSON_Version* pVersion = JSON_LibraryVersion();
+    printf("Test library version ... ");
+    if (pVersion->major == JSON_MAJOR_VERSION &&
+        pVersion->minor == JSON_MINOR_VERSION &&
+        pVersion->micro == JSON_MICRO_VERSION)
+    {
+        printf("OK\n");
+    }
+    else
+    {
+        s_failureCount++;
+    }
+}
+
 static int CheckErrorString(JSON_Error error, const char* pExpectedMessage)
 {
     const char* pActualMessage = JSON_ErrorString(error);
@@ -4565,6 +4584,7 @@ int main(int argc, char* argv[])
     TestWriterWriteNewLine();
 #endif
 
+    TestLibraryVersion();
     TestErrorStrings();
     TestNoLeaks();
 

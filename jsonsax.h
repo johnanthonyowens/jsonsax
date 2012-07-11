@@ -109,8 +109,8 @@
 #ifndef JSONSAX_H_INCLUDED
 #define JSONSAX_H_INCLUDED
 
-#define JSON_MAJOR_VERSION 0
-#define JSON_MINOR_VERSION 9
+#define JSON_MAJOR_VERSION 1
+#define JSON_MINOR_VERSION 0
 #define JSON_MICRO_VERSION 0
 
 /* JSON_NO_PARSER and JSON_NO_WRITER, if defined, remove the corresponding
@@ -612,7 +612,8 @@ JSON_API(JSON_Status) JSON_Parser_SetBooleanHandler(JSON_Parser parser, JSON_Par
  * encoded according to the parser instance's string encoding setting. The
  * buffer is null-terminated (the null terminator character is also encoded).
  * Note, however, that JSON strings may contain embedded null characters,
- * which are specifiable using the escape sequence \u0000.
+ * which are specifiable using the escape sequence \u0000. The client is
+ * free to modify the contents of the buffer during the handler.
  *
  * The length parameter specifies the number of bytes (NOT characters) in
  * the encoded string, not including the encoded null terminator.
@@ -627,7 +628,7 @@ JSON_API(JSON_Status) JSON_Parser_SetBooleanHandler(JSON_Parser parser, JSON_Par
  * since such characters may have been present in the original input, and
  * not inserted by a replacement operation.
  */
-typedef JSON_Parser_HandlerResult (JSON_CALL * JSON_Parser_StringHandler)(JSON_Parser parser, const char* pValue, size_t length, JSON_StringAttributes attributes);
+typedef JSON_Parser_HandlerResult (JSON_CALL * JSON_Parser_StringHandler)(JSON_Parser parser, char* pValue, size_t length, JSON_StringAttributes attributes);
 JSON_API(JSON_Parser_StringHandler) JSON_Parser_GetStringHandler(JSON_Parser parser);
 JSON_API(JSON_Status) JSON_Parser_SetStringHandler(JSON_Parser parser, JSON_Parser_StringHandler handler);
 
@@ -646,14 +647,19 @@ JSON_API(JSON_Status) JSON_Parser_SetStringHandler(JSON_Parser parser, JSON_Pars
  * The buffer is guaranteed to contain only characters allowed in JSON number
  * values, that is: '0' - '9', '+', '-', '.', 'e', and 'E'; if the option
  * to allow hex numbers is enabled, the text may also contain the characters
- * 'x', 'X', 'a' - 'f', and 'A' - 'F'.
+ * 'x', 'X', 'a' - 'f', and 'A' - 'F'. The client is free to modify the
+ * contents of the buffer during the handler. This is especially useful
+ * to clients that wish to convert the number to a double using the C
+ * standard library's strtod() function, which is locale-sensitive; in this
+ * case, the client should modify the buffer to replace the '.' character
+ * with localconv()->decimal_point[0] before passing the buffer to strtod().
  *
  * The length parameter specifies the number of bytes (NOT characters) in
  * the encoded number, not including the encoded null terminator.
  *
  * The attributes parameter provides information about the number.
  */
-typedef JSON_Parser_HandlerResult (JSON_CALL * JSON_Parser_NumberHandler)(JSON_Parser parser, const char* pValue, size_t length, JSON_NumberAttributes attributes);
+typedef JSON_Parser_HandlerResult (JSON_CALL * JSON_Parser_NumberHandler)(JSON_Parser parser, char* pValue, size_t length, JSON_NumberAttributes attributes);
 JSON_API(JSON_Parser_NumberHandler) JSON_Parser_GetNumberHandler(JSON_Parser parser);
 JSON_API(JSON_Status) JSON_Parser_SetNumberHandler(JSON_Parser parser, JSON_Parser_NumberHandler handler);
 
@@ -685,7 +691,8 @@ JSON_API(JSON_Status) JSON_Parser_SetEndObjectHandler(JSON_Parser parser, JSON_P
  * encoded according to the parser instance's string encoding setting. The
  * buffer is null-terminated (the null terminator character is also encoded).
  * Note, however, that JSON strings may contain embedded null characters,
- * which are specifiable using the escape sequence \u0000.
+ * which are specifiable using the escape sequence \u0000. The client is
+ * free to modify the contents of the buffer during the handler.
  *
  * The length parameter specifies the number of bytes (NOT characters) in
  * the encoded string, not including the encoded null terminator.
@@ -706,7 +713,7 @@ JSON_API(JSON_Status) JSON_Parser_SetEndObjectHandler(JSON_Parser parser, JSON_P
  * checking without incurring the additional memory overhead associated
  * with enabling the TrackObjectMembers setting.
  */
-typedef JSON_Parser_HandlerResult (JSON_CALL * JSON_Parser_ObjectMemberHandler)(JSON_Parser parser, const char* pValue, size_t length, JSON_StringAttributes attributes);
+typedef JSON_Parser_HandlerResult (JSON_CALL * JSON_Parser_ObjectMemberHandler)(JSON_Parser parser, char* pValue, size_t length, JSON_StringAttributes attributes);
 JSON_API(JSON_Parser_ObjectMemberHandler) JSON_Parser_GetObjectMemberHandler(JSON_Parser parser);
 JSON_API(JSON_Status) JSON_Parser_SetObjectMemberHandler(JSON_Parser parser, JSON_Parser_ObjectMemberHandler handler);
 
@@ -1003,6 +1010,16 @@ JSON_API(JSON_Status) JSON_Writer_WriteNewLine(JSON_Writer writer);
 #endif /* JSON_NO_WRITER */
 
 /******************** Miscellaneous API ********************/
+
+typedef struct tag_JSON_Version
+{
+    unsigned int major;
+    unsigned int minor;
+    unsigned int micro;
+} JSON_Version;
+
+/* Get a pointer to the library version information. */
+JSON_API(const JSON_Version*) JSON_LibraryVersion();
 
 /* Get a constant, null-terminated, ASCII string describing an error code. */
 JSON_API(const char*) JSON_ErrorString(JSON_Error error);
