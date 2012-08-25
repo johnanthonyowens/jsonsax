@@ -3055,9 +3055,10 @@ JSON_Status JSON_CALL JSON_Parser_Parse(JSON_Parser parser, const char* pBytes, 
 typedef byte WriterState;
 
 /* Combinable writer settings flags. */
-#define WRITER_DEFAULT_FLAGS   0x0
-#define WRITER_USE_CRLF        0x1
-#define WRITER_REPLACE_INVALID 0x2
+#define WRITER_DEFAULT_FLAGS    0x0
+#define WRITER_USE_CRLF         0x1
+#define WRITER_REPLACE_INVALID  0x2
+#define WRITER_ESCAPE_NON_ASCII 0x4
 typedef byte WriterFlags;
 
 /* A writer instance. */
@@ -3120,7 +3121,7 @@ static JSON_Status JSON_Writer_OutputBytes(JSON_Writer writer, const byte* pByte
     return JSON_Success;
 }
 
-static char GetCodepointEscapeCharacter(Codepoint c)
+static char JSON_Writer_GetCodepointEscapeCharacter(JSON_Writer writer, Codepoint c)
 {
     switch (c)
     {
@@ -3154,7 +3155,8 @@ static char GetCodepointEscapeCharacter(Codepoint c)
         return 'u';
 
     default:
-        if (c < FIRST_NON_CONTROL_CODEPOINT || IS_NONCHARACTER(c))
+        if (c < FIRST_NON_CONTROL_CODEPOINT || IS_NONCHARACTER(c) ||
+            (GET_FLAGS(writer->flags, WRITER_ESCAPE_NON_ASCII) && c > FIRST_NON_ASCII_CODEPOINT))
         {
             return 'u';
         }
@@ -3275,7 +3277,7 @@ static JSON_Status JSON_Writer_OutputString(JSON_Writer writer, const byte* pByt
 
         case SEQUENCE_COMPLETE:
             c = DECODER_CODEPOINT(output);
-            escapeCharacter = GetCodepointEscapeCharacter(c);
+            escapeCharacter = JSON_Writer_GetCodepointEscapeCharacter(writer, c);
             switch (escapeCharacter)
             {
             case 0:
@@ -3758,6 +3760,21 @@ JSON_Status JSON_CALL JSON_Writer_SetReplaceInvalidEncodingSequences(JSON_Writer
         return JSON_Failure;
     }
     SET_FLAGS(writer->flags, WRITER_REPLACE_INVALID, replaceInvalidEncodingSequences);
+    return JSON_Success;
+}
+
+JSON_Boolean JSON_CALL JSON_Writer_GetEscapeAllNonASCIICharacters(JSON_Writer writer)
+{
+    return (writer && GET_FLAGS(writer->flags, WRITER_ESCAPE_NON_ASCII)) ? JSON_True : JSON_False;
+}
+
+JSON_Status JSON_CALL JSON_Writer_SetEscapeAllNonASCIICharacters(JSON_Writer writer, JSON_Boolean escapeAllNonASCIICharacters)
+{
+    if (!writer || GET_FLAGS(writer->state, WRITER_STARTED))
+    {
+        return JSON_Failure;
+    }
+    SET_FLAGS(writer->flags, WRITER_ESCAPE_NON_ASCII, escapeAllNonASCIICharacters);
     return JSON_Success;
 }
 

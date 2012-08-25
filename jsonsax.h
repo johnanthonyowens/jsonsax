@@ -25,7 +25,7 @@
 
 /* The library version */
 #define JSON_MAJOR_VERSION 1
-#define JSON_MINOR_VERSION 0
+#define JSON_MINOR_VERSION 2
 #define JSON_MICRO_VERSION 0
 
 /* JSON_NO_PARSER and JSON_NO_WRITER, if defined, remove the corresponding
@@ -779,6 +779,19 @@ JSON_API(JSON_Status) JSON_Writer_SetUseCRLF(JSON_Writer writer, JSON_Boolean us
 JSON_API(JSON_Boolean) JSON_Writer_GetReplaceInvalidEncodingSequences(JSON_Writer writer);
 JSON_API(JSON_Status) JSON_Writer_SetReplaceInvalidEncodingSequences(JSON_Writer writer, JSON_Boolean replaceInvalidEncodingSequences);
 
+/* Get and set whether a writer instance escapes all non-ASCII characters
+ * that it outputs. This can be useful for debugging, or when the output
+ * will be consumed by a parser that does not support UTF-encoded input.
+ * It is not recommended as a general practice, since it bloats the size
+ * of non-ASCII strings considerably, compared to UTF encoding.
+ *
+ * The default value of this setting is JSON_False.
+ *
+ * This setting cannot be changed once the writer has started writing.
+ */
+JSON_API(JSON_Boolean) JSON_Writer_GetEscapeAllNonASCIICharacters(JSON_Writer writer);
+JSON_API(JSON_Status) JSON_Writer_SetEscapeAllNonASCIICharacters(JSON_Writer writer, JSON_Boolean escapeAllNonASCIICharacters);
+
 /* Get the type of error, if any, encountered by a writer instance.
  *
  * If the writer encountered an error while writing input, this function
@@ -887,10 +900,13 @@ JSON_API(JSON_Status) JSON_Writer_WriteBoolean(JSON_Writer writer, JSON_Boolean 
  * - PARAGRAPH SEPARATOR (U+2029)
  * - All 34 Unicode "noncharacter" codepoints whose values end in FE or FF.
  * - All 32 Unicode "noncharacter" codepoints in the range U+FDD0 - U+FDEF.
- * - REPLACEMENT CHARACTER (U+FFFD), if and only if it did not appear in the
- *   original string provided by the client; in other words, if the writer
- *   introduced it in the output as a replacement for an invalid encoding
- *   sequence in the original string.
+ * - REPLACEMENT CHARACTER (U+FFFD), if it did not appear in the original
+ *   string provided by the client; in other words, if the writer introduced
+ *   it in the output as a replacement for an invalid encoding sequence in
+ *   the original string.
+ *
+ * If the setting to escape all non-ASCII characters is enabled, ALL
+ * codepoints above U+0080 are escaped using hex-style escape sequences.
  */
 JSON_API(JSON_Status) JSON_Writer_WriteString(JSON_Writer writer, const char* pValue, size_t length, JSON_Encoding encoding);
 
