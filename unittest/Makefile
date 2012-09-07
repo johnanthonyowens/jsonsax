@@ -58,7 +58,7 @@ $(BUILDDIR)/libjsonsax.$(DLIB_EXT) : $(BUILDDIR)/jsonsax.o
 
 $(BUILDDIR)/jsonsax.o : $(ROOTDIR)/jsonsax.c $(ROOTDIR)/jsonsax.h
 	mkdir -p $(BUILDDIR)
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(CC) $(CFLAGS) -fPIC -c $< -o $@
 
 # Build static library
 
