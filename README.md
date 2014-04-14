@@ -75,6 +75,7 @@ of which can be enabled on a parser-by-parser basis. These include:
 - Allowing the JSON text to contain Javascript-style comments.
 - Allowing the "special" number literals NaN, Infinity, and -Infinity.
 - Allowing Javascript-style hexadecimal numbers.
+- Allowing unescaped control characters (U+0000 - U+001F) in strings.
 
 The JSONSAX library also includes a JSON writer that provides a fast and
 reliable way for clients to create JSON documents that are guaranteed to be
