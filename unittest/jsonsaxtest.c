@@ -438,6 +438,7 @@ typedef struct tag_ParserSettings
     JSON_Boolean  allowComments;
     JSON_Boolean  allowSpecialNumbers;
     JSON_Boolean  allowHexNumbers;
+    JSON_Boolean  allowUnescapedControlCharacters;
     JSON_Boolean  replaceInvalidEncodingSequences;
     JSON_Boolean  trackObjectMembers;
 } ParserSettings;
@@ -454,6 +455,7 @@ static void InitParserSettings(ParserSettings* pSettings)
     pSettings->allowComments = JSON_False;
     pSettings->allowSpecialNumbers = JSON_False;
     pSettings->allowHexNumbers = JSON_False;
+    pSettings->allowUnescapedControlCharacters = JSON_False;
     pSettings->replaceInvalidEncodingSequences = JSON_False;
     pSettings->trackObjectMembers = JSON_False;
 }
@@ -470,6 +472,7 @@ static void GetParserSettings(JSON_Parser parser, ParserSettings* pSettings)
     pSettings->allowComments = JSON_Parser_GetAllowComments(parser);
     pSettings->allowSpecialNumbers = JSON_Parser_GetAllowSpecialNumbers(parser);
     pSettings->allowHexNumbers = JSON_Parser_GetAllowHexNumbers(parser);
+    pSettings->allowUnescapedControlCharacters = JSON_Parser_GetAllowUnescapedControlCharacters(parser);
     pSettings->replaceInvalidEncodingSequences = JSON_Parser_GetReplaceInvalidEncodingSequences(parser);
     pSettings->trackObjectMembers = JSON_Parser_GetTrackObjectMembers(parser);
 }
@@ -486,6 +489,7 @@ static int ParserSettingsAreIdentical(const ParserSettings* pSettings1, const Pa
             pSettings1->allowComments == pSettings2->allowComments &&
             pSettings1->allowSpecialNumbers == pSettings2->allowSpecialNumbers &&
             pSettings1->allowHexNumbers == pSettings2->allowHexNumbers &&
+            pSettings1->allowUnescapedControlCharacters == pSettings2->allowUnescapedControlCharacters &&
             pSettings1->replaceInvalidEncodingSequences == pSettings2->replaceInvalidEncodingSequences &&
             pSettings1->trackObjectMembers == pSettings2->trackObjectMembers);
 }
@@ -518,6 +522,7 @@ static int CheckParserSettings(JSON_Parser parser, const ParserSettings* pExpect
                "  JSON_Parser_GetAllowComments()                   %8d   %8d\n"
                "  JSON_Parser_GetAllowSpecialNumbers()             %8d   %8d\n"
                "  JSON_Parser_GetAllowHexNumbers()                 %8d   %8d\n"
+               "  JSON_Parser_GetAllowUnescapedControlCharacters() %8d   %8d\n"
                "  JSON_Parser_GetReplaceInvalidEncodingSequences() %8d   %8d\n"
                "  JSON_Parser_GetTrackObjectMembers()              %8d   %8d\n"
                ,
@@ -525,6 +530,7 @@ static int CheckParserSettings(JSON_Parser parser, const ParserSettings* pExpect
                (int)pExpectedSettings->allowComments, (int)actualSettings.allowComments,
                (int)pExpectedSettings->allowSpecialNumbers, (int)actualSettings.allowSpecialNumbers,
                (int)pExpectedSettings->allowHexNumbers, (int)actualSettings.allowHexNumbers,
+               (int)pExpectedSettings->allowUnescapedControlCharacters, (int)actualSettings.allowUnescapedControlCharacters,
                (int)pExpectedSettings->replaceInvalidEncodingSequences, (int)actualSettings.replaceInvalidEncodingSequences,
                (int)pExpectedSettings->trackObjectMembers, (int)actualSettings.trackObjectMembers
             );
@@ -818,6 +824,16 @@ static int CheckParserSetAllowHexNumbers(JSON_Parser parser, JSON_Boolean allowH
     return 1;
 }
 
+static int CheckParserSetAllowUnescapedControlCharacters(JSON_Parser parser, JSON_Boolean allowUnescapedControlCharacters, JSON_Status expectedStatus)
+{
+    if (JSON_Parser_SetAllowUnescapedControlCharacters(parser, allowUnescapedControlCharacters) != expectedStatus)
+    {
+        printf("FAILURE: expected JSON_Parser_SetAllowUnescapedControlCharacters() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
+        return 0;
+    }
+    return 1;
+}
+
 static int CheckParserSetReplaceInvalidEncodingSequences(JSON_Parser parser, JSON_Boolean replaceInvalidEncodingSequences, JSON_Status expectedStatus)
 {
     if (JSON_Parser_SetReplaceInvalidEncodingSequences(parser, replaceInvalidEncodingSequences) != expectedStatus)
@@ -982,6 +998,7 @@ static int TryToMisbehaveInParseHandler(JSON_Parser parser)
         !CheckParserSetAllowComments(parser, JSON_True, JSON_Failure) ||
         !CheckParserSetAllowSpecialNumbers(parser, JSON_True, JSON_Failure) ||
         !CheckParserSetAllowHexNumbers(parser, JSON_True, JSON_Failure) ||
+        !CheckParserSetAllowUnescapedControlCharacters(parser, JSON_True, JSON_Failure) ||
         !CheckParserSetReplaceInvalidEncodingSequences(parser, JSON_True, JSON_Failure) ||
         !CheckParserSetTrackObjectMembers(parser, JSON_True, JSON_Failure) ||
         !CheckParserParse(parser, " ", 1, JSON_False, JSON_Failure))
@@ -1329,8 +1346,9 @@ typedef enum tag_ParserParam
     AllowComments                   = 1 << 13,
     AllowSpecialNumbers             = 1 << 14,
     AllowHexNumbers                 = 1 << 15,
-    ReplaceInvalidEncodingSequences = 1 << 16,
-    TrackObjectMembers              = 1 << 17
+    AllowUnescapedControlCharacters = 1 << 16,
+    ReplaceInvalidEncodingSequences = 1 << 17,
+    TrackObjectMembers              = 1 << 18
 } ParserParam;
 typedef unsigned int ParserParams;
 
@@ -1373,8 +1391,9 @@ static void RunParseTest(const ParseTest* pTest)
     settings.allowComments = (JSON_Boolean)((pTest->parserParams >> 13) & 0x1);
     settings.allowSpecialNumbers = (JSON_Boolean)((pTest->parserParams >> 14) & 0x1);
     settings.allowHexNumbers = (JSON_Boolean)((pTest->parserParams >> 15) & 0x1);
-    settings.replaceInvalidEncodingSequences = (JSON_Boolean)((pTest->parserParams >> 16) & 0x1);
-    settings.trackObjectMembers = (JSON_Boolean)((pTest->parserParams >> 17) & 0x1);
+    settings.allowUnescapedControlCharacters = (JSON_Boolean)((pTest->parserParams >> 16) & 0x1);
+    settings.replaceInvalidEncodingSequences = (JSON_Boolean)((pTest->parserParams >> 17) & 0x1);
+    settings.trackObjectMembers = (JSON_Boolean)((pTest->parserParams >> 18) & 0x1);
 
     InitParserState(&state);
     state.inputEncoding = pTest->inputEncoding;
@@ -1402,6 +1421,7 @@ static void RunParseTest(const ParseTest* pTest)
         CheckParserSetAllowComments(parser, settings.allowComments, JSON_Success) &&
         CheckParserSetAllowSpecialNumbers(parser, settings.allowSpecialNumbers, JSON_Success) &&
         CheckParserSetAllowHexNumbers(parser, settings.allowHexNumbers, JSON_Success) &&
+        CheckParserSetAllowUnescapedControlCharacters(parser, settings.allowUnescapedControlCharacters, JSON_Success) &&
         CheckParserSetReplaceInvalidEncodingSequences(parser, settings.replaceInvalidEncodingSequences, JSON_Success) &&
         CheckParserSetTrackObjectMembers(parser, settings.trackObjectMembers, JSON_Success))
     {
@@ -1499,6 +1519,7 @@ static void TestParserSetSettings()
     settings.allowComments = JSON_True;
     settings.allowSpecialNumbers = JSON_True;
     settings.allowHexNumbers = JSON_True;
+    settings.allowUnescapedControlCharacters = JSON_True;
     settings.replaceInvalidEncodingSequences = JSON_True;
     settings.trackObjectMembers = JSON_True;
     if (CheckParserCreate(NULL, JSON_Success, &parser) &&
@@ -1512,6 +1533,7 @@ static void TestParserSetSettings()
         CheckParserSetAllowComments(parser, settings.allowComments, JSON_Success) &&
         CheckParserSetAllowSpecialNumbers(parser, settings.allowSpecialNumbers, JSON_Success) &&
         CheckParserSetAllowHexNumbers(parser, settings.allowHexNumbers, JSON_Success) &&
+        CheckParserSetAllowUnescapedControlCharacters(parser, settings.allowUnescapedControlCharacters, JSON_Success) &&
         CheckParserSetReplaceInvalidEncodingSequences(parser, settings.replaceInvalidEncodingSequences, JSON_Success) &&
         CheckParserSetTrackObjectMembers(parser, settings.trackObjectMembers, JSON_Success) &&
         CheckParserSettings(parser, &settings))
@@ -1615,6 +1637,7 @@ static void TestParserReset()
         CheckParserSetAllowComments(parser, JSON_True, JSON_Success) &&
         CheckParserSetAllowSpecialNumbers(parser, JSON_True, JSON_Success) &&
         CheckParserSetAllowHexNumbers(parser, JSON_True, JSON_Success) &&
+        CheckParserSetAllowUnescapedControlCharacters(parser, JSON_True, JSON_Success) &&
         CheckParserSetReplaceInvalidEncodingSequences(parser, JSON_True, JSON_Success) &&
         CheckParserSetTrackObjectMembers(parser, JSON_True, JSON_Success) &&
         CheckParserSetEncodingDetectedHandler(parser, &EncodingDetectedHandler, JSON_Success) &&
@@ -2588,6 +2611,12 @@ PARSE_TEST("string cannot contain unescaped control character (2)", Standard, "\
 PARSE_TEST("string cannot contain unescaped control character (3)", Standard, "\"abc\x0A\"", FINAL, UTF8, "u(8) !(UnescapedControlCharacter):4,0,4,0")
 PARSE_TEST("string cannot contain unescaped control character (4)", Standard, "\"abc\x0D\"", FINAL, UTF8, "u(8) !(UnescapedControlCharacter):4,0,4,0")
 PARSE_TEST("string cannot contain unescaped control character (5)", Standard, "\"abc\x1F\"", FINAL, UTF8, "u(8) !(UnescapedControlCharacter):4,0,4,0")
+PARSE_TEST("unescaped control character (1)", AllowUnescapedControlCharacters, "\"abc\x00\"", FINAL, UTF8, "u(8) s(zc abc<00>):0,0,0,0")
+PARSE_TEST("unescaped control character (2)", AllowUnescapedControlCharacters, "\"abc\x09\"", FINAL, UTF8, "u(8) s(c abc<09>):0,0,0,0")
+PARSE_TEST("unescaped control character (3)", AllowUnescapedControlCharacters, "\"abc\x0A\"", FINAL, UTF8, "u(8) s(c abc<0A>):0,0,0,0")
+PARSE_TEST("unescaped control character (4)", AllowUnescapedControlCharacters, "\"abc\x0D\"", FINAL, UTF8, "u(8) s(c abc<0D>):0,0,0,0")
+PARSE_TEST("unescaped control character (5)", AllowUnescapedControlCharacters, "\"abc\x1F\"", FINAL, UTF8, "u(8) s(c abc<1F>):0,0,0,0")
+PARSE_TEST("unescaped newlines in string", AllowUnescapedControlCharacters, "\"\x0D\x0A \x0D \x0A\"!", FINAL, UTF8, "u(8) s(c <0D><0A><20><0D><20><0A>):0,0,0,0 !(UnknownToken):8,3,1,0")
 PARSE_TEST("string cannot contain invalid escape sequence (1)", Standard, "\"\\v\"", FINAL, UTF8, "u(8) !(InvalidEscapeSequence):1,0,1,0")
 PARSE_TEST("string cannot contain invalid escape sequence (2)", Standard, "\"\\x0020\"", FINAL, UTF8, "u(8) !(InvalidEscapeSequence):1,0,1,0")
 PARSE_TEST("string cannot contain invalid escape sequence (3)", Standard, "\"\\ \"", FINAL, UTF8, "u(8) !(InvalidEscapeSequence):1,0,1,0")

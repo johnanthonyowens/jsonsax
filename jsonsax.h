@@ -25,7 +25,7 @@
 
 /* The library version */
 #define JSON_MAJOR_VERSION 1
-#define JSON_MINOR_VERSION 2
+#define JSON_MINOR_VERSION 3
 #define JSON_MICRO_VERSION 0
 
 /* JSON_NO_PARSER and JSON_NO_WRITER, if defined, remove the corresponding
@@ -394,6 +394,19 @@ JSON_API(JSON_Status) JSON_Parser_SetAllowSpecialNumbers(JSON_Parser parser, JSO
  */
 JSON_API(JSON_Boolean) JSON_Parser_GetAllowHexNumbers(JSON_Parser parser);
 JSON_API(JSON_Status) JSON_Parser_SetAllowHexNumbers(JSON_Parser parser, JSON_Boolean allowHexNumbers);
+
+/* Get and set whether a parser instance allows unescaped control characters
+ * (U+0000 - U+001F) to appear inside string values.
+ *
+ * RFC 4627 does not allow JSON text to contain unescaped control characters,
+ * but some clients may find it useful to allow them.
+ *
+ * The default value of this setting is JSON_False.
+ *
+ * This setting cannot be changed once the parser has started parsing.
+ */
+JSON_API(JSON_Boolean) JSON_Parser_GetAllowUnescapedControlCharacters(JSON_Parser parser);
+JSON_API(JSON_Status) JSON_Parser_SetAllowUnescapedControlCharacters(JSON_Parser parser, JSON_Boolean allowUnescapedControlCharacters);
 
 /* Get and set whether a parser instance replaces invalid encoding sequences
  * it encounters in the input stream with the Unicode replacement character

@@ -43,6 +43,7 @@
 #define OPTION_ALLOW_COMMENTS          "--allow-comments"
 #define OPTION_ALLOW_SPECIAL_NUMBERS   "--allow-special-numbers"
 #define OPTION_ALLOW_HEX_NUMBERS       "--allow-hex-numbers"
+#define OPTION_ALLOW_CONTROL_CHARS     "--allow-control-chars"
 #define OPTION_ALLOW_DUPLICATES        "--allow-duplicates"
 #define OPTION_REPLACE_INVALID         "--replace-invalid"
 #define OPTION_ESCAPE_NON_ASCII        "--escape-non-ascii"
@@ -237,6 +238,7 @@ static void PrintUsage(FILE* f)
         { OPTION_ALLOW_COMMENTS,        "Allow Javascript-style comments (they will be stripped)" },
         { OPTION_ALLOW_SPECIAL_NUMBERS, "Allow NaN, Infinity, and -Infinity literals" },
         { OPTION_ALLOW_HEX_NUMBERS,     "Allow Javascript-style positive hexadecimal integers" },
+        { OPTION_ALLOW_CONTROL_CHARS,   "Allow ASCII control characters (U+0000 - U+001F) in strings" },
         { OPTION_ALLOW_DUPLICATES,      "Allow objects to contain duplicate members" },
         { OPTION_REPLACE_INVALID,       "Replace invalid encoding sequences with U+FFFD" },
         { OPTION_ESCAPE_NON_ASCII,      "Escape all non-ASCII characters in the output" },
@@ -283,6 +285,10 @@ static int Configure(Context* pCtx, int argc, char* argv[])
         else if (!strcmp(argv[i], OPTION_ALLOW_HEX_NUMBERS))
         {
             JSON_Parser_SetAllowHexNumbers(pCtx->parser, JSON_True);
+        }
+        else if (!strcmp(argv[i], OPTION_ALLOW_CONTROL_CHARS))
+        {
+            JSON_Parser_SetAllowUnescapedControlCharacters(pCtx->parser, JSON_True);
         }
         else if (!strcmp(argv[i], OPTION_REPLACE_INVALID))
         {

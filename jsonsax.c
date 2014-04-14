@@ -960,6 +960,7 @@ typedef byte ParserState;
 #define PARSER_ALLOW_HEX_NUMBERS     0x08
 #define PARSER_REPLACE_INVALID       0x10
 #define PARSER_TRACK_OBJECT_MEMBERS  0x20
+#define PARSER_ALLOW_CONTROL_CHARS   0x40
 typedef byte ParserFlags;
 
 /* Sentinel value for parser error location offset. */
@@ -1695,10 +1696,10 @@ reprocess:
         {
             parser->lexerState = LEXING_STRING_ESCAPE;
         }
-        else if (c < 0x20)
+        else if (c < 0x20 && !GET_FLAGS(parser->flags, PARSER_ALLOW_CONTROL_CHARS))
         {
             /* ASCII control characters (U+0000 - U+001F) are not allowed to
-               appear unescaped in string values. */
+               appear unescaped in string values unless specifically allowed. */
             JSON_Parser_SetErrorAtCodepoint(parser, JSON_Error_UnescapedControlCharacter);
             return JSON_Failure;
         }
@@ -2748,6 +2749,21 @@ JSON_Status JSON_CALL JSON_Parser_SetAllowHexNumbers(JSON_Parser parser, JSON_Bo
         return JSON_Failure;
     }
     SET_FLAGS(parser->flags, PARSER_ALLOW_HEX_NUMBERS, allowHexNumbers);
+    return JSON_Success;
+}
+
+JSON_Boolean JSON_CALL JSON_Parser_GetAllowUnescapedControlCharacters(JSON_Parser parser)
+{
+    return (parser && GET_FLAGS(parser->flags, PARSER_ALLOW_CONTROL_CHARS)) ? JSON_True : JSON_False;
+}
+
+JSON_Status JSON_CALL JSON_Parser_SetAllowUnescapedControlCharacters(JSON_Parser parser, JSON_Boolean allowUnescapedControlCharacters)
+{
+    if (!parser || GET_FLAGS(parser->state, PARSER_STARTED))
+    {
+        return JSON_Failure;
+    }
+    SET_FLAGS(parser->flags, PARSER_ALLOW_CONTROL_CHARS, allowUnescapedControlCharacters);
     return JSON_Success;
 }
 
