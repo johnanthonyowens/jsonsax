@@ -4024,7 +4024,7 @@ JSON_Status JSON_CALL JSON_Writer_WriteNewLine(JSON_Writer writer)
 
 /******************** Miscellaneous API ********************/
 
-const JSON_Version* JSON_CALL JSON_LibraryVersion()
+const JSON_Version* JSON_CALL JSON_LibraryVersion(void)
 {
     static JSON_Version version = { JSON_MAJOR_VERSION, JSON_MINOR_VERSION, JSON_MICRO_VERSION };
     return &version;

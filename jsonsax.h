@@ -988,7 +988,7 @@ typedef struct tag_JSON_Version
 } JSON_Version;
 
 /* Get a pointer to the library version information. */
-JSON_API(const JSON_Version*) JSON_LibraryVersion();
+JSON_API(const JSON_Version*) JSON_LibraryVersion(void);
 
 /* Get a constant, null-terminated, ASCII string describing an error code. */
 JSON_API(const char*) JSON_ErrorString(JSON_Error error);
