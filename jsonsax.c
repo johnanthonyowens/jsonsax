@@ -4056,3 +4056,15 @@ const char* JSON_CALL JSON_ErrorString(JSON_Error error)
         ? errorStrings[error]
         : "";
 }
+
+static const uint32_t endianEncodings = (((uint32_t)JSON_UTF32BE) << 24) | (((uint32_t)JSON_UTF16BE) << 16) | (((uint32_t)JSON_UTF16LE) << 8) | ((uint32_t)JSON_UTF32LE);
+
+JSON_Encoding JSON_CALL JSON_NativeUTF16Encoding(void)
+{
+    return (JSON_Encoding)(((byte*)&endianEncodings)[1]);
+}
+
+JSON_Encoding JSON_CALL JSON_NativeUTF32Encoding(void)
+{
+    return (JSON_Encoding)(((byte*)&endianEncodings)[0]);
+}

@@ -26,7 +26,7 @@
 /* The library version */
 #define JSON_MAJOR_VERSION 1
 #define JSON_MINOR_VERSION 3
-#define JSON_MICRO_VERSION 0
+#define JSON_MICRO_VERSION 1
 
 /* JSON_NO_PARSER and JSON_NO_WRITER, if defined, remove the corresponding
  * APIs and functionality from the library.
@@ -992,6 +992,18 @@ JSON_API(const JSON_Version*) JSON_LibraryVersion(void);
 
 /* Get a constant, null-terminated, ASCII string describing an error code. */
 JSON_API(const char*) JSON_ErrorString(JSON_Error error);
+
+/* Get the UTF-16 encoding whose endianness matches the target platform.
+ *
+ * This function always returns either JSON_UTF16LE or JSON_UTF16BE.
+ */
+JSON_API(JSON_Encoding) JSON_NativeUTF16Encoding(void);
+
+/* Get the UTF-32 encoding whose endianness matches the target platform.
+ *
+ * This function always returns either JSON_UTF32LE or JSON_UTF32BE.
+ */
+JSON_API(JSON_Encoding) JSON_NativeUTF32Encoding(void);
 
 #ifdef __cplusplus
 }

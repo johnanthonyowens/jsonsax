@@ -126,7 +126,7 @@ static void OutputCharacter(char c)
     s_outputBuffer[s_outputLength] = 0;
 }
 
-static void OutputSeparator()
+static void OutputSeparator(void)
 {
     if (s_outputLength && s_outputBuffer[s_outputLength] != ' ')
     {
@@ -350,7 +350,7 @@ static int CheckOutput(const char* pExpectedOutput)
     return 1;
 }
 
-static void ResetOutput()
+static void ResetOutput(void)
 {
     s_outputLength = 0;
     s_outputBuffer[0] = 0;
@@ -1451,7 +1451,7 @@ static void RunParseTest(const ParseTest* pTest)
     ResetOutput();
 }
 
-static void TestParserCreate()
+static void TestParserCreate(void)
 {
     JSON_Parser parser = NULL;
     printf("Test creating parser ... ");
@@ -1467,7 +1467,7 @@ static void TestParserCreate()
     JSON_Parser_Free(parser);
 }
 
-static void TestParserCreateWithCustomMemorySuite()
+static void TestParserCreateWithCustomMemorySuite(void)
 {
     JSON_Parser parser = NULL;
     printf("Test creating parser with custom memory suite ... ");
@@ -1486,7 +1486,7 @@ static void TestParserCreateWithCustomMemorySuite()
     JSON_Parser_Free(parser);
 }
 
-static void TestParserCreateMallocFailure()
+static void TestParserCreateMallocFailure(void)
 {
     JSON_Parser parser = NULL;
     printf("Test creating parser malloc failure ... ");
@@ -1503,7 +1503,7 @@ static void TestParserCreateMallocFailure()
     JSON_Parser_Free(parser);
 }
 
-static void TestParserSetSettings()
+static void TestParserSetSettings(void)
 {
     JSON_Parser parser = NULL;
     ParserSettings settings;
@@ -1547,7 +1547,7 @@ static void TestParserSetSettings()
     JSON_Parser_Free(parser);
 }
 
-static void TestParserSetInvalidSettings()
+static void TestParserSetInvalidSettings(void)
 {
     JSON_Parser parser = NULL;
     ParserSettings settings;
@@ -1574,7 +1574,7 @@ static void TestParserSetInvalidSettings()
     JSON_Parser_Free(parser);
 }
 
-static void TestParserSetHandlers()
+static void TestParserSetHandlers(void)
 {
     JSON_Parser parser = NULL;
     ParserHandlers handlers;
@@ -1616,7 +1616,7 @@ static void TestParserSetHandlers()
     JSON_Parser_Free(parser);
 }
 
-static void TestParserReset()
+static void TestParserReset(void)
 {
     JSON_Parser parser = NULL;
     ParserState state;
@@ -1667,7 +1667,7 @@ static void TestParserReset()
     JSON_Parser_Free(parser);
 }
 
-static void TestParserMisbehaveInCallbacks()
+static void TestParserMisbehaveInCallbacks(void)
 {
     JSON_Parser parser = NULL;
     printf("Test parser misbehaving in callbacks ... ");
@@ -1731,7 +1731,7 @@ static void TestParserMisbehaveInCallbacks()
     JSON_Parser_Free(parser);
 }
 
-static void TestParserAbortInCallbacks()
+static void TestParserAbortInCallbacks(void)
 {
     JSON_Parser parser = NULL;
     ParserState state;
@@ -1820,7 +1820,7 @@ static void TestParserAbortInCallbacks()
     JSON_Parser_Free(parser);
 }
 
-static void TestParserStringMallocFailure()
+static void TestParserStringMallocFailure(void)
 {
     int succeeded = 0;
     JSON_Parser parser = NULL;
@@ -1858,7 +1858,7 @@ static void TestParserStringMallocFailure()
     JSON_Parser_Free(parser);
 }
 
-static void TestParserStringReallocFailure()
+static void TestParserStringReallocFailure(void)
 {
     int succeeded = 0;
     JSON_Parser parser = NULL;
@@ -1896,7 +1896,7 @@ static void TestParserStringReallocFailure()
     JSON_Parser_Free(parser);
 }
 
-static void TestParserStackMallocFailure()
+static void TestParserStackMallocFailure(void)
 {
     int succeeded = 0;
     JSON_Parser parser = NULL;
@@ -1933,7 +1933,7 @@ static void TestParserStackMallocFailure()
     JSON_Parser_Free(parser);
 }
 
-static void TestParserStackReallocFailure()
+static void TestParserStackReallocFailure(void)
 {
     int succeeded = 0;
     JSON_Parser parser = NULL;
@@ -1970,7 +1970,7 @@ static void TestParserStackReallocFailure()
     JSON_Parser_Free(parser);
 }
 
-static void TestParserDuplicateMemberTrackingMallocFailure()
+static void TestParserDuplicateMemberTrackingMallocFailure(void)
 {
     int succeeded = 0;
     JSON_Parser parser = NULL;
@@ -2001,7 +2001,7 @@ static void TestParserDuplicateMemberTrackingMallocFailure()
     JSON_Parser_Free(parser);
 }
 
-static void TestParserMissing()
+static void TestParserMissing(void)
 {
     ParserState state;
     ParserSettings settings;
@@ -2045,7 +2045,7 @@ static void TestParserMissing()
     }
 }
 
-static void TestParserGetErrorLocationNullLocation()
+static void TestParserGetErrorLocationNullLocation(void)
 {
     JSON_Parser parser = NULL;
     printf("Test parser get error location with NULL location ... ");
@@ -2062,7 +2062,7 @@ static void TestParserGetErrorLocationNullLocation()
     JSON_Parser_Free(parser);
 }
 
-static void TestParserGetErrorLocationNoError()
+static void TestParserGetErrorLocationNoError(void)
 {
     JSON_Parser parser = NULL;
     JSON_Location location = { 100, 200, 300, 400 };
@@ -2088,7 +2088,7 @@ static void TestParserGetErrorLocationNoError()
     JSON_Parser_Free(parser);
 }
 
-static void TestParserGetTokenLocationOutsideHandler()
+static void TestParserGetTokenLocationOutsideHandler(void)
 {
     JSON_Parser parser = NULL;
     JSON_Location location = { 100, 200, 300, 400 };
@@ -2791,7 +2791,7 @@ PARSE_TEST("multi-line input error (7)", Standard, "[\r\n\"x\r\n", FINAL, UTF8, 
 
 };
 
-static void TestParserParse()
+static void TestParserParse(void)
 {
     size_t i;
     for  (i = 0; i < sizeof(s_parseTests)/sizeof(s_parseTests[0]); i++)
@@ -3233,7 +3233,7 @@ static JSON_Writer_HandlerResult JSON_CALL OutputHandler(JSON_Writer writer, con
     return JSON_Writer_Continue;
 }
 
-static void TestWriterCreate()
+static void TestWriterCreate(void)
 {
     JSON_Writer writer = NULL;
     printf("Test creating writer ... ");
@@ -3249,7 +3249,7 @@ static void TestWriterCreate()
     JSON_Writer_Free(writer);
 }
 
-static void TestWriterCreateWithCustomMemorySuite()
+static void TestWriterCreateWithCustomMemorySuite(void)
 {
     JSON_Writer writer = NULL;
     printf("Test creating writer with custom memory suite ... ");
@@ -3268,7 +3268,7 @@ static void TestWriterCreateWithCustomMemorySuite()
     JSON_Writer_Free(writer);
 }
 
-static void TestWriterCreateMallocFailure()
+static void TestWriterCreateMallocFailure(void)
 {
     JSON_Writer writer = NULL;
     printf("Test creating writer malloc failure ... ");
@@ -3285,7 +3285,7 @@ static void TestWriterCreateMallocFailure()
     JSON_Writer_Free(writer);
 }
 
-static void TestWriterMissing()
+static void TestWriterMissing(void)
 {
     WriterState state;
     WriterSettings settings;
@@ -3324,7 +3324,7 @@ static void TestWriterMissing()
     }
 }
 
-static void TestWriterSetSettings()
+static void TestWriterSetSettings(void)
 {
     JSON_Writer writer = NULL;
     WriterSettings settings;
@@ -3350,7 +3350,7 @@ static void TestWriterSetSettings()
     JSON_Writer_Free(writer);
 }
 
-static void TestWriterSetInvalidSettings()
+static void TestWriterSetInvalidSettings(void)
 {
     JSON_Writer writer = NULL;
     WriterSettings settings;
@@ -3377,7 +3377,7 @@ static void TestWriterSetInvalidSettings()
     JSON_Writer_Free(writer);
 }
 
-static void TestWriterSetHandlers()
+static void TestWriterSetHandlers(void)
 {
     JSON_Writer writer = NULL;
     WriterHandlers handlers;
@@ -3397,7 +3397,7 @@ static void TestWriterSetHandlers()
     JSON_Writer_Free(writer);
 }
 
-static void TestWriterReset()
+static void TestWriterReset(void)
 {
     JSON_Writer writer = NULL;
     WriterState state;
@@ -3429,7 +3429,7 @@ static void TestWriterReset()
     JSON_Writer_Free(writer);
 }
 
-static void TestWriterMisbehaveInCallbacks()
+static void TestWriterMisbehaveInCallbacks(void)
 {
     JSON_Writer writer = NULL;
     printf("Test writer misbehaving in callbacks ... ");
@@ -3448,7 +3448,7 @@ static void TestWriterMisbehaveInCallbacks()
     JSON_Writer_Free(writer);
 }
 
-static void TestWriterAbortInCallbacks()
+static void TestWriterAbortInCallbacks(void)
 {
     JSON_Writer writer = NULL;
     WriterState state;
@@ -3471,7 +3471,7 @@ static void TestWriterAbortInCallbacks()
     JSON_Writer_Free(writer);
 }
 
-static void TestWriterStackMallocFailure()
+static void TestWriterStackMallocFailure(void)
 {
     int succeeded = 0;
     JSON_Writer writer = NULL;
@@ -3506,7 +3506,7 @@ static void TestWriterStackMallocFailure()
     JSON_Writer_Free(writer);
 }
 
-static void TestWriterStackReallocFailure()
+static void TestWriterStackReallocFailure(void)
 {
     int succeeded = 0;
     JSON_Writer writer = NULL;
@@ -3615,7 +3615,7 @@ WRITE_NULL_TEST("-> UTF-32BE", UTF32BE, "___n___u___l___l")
 
 };
 
-static void TestWriterWriteNull()
+static void TestWriterWriteNull(void)
 {
     size_t i;
     for  (i = 0; i < sizeof(s_writeNullTests)/sizeof(s_writeNullTests[0]); i++)
@@ -3685,7 +3685,7 @@ WRITE_BOOLEAN_TEST("false -> UTF-32BE", UTF32BE, JSON_False, "___f___a___l___s__
 
 };
 
-static void TestWriterWriteBoolean()
+static void TestWriterWriteBoolean(void)
 {
     size_t i;
     for  (i = 0; i < sizeof(s_writeBooleanTests)/sizeof(s_writeBooleanTests[0]); i++)
@@ -3968,7 +3968,7 @@ WRITE_STRING_TEST("replace UTF-32BE encoded out-of-range codepoint (2)", UTF32BE
 
 };
 
-static void TestWriterWriteString()
+static void TestWriterWriteString(void)
 {
     size_t i;
     for  (i = 0; i < sizeof(s_writeStringTests)/sizeof(s_writeStringTests[0]); i++)
@@ -3977,7 +3977,7 @@ static void TestWriterWriteString()
     }
 }
 
-static void TestWriterWriteStringWithInvalidParameters()
+static void TestWriterWriteStringWithInvalidParameters(void)
 {
     JSON_Writer writer = NULL;
     printf("Test writing string with invalid parameters ... ");
@@ -4110,7 +4110,7 @@ WRITE_NUMBER_TEST("invalid UTF-32BE encoding (3)", UTF32BE, UTF8, "\x00\x00\x00"
 
 };
 
-static void TestWriterWriteNumber()
+static void TestWriterWriteNumber(void)
 {
     size_t i;
     for  (i = 0; i < sizeof(s_writeNumberTests)/sizeof(s_writeNumberTests[0]); i++)
@@ -4119,7 +4119,7 @@ static void TestWriterWriteNumber()
     }
 }
 
-static void TestWriterWriteNumberWithInvalidParameters()
+static void TestWriterWriteNumberWithInvalidParameters(void)
 {
     JSON_Writer writer = NULL;
     printf("Test writing number with invalid parameters ... ");
@@ -4205,7 +4205,7 @@ WRITE_SPECIAL_NUMBER_TEST("-Infinity -> UTF-32BE",  UTF32BE, JSON_NegativeInfini
 
 };
 
-static void TestWriterWriteSpecialNumber()
+static void TestWriterWriteSpecialNumber(void)
 {
     size_t i;
     for  (i = 0; i < sizeof(s_writeSpecialNumberTests)/sizeof(s_writeSpecialNumberTests[0]); i++)
@@ -4277,7 +4277,7 @@ WRITE_ARRAY_TEST("-> UTF-32BE", UTF32BE, "___[___[___]___,___0___,___\"___a___\"
 
 };
 
-static void TestWriterWriteArray()
+static void TestWriterWriteArray(void)
 {
     size_t i;
     for  (i = 0; i < sizeof(s_writeArrayTests)/sizeof(s_writeArrayTests[0]); i++)
@@ -4351,7 +4351,7 @@ WRITE_OBJECT_TEST("-> UTF-32BE", UTF32BE, "___{___\"___a___\"___:___{___}___,___
 
 };
 
-static void TestWriterWriteObject()
+static void TestWriterWriteObject(void)
 {
     size_t i;
     for  (i = 0; i < sizeof(s_writeObjectTests)/sizeof(s_writeObjectTests[0]); i++)
@@ -4434,7 +4434,7 @@ WRITE_SPACE_TEST("(15) -> UTF-32BE", UTF32BE, 15, "<00 00 00 20><00 00 00 20><00
 
 };
 
-static void TestWriterWriteSpace()
+static void TestWriterWriteSpace(void)
 {
     size_t i;
     for  (i = 0; i < sizeof(s_writeSpaceTests)/sizeof(s_writeSpaceTests[0]); i++)
@@ -4509,7 +4509,7 @@ WRITE_NEWLINE_TEST("-> UTF-32BE", UTF32BE, CRLF,    "<00 00 00 0D><00 00 00 0A>"
 
 };
 
-static void TestWriterWriteNewLine()
+static void TestWriterWriteNewLine(void)
 {
     size_t i;
     for  (i = 0; i < sizeof(s_writeNewLineTests)/sizeof(s_writeNewLineTests[0]); i++)
@@ -4520,7 +4520,7 @@ static void TestWriterWriteNewLine()
 
 #endif /* JSON_NO_WRITER */
 
-static void TestLibraryVersion()
+static void TestLibraryVersion(void)
 {
     const JSON_Version* pVersion = JSON_LibraryVersion();
     printf("Test library version ... ");
@@ -4547,7 +4547,7 @@ static int CheckErrorString(JSON_Error error, const char* pExpectedMessage)
     return 1;
 }
 
-static void TestErrorStrings()
+static void TestErrorStrings(void)
 {
     printf("Test error strings ... ");
     if (CheckErrorString(JSON_Error_None, "no error") &&
@@ -4577,7 +4577,39 @@ static void TestErrorStrings()
     }
 }
 
-static void TestNoLeaks()
+static void TestNativeUTF16Encoding(void)
+{
+    static const int one = 1;
+    JSON_Encoding expected = *(char*)&one ? JSON_UTF16LE : JSON_UTF16BE;
+    JSON_Encoding actual = JSON_NativeUTF16Encoding();
+    printf("Test native UTF-16 encoding ... ");
+    if (actual == expected)
+    {
+        printf("OK\n");
+    }
+    else
+    {
+        s_failureCount++;
+    }
+}
+
+static void TestNativeUTF32Encoding(void)
+{
+    static const int one = 1;
+    JSON_Encoding expected = *(char*)&one ? JSON_UTF32LE : JSON_UTF32BE;
+    JSON_Encoding actual = JSON_NativeUTF32Encoding();
+    printf("Test native UTF-32 encoding ... ");
+    if (actual == expected)
+    {
+        printf("OK\n");
+    }
+    else
+    {
+        s_failureCount++;
+    }
+}
+
+static void TestNoLeaks(void)
 {
     printf("Checking for memory leaks ... ");
     if (!s_blocksAllocated && !s_bytesAllocated)
@@ -4646,6 +4678,8 @@ int main(int argc, char* argv[])
 
     TestLibraryVersion();
     TestErrorStrings();
+    TestNativeUTF16Encoding();
+    TestNativeUTF32Encoding();
     TestNoLeaks();
 
     if (s_failureCount)
