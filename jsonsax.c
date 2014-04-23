@@ -2203,11 +2203,6 @@ reprocess:
         }
     }
 
-    if (tokenFinished && !JSON_Parser_ProcessToken(parser))
-    {
-        return JSON_Failure;
-    }
-
     /* The current codepoint has been accepted, so advance the codepoint
        location counters accordingly. Note that the one time we don't
        do this is when the codepoint is EOF, which doesn't actually
@@ -2230,6 +2225,11 @@ reprocess:
             /* The next character will be on the same line. */
             parser->codepointLocationColumn++;
         }
+    }
+
+    if (tokenFinished && !JSON_Parser_ProcessToken(parser))
+    {
+        return JSON_Failure;
     }
 
     return JSON_Success;
@@ -2833,6 +2833,19 @@ JSON_Status JSON_CALL JSON_Parser_GetTokenLocation(JSON_Parser parser, JSON_Loca
     pLocation->byte = parser->tokenLocationByte;
     pLocation->line = parser->tokenLocationLine;
     pLocation->column = parser->tokenLocationColumn;
+    pLocation->depth = parser->depth;
+    return JSON_Success;
+}
+
+JSON_Status JSON_CALL JSON_Parser_GetAfterTokenLocation(JSON_Parser parser, JSON_Location* pLocation)
+{
+    if (!parser || !pLocation || !GET_FLAGS(parser->state, PARSER_IN_TOKEN_HANDLER))
+    {
+        return JSON_Failure;
+    }
+    pLocation->byte = parser->codepointLocationByte;
+    pLocation->line = parser->codepointLocationLine;
+    pLocation->column = parser->codepointLocationColumn;
     pLocation->depth = parser->depth;
     return JSON_Success;
 }

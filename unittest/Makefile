@@ -17,7 +17,7 @@ else
     DLIB_PATH = LD_LIBRARY_PATH
 endif
 
-CFLAGS = -Wall -Werror -Wunused-parameter -Wshadow
+CFLAGS = -Wall -Werror -Wunused-parameter -Wshadow -Wno-overlength-strings
 ifdef DEBUG
     CFLAGS += -g
     LDFLAGS += -g

@@ -26,7 +26,7 @@
 /* The library version */
 #define JSON_MAJOR_VERSION 1
 #define JSON_MINOR_VERSION 3
-#define JSON_MICRO_VERSION 1
+#define JSON_MICRO_VERSION 2
 
 /* JSON_NO_PARSER and JSON_NO_WRITER, if defined, remove the corresponding
  * APIs and functionality from the library.
@@ -471,15 +471,25 @@ JSON_API(JSON_Error) JSON_Parser_GetError(JSON_Parser parser);
  */
 JSON_API(JSON_Status) JSON_Parser_GetErrorLocation(JSON_Parser parser, JSON_Location* pLocation);
 
-/* Get the location in the input stream of the token that is currently
- * being handled by one of a parser instance's parse handlers.
+/* Get the location in the input stream of the beginning of the token
+ * that is currently being handled by one of a parser instance's parse
+ * handlers.
  *
  * If the parser is inside a parse handler, this function sets the members
- * of the structure pointed to by pLocation to the location in the input
- * stream of the token that triggered the handler and returns success.
- * Otherwise, it leaves the members unchanged and returns failure.
+ * of the structure pointed to by pLocation to the location and returns
+ * success. Otherwise, it leaves the members unchanged and returns failure.
  */
 JSON_API(JSON_Status) JSON_Parser_GetTokenLocation(JSON_Parser parser, JSON_Location* pLocation);
+
+/* Get the location in the input stream that immediately follows the end of
+ * the token that is currently being handled by one of a parser instance's
+ * parse handlers.
+ *
+ * If the parser is inside a parse handler, this function sets the members
+ * of the structure pointed to by pLocation to the location and returns
+ * success. Otherwise, it leaves the members unchanged and returns failure.
+ */
+JSON_API(JSON_Status) JSON_Parser_GetAfterTokenLocation(JSON_Parser parser, JSON_Location* pLocation);
 
 /* Parse handlers are callbacks that the client provides in order to
  * be notified about the structure of the JSON document as it is being
