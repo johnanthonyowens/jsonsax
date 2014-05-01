@@ -43,43 +43,43 @@ typedef unsigned __int32 uint32_t;
 #define DEFAULT_TOKEN_BYTES_LENGTH 64 /* MUST be a power of 2 */
 #define DEFAULT_SYMBOL_STACK_SIZE  32 /* MUST be a power of 2 */
 
+/* Types for readability. */
+typedef unsigned char byte;
+typedef uint32_t Codepoint;
+
 /* Especially-relevant Unicode codepoints. */
-#define NULL_CODEPOINT                  0x0000
-#define BACKSPACE_CODEPOINT             0x0008
-#define TAB_CODEPOINT                   0x0009
-#define LINE_FEED_CODEPOINT             0x000A
-#define FORM_FEED_CODEPOINT             0x000C
-#define CARRIAGE_RETURN_CODEPOINT       0x000D
-#define FIRST_NON_CONTROL_CODEPOINT     0x0020
-#define DELETE_CODEPOINT                0x007F
-#define FIRST_NON_ASCII_CODEPOINT       0x0080
-#define FIRST_2_BYTE_UTF8_CODEPOINT     0x0080
-#define FIRST_3_BYTE_UTF8_CODEPOINT     0x0800
-#define LINE_SEPARATOR_CODEPOINT        0x2028
-#define PARAGRAPH_SEPARATOR_CODEPOINT   0x2029
-#define BOM_CODEPOINT                   0xFEFF
-#define REPLACEMENT_CHARACTER_CODEPOINT 0xFFFD
-#define FIRST_NON_BMP_CODEPOINT         0x10000
-#define FIRST_4_BYTE_UTF8_CODEPOINT     0x10000
-#define MAX_CODEPOINT                   0x10FFFF
-#define EOF_CODEPOINT                   0xFFFFFFFF
+#define U_(x) ((Codepoint)(0x##x))
+#define NULL_CODEPOINT                  U_(0000)
+#define BACKSPACE_CODEPOINT             U_(0008)
+#define TAB_CODEPOINT                   U_(0009)
+#define LINE_FEED_CODEPOINT             U_(000A)
+#define FORM_FEED_CODEPOINT             U_(000C)
+#define CARRIAGE_RETURN_CODEPOINT       U_(000D)
+#define FIRST_NON_CONTROL_CODEPOINT     U_(0020)
+#define DELETE_CODEPOINT                U_(007F)
+#define FIRST_NON_ASCII_CODEPOINT       U_(0080)
+#define FIRST_2_BYTE_UTF8_CODEPOINT     U_(0080)
+#define FIRST_3_BYTE_UTF8_CODEPOINT     U_(0800)
+#define LINE_SEPARATOR_CODEPOINT        U_(2028)
+#define PARAGRAPH_SEPARATOR_CODEPOINT   U_(2029)
+#define BOM_CODEPOINT                   U_(FEFF)
+#define REPLACEMENT_CHARACTER_CODEPOINT U_(FFFD)
+#define FIRST_NON_BMP_CODEPOINT         U_(10000)
+#define FIRST_4_BYTE_UTF8_CODEPOINT     U_(10000)
+#define MAX_CODEPOINT                   U_(10FFFF)
+#define EOF_CODEPOINT                   U_(FFFFFFFF)
 
 /* Bit-masking macros. */
-#define BOTTOM_BIT(x)       ((x) & 0x1)
-#define BOTTOM_2_BITS(x)    ((x) & 0x3)
-#define BOTTOM_3_BITS(x)    ((x) & 0x7)
-#define BOTTOM_4_BITS(x)    ((x) & 0xF)
-#define BOTTOM_5_BITS(x)    ((x) & 0x1F)
-#define BOTTOM_6_BITS(x)    ((x) & 0x3F)
-#define BOTTOM_7_BITS(x)    ((x) & 0x7F)
-#define BOTTOM_N_BITS(x, n) ((x) & (((1 << (n)) - 1)))
-#define IS_BIT_SET(x, n)    ((x) & (1 << (n)))
+#define BOTTOM_3_BITS(x) ((x) & 0x7)
+#define BOTTOM_4_BITS(x) ((x) & 0xF)
+#define BOTTOM_5_BITS(x) ((x) & 0x1F)
+#define BOTTOM_6_BITS(x) ((x) & 0x3F)
 
 /* Bit-flag macros. */
-#define GET_FLAGS(x, f)       ((x) & (f))
-#define SET_FLAGS_ON(x, f)    do { (x) |= (f); } while (0)
-#define SET_FLAGS_OFF(x, f)   do { (x) &= ~(f); } while (0)
-#define SET_FLAGS(x, f, cond) do { if (cond) (x) |= (f); else (x) &= ~(f); } while (0)
+#define GET_FLAGS(x, f)                  ((x) & (f))
+#define SET_FLAGS_ON(flagstype, x, f)    do { (x) |= (flagstype)(f); } while (0)
+#define SET_FLAGS_OFF(flagstype, x, f)   do { (x) &= (flagstype)~(f); } while (0)
+#define SET_FLAGS(flagstype, x, f, cond) do { if (cond) (x) |= (flagstype)(f); else (x) &= (flagstype)~(f); } while (0)
 
 /* UTF-8 byte-related macros. */
 #define IS_UTF8_SINGLE_BYTE(b)       (((b) & 0x80) == 0)
@@ -95,21 +95,17 @@ typedef unsigned __int32 uint32_t;
 #define IS_TRAILING_SURROGATE(c)         (((c) & 0xFFFFFC00) == 0xDC00)
 #define CODEPOINT_FROM_SURROGATES(hi_lo) ((((hi_lo) >> 16) << 10) + ((hi_lo) & 0xFFFF) + 0xFCA02400)
 #define SURROGATES_FROM_CODEPOINT(c)     ((((c) << 6) & 0x3FF0000) + ((c) & 0x3FF) + 0xD7C0DC00)
-#define SHORTEST_ENCODING_SEQUENCE(enc)  (1 << ((enc) >> 1))
+#define SHORTEST_ENCODING_SEQUENCE(enc)  (1U << ((enc) >> 1))
 #define LONGEST_ENCODING_SEQUENCE        4
 
-/* Types for readability. */
-typedef unsigned char byte;
-typedef uint32_t Codepoint;
-
 /* Internal types that alias enum types in the public API.
-   By using unsigned char to represent these values internally,
+   By using byte to represent these values internally,
    we can guarantee minimal storage size and avoid compiler
    warnings when using values of the type in switch statements
    that don't have (or need) a default case. */
-typedef unsigned char Encoding;
-typedef unsigned char Error;
-typedef unsigned char TokenAttributes;
+typedef byte Encoding;
+typedef byte Error;
+typedef byte TokenAttributes;
 
 /******************** Default Memory Suite ********************/
 
@@ -184,10 +180,10 @@ typedef DecoderData* Decoder;
 #define SEQUENCE_INVALID_EXCLUSIVE 3
 typedef uint32_t DecoderResultCode;
 
-#define DECODER_OUTPUT(r, l, c)    (((r) << 28) | ((l) << 24) | (c))
-#define DECODER_RESULT_CODE(o)     ((o) >> 28)
-#define DECODER_SEQUENCE_LENGTH(o) (((o) >> 24) & 0x7)
-#define DECODER_CODEPOINT(o)       ((o) & 0x001FFFFF)
+#define DECODER_OUTPUT(r, l, c)    (DecoderOutput)(((r) << 28) | ((l) << 24) | (c))
+#define DECODER_RESULT_CODE(o)     (DecoderResultCode)((DecoderOutput)(o) >> 28)
+#define DECODER_SEQUENCE_LENGTH(o) (size_t)(((DecoderOutput)(o) >> 24) & 0x7)
+#define DECODER_CODEPOINT(o)       (Codepoint)((DecoderOutput)(o) & 0x001FFFFF)
 typedef uint32_t DecoderOutput;
 
 /* Decoder functions. */
@@ -223,7 +219,7 @@ static DecoderOutput Decoder_ProcessByte(Decoder decoder, Encoding encoding, byt
             {
                 /* UTF-8 2-byte sequences that are overlong encodings can be
                    detected from just the first byte (C0 or C1). */
-                decoder->bits = BOTTOM_5_BITS(b) << 6;
+                decoder->bits = (uint32_t)(BOTTOM_5_BITS(b) << 6);
                 if (decoder->bits < FIRST_2_BYTE_UTF8_CODEPOINT)
                 {
                     output = DECODER_OUTPUT(SEQUENCE_INVALID_INCLUSIVE, 1, 0);
@@ -244,7 +240,7 @@ static DecoderOutput Decoder_ProcessByte(Decoder decoder, Encoding encoding, byt
             {
                 /* Some UTF-8 4-byte sequences that encode out-of-range
                    codepoints can be detected from the first byte (F5 - FF). */
-                decoder->bits = BOTTOM_3_BITS(b) << 18;
+                decoder->bits = (uint32_t)(BOTTOM_3_BITS(b) << 18);
                 if (decoder->bits > MAX_CODEPOINT)
                 {
                     output = DECODER_OUTPUT(SEQUENCE_INVALID_INCLUSIVE, 1, 0);
@@ -266,7 +262,7 @@ static DecoderOutput Decoder_ProcessByte(Decoder decoder, Encoding encoding, byt
         case DECODED_1_OF_2:
             if (IS_UTF8_CONTINUATION_BYTE(b))
             {
-                output = DECODER_OUTPUT(SEQUENCE_COMPLETE, 2, decoder->bits |= BOTTOM_6_BITS(b));
+                output = DECODER_OUTPUT(SEQUENCE_COMPLETE, 2, decoder->bits | BOTTOM_6_BITS(b));
             }
             else
             {
@@ -280,7 +276,7 @@ static DecoderOutput Decoder_ProcessByte(Decoder decoder, Encoding encoding, byt
             {
                 /* UTF-8 3-byte sequences that are overlong encodings or encode
                    surrogate codepoints can be detected after 2 bytes. */
-                decoder->bits |= BOTTOM_6_BITS(b) << 6;
+                decoder->bits |= (uint32_t)(BOTTOM_6_BITS(b) << 6);
                 if ((decoder->bits < FIRST_3_BYTE_UTF8_CODEPOINT) || IS_SURROGATE(decoder->bits))
                 {
                     output = DECODER_OUTPUT(SEQUENCE_INVALID_EXCLUSIVE, 1, 0);
@@ -300,7 +296,7 @@ static DecoderOutput Decoder_ProcessByte(Decoder decoder, Encoding encoding, byt
         case DECODED_2_OF_3:
             if (IS_UTF8_CONTINUATION_BYTE(b))
             {
-                output = DECODER_OUTPUT(SEQUENCE_COMPLETE, 3, decoder->bits |= BOTTOM_6_BITS(b));
+                output = DECODER_OUTPUT(SEQUENCE_COMPLETE, 3, decoder->bits | BOTTOM_6_BITS(b));
             }
             else
             {
@@ -313,7 +309,7 @@ static DecoderOutput Decoder_ProcessByte(Decoder decoder, Encoding encoding, byt
             {
                 /* UTF-8 4-byte sequences that are overlong encodings or encode
                    out-of-range codepoints can be detected after 2 bytes. */
-                decoder->bits |= BOTTOM_6_BITS(b) << 12;
+                decoder->bits |= (uint32_t)(BOTTOM_6_BITS(b) << 12);
                 if ((decoder->bits < FIRST_4_BYTE_UTF8_CODEPOINT) || (decoder->bits > MAX_CODEPOINT))
                 {
                     output = DECODER_OUTPUT(SEQUENCE_INVALID_EXCLUSIVE, 1, 0);
@@ -333,7 +329,7 @@ static DecoderOutput Decoder_ProcessByte(Decoder decoder, Encoding encoding, byt
         case DECODED_2_OF_4:
             if (IS_UTF8_CONTINUATION_BYTE(b))
             {
-                decoder->bits |= BOTTOM_6_BITS(b) << 6;
+                decoder->bits |= (uint32_t)(BOTTOM_6_BITS(b) << 6);
                 decoder->state = DECODED_3_OF_4;
                 goto noreset;
             }
@@ -346,7 +342,7 @@ static DecoderOutput Decoder_ProcessByte(Decoder decoder, Encoding encoding, byt
         case DECODED_3_OF_4:
             if (IS_UTF8_CONTINUATION_BYTE(b))
             {
-                output = DECODER_OUTPUT(SEQUENCE_COMPLETE, 4, decoder->bits |= BOTTOM_6_BITS(b));
+                output = DECODER_OUTPUT(SEQUENCE_COMPLETE, 4, decoder->bits | BOTTOM_6_BITS(b));
             }
             else
             {
@@ -371,7 +367,7 @@ static DecoderOutput Decoder_ProcessByte(Decoder decoder, Encoding encoding, byt
             goto noreset;
 
         case DECODED_1_OF_2:
-            decoder->bits |= b << 8;
+            decoder->bits |= (uint32_t)(b << 8);
             if (IS_TRAILING_SURROGATE(decoder->bits))
             {
                 /* A trailing surrogate cannot appear on its own. */
@@ -396,7 +392,7 @@ static DecoderOutput Decoder_ProcessByte(Decoder decoder, Encoding encoding, byt
             goto noreset;
 
         case DECODED_3_OF_4:
-            decoder->bits |= b << 8;
+            decoder->bits |= (uint32_t)(b << 8);
             if (!IS_TRAILING_SURROGATE(decoder->bits & 0xFFFF))
             {
                 /* A leading surrogate must be followed by a trailing one.
@@ -425,7 +421,7 @@ static DecoderOutput Decoder_ProcessByte(Decoder decoder, Encoding encoding, byt
         switch (decoder->state)
         {
         case DECODER_RESET:
-            decoder->bits = b << 8;
+            decoder->bits = (uint32_t)(b << 8);
             decoder->state = DECODED_1_OF_2;
             goto noreset;
 
@@ -450,7 +446,7 @@ static DecoderOutput Decoder_ProcessByte(Decoder decoder, Encoding encoding, byt
             break;
 
         case DECODED_2_OF_4:
-            decoder->bits |= b << 8;
+            decoder->bits |= (uint32_t)(b << 8);
             decoder->state = DECODED_3_OF_4;
             goto noreset;
 
@@ -486,16 +482,16 @@ static DecoderOutput Decoder_ProcessByte(Decoder decoder, Encoding encoding, byt
 
         case DECODED_1_OF_4:
             decoder->state = DECODED_2_OF_4;
-            decoder->bits |= b << 8;
+            decoder->bits |= (uint32_t)(b << 8);
             goto noreset;
 
         case DECODED_2_OF_4:
             decoder->state = DECODED_3_OF_4;
-            decoder->bits |= b << 16;
+            decoder->bits |= (uint32_t)(b << 16);
             goto noreset;
 
         case DECODED_3_OF_4:
-            decoder->bits |= b << 24;
+            decoder->bits |= (uint32_t)(b << 24);
             output = (IS_SURROGATE(decoder->bits) || (decoder->bits > MAX_CODEPOINT))
                 ? DECODER_OUTPUT(SEQUENCE_INVALID_INCLUSIVE, 4, 0)
                 : DECODER_OUTPUT(SEQUENCE_COMPLETE, 4, decoder->bits);
@@ -510,17 +506,17 @@ static DecoderOutput Decoder_ProcessByte(Decoder decoder, Encoding encoding, byt
         {
         case DECODER_RESET:
             decoder->state = DECODED_1_OF_4;
-            decoder->bits = b << 24;
+            decoder->bits = (uint32_t)(b << 24);
             goto noreset;
 
         case DECODED_1_OF_4:
             decoder->state = DECODED_2_OF_4;
-            decoder->bits |= b << 16;
+            decoder->bits |= (uint32_t)(b << 16);
             goto noreset;
 
         case DECODED_2_OF_4:
             decoder->state = DECODED_3_OF_4;
-            decoder->bits |= b << 8;
+            decoder->bits |= (uint32_t)(b << 8);
             goto noreset;
 
         case DECODED_3_OF_4:
@@ -556,28 +552,28 @@ static size_t EncodeCodepoint(Codepoint c, Encoding encoding, byte* pBytes)
     case JSON_UTF8:
         if (c < FIRST_2_BYTE_UTF8_CODEPOINT)
         {
-            pBytes[0] = c;
+            pBytes[0] = (byte)c;
             length = 1;
         }
         else if (c < FIRST_3_BYTE_UTF8_CODEPOINT)
         {
-            pBytes[0] = 0xC0 | (c >> 6);
-            pBytes[1] = 0x80 | BOTTOM_6_BITS(c);
+            pBytes[0] = (byte)(0xC0 | (c >> 6));
+            pBytes[1] = (byte)(0x80 | BOTTOM_6_BITS(c));
             length = 2;
         }
         else if (c < FIRST_4_BYTE_UTF8_CODEPOINT)
         {
-            pBytes[0] = 0xE0 | (c >> 12);
-            pBytes[1] = 0x80 | BOTTOM_6_BITS(c >> 6);
-            pBytes[2] = 0x80 | BOTTOM_6_BITS(c);
+            pBytes[0] = (byte)(0xE0 | (c >> 12));
+            pBytes[1] = (byte)(0x80 | BOTTOM_6_BITS(c >> 6));
+            pBytes[2] = (byte)(0x80 | BOTTOM_6_BITS(c));
             length = 3;
         }
         else
         {
-            pBytes[0] = 0xF0 | (c >> 18);
-            pBytes[1] = 0x80 | BOTTOM_6_BITS(c >> 12);
-            pBytes[2] = 0x80 | BOTTOM_6_BITS(c >> 6);
-            pBytes[3] = 0x80 | BOTTOM_6_BITS(c);
+            pBytes[0] = (byte)(0xF0 | (c >> 18));
+            pBytes[1] = (byte)(0x80 | BOTTOM_6_BITS(c >> 12));
+            pBytes[2] = (byte)(0x80 | BOTTOM_6_BITS(c >> 6));
+            pBytes[3] = (byte)(0x80 | BOTTOM_6_BITS(c));
             length = 4;
         }
         break;
@@ -585,8 +581,8 @@ static size_t EncodeCodepoint(Codepoint c, Encoding encoding, byte* pBytes)
     case JSON_UTF16LE:
         if (c < FIRST_NON_BMP_CODEPOINT)
         {
-            pBytes[0] = c;
-            pBytes[1] = c >> 8;
+            pBytes[0] = (byte)(c);
+            pBytes[1] = (byte)(c >> 8);
             length = 2;
         }
         else
@@ -594,12 +590,12 @@ static size_t EncodeCodepoint(Codepoint c, Encoding encoding, byte* pBytes)
             uint32_t surrogates = SURROGATES_FROM_CODEPOINT(c);
 
             /* Leading surrogate. */
-            pBytes[0] = surrogates >> 16;
-            pBytes[1] = surrogates >> 24;
+            pBytes[0] = (byte)(surrogates >> 16);
+            pBytes[1] = (byte)(surrogates >> 24);
 
             /* Trailing surrogate. */
-            pBytes[2] = surrogates;
-            pBytes[3] = surrogates >> 8;
+            pBytes[2] = (byte)(surrogates);
+            pBytes[3] = (byte)(surrogates >> 8);
             length = 4;
         }
         break;
@@ -607,8 +603,8 @@ static size_t EncodeCodepoint(Codepoint c, Encoding encoding, byte* pBytes)
     case JSON_UTF16BE:
         if (c < FIRST_NON_BMP_CODEPOINT)
         {
-            pBytes[1] = c;
-            pBytes[0] = c >> 8;
+            pBytes[1] = (byte)(c);
+            pBytes[0] = (byte)(c >> 8);
             length = 2;
         }
         else
@@ -617,29 +613,29 @@ static size_t EncodeCodepoint(Codepoint c, Encoding encoding, byte* pBytes)
             uint32_t surrogates = SURROGATES_FROM_CODEPOINT(c);
 
             /* Leading surrogate. */
-            pBytes[1] = surrogates >> 16;
-            pBytes[0] = surrogates >> 24;
+            pBytes[1] = (byte)(surrogates >> 16);
+            pBytes[0] = (byte)(surrogates >> 24);
 
             /* Trailing surrogate. */
-            pBytes[3] = surrogates;
-            pBytes[2] = surrogates >> 8;
+            pBytes[3] = (byte)(surrogates);
+            pBytes[2] = (byte)(surrogates >> 8);
             length = 4;
         }
         break;
 
     case JSON_UTF32LE:
-        pBytes[0] = c;
-        pBytes[1] = c >> 8;
-        pBytes[2] = c >> 16;
-        pBytes[3] = c >> 24;
+        pBytes[0] = (byte)(c);
+        pBytes[1] = (byte)(c >> 8);
+        pBytes[2] = (byte)(c >> 16);
+        pBytes[3] = (byte)(c >> 24);
         length = 4;
         break;
 
     case JSON_UTF32BE:
-        pBytes[3] = c;
-        pBytes[2] = c >> 8;
-        pBytes[1] = c >> 16;
-        pBytes[0] = c >> 24;
+        pBytes[3] = (byte)(c);
+        pBytes[2] = (byte)(c >> 8);
+        pBytes[1] = (byte)(c >> 16);
+        pBytes[0] = (byte)(c >> 24);
         length = 4;
         break;
     }
@@ -779,9 +775,9 @@ typedef byte GrammarEvent;
      e = event (5 bits)
      - = unused (1 bit)
  */
-#define GRAMMARIAN_OUTPUT(r, e)   (((r) << 6) | (e))
-#define GRAMMARIAN_RESULT_CODE(o) ((o) >> 6)
-#define GRAMMARIAN_EVENT(o)       ((o) & 0x1F)
+#define GRAMMARIAN_OUTPUT(r, e)   (GrammarianOutput)(((GrammarianResultCode)(r) << 6) | (GrammarEvent)(e))
+#define GRAMMARIAN_RESULT_CODE(o) (GrammarianResultCode)((GrammarianOutput)(o) >> 6)
+#define GRAMMARIAN_EVENT(o)       (GrammarEvent)((GrammarianOutput)(o) & 0x1F)
 typedef byte GrammarianOutput;
 
 /* Grammar rule used by the grammarian to process a token. */
@@ -828,7 +824,14 @@ static int Grammarian_FinishedDocument(Grammarian grammarian)
 static GrammarianOutput Grammarian_ProcessToken(Grammarian grammarian, Symbol token, const JSON_MemorySuite* pMemorySuite)
 {
     /* The order and number of the rows and columns in this table must
-       match the defined token and non-terminal symbol values. */
+       match the defined token and non-terminal symbol values.
+
+       The row index is the incoming token's Symbol value.
+
+       The column index is the bottom 4 bits of Symbol value of
+       the non-terminal at the top of the processing stack.
+       Since non-terminal Symbol values start at 0x10, taking
+       the bottom 4 bits yields a 0-based index. */
     static const byte ruleLookup[15][7] =
     {
         /*             V     MS    M     MM    IS    I     MI  */
@@ -1208,7 +1211,7 @@ static void JSON_Parser_NullTerminateToken(JSON_Parser parser)
        available at the end of the token buffer when we record codepoints, we
        can write the null terminator to the buffer with impunity. */
     static const byte nullTerminatorBytes[LONGEST_ENCODING_SEQUENCE] = { 0 };
-    Encoding encoding = (parser->token == T_NUMBER) ? parser->numberEncoding : parser->stringEncoding;
+    Encoding encoding = (Encoding)((parser->token == T_NUMBER) ? parser->numberEncoding : parser->stringEncoding);
     memcpy(parser->pTokenBytes + parser->tokenBytesUsed, nullTerminatorBytes, SHORTEST_ENCODING_SEQUENCE(encoding));
 }
 
@@ -1229,9 +1232,9 @@ static JSON_Status JSON_Parser_CallSimpleTokenHandler(JSON_Parser parser, JSON_P
     if (handler)
     {
         JSON_Parser_HandlerResult result;
-        SET_FLAGS_ON(parser->state, PARSER_IN_TOKEN_HANDLER);
+        SET_FLAGS_ON(ParserState, parser->state, PARSER_IN_TOKEN_HANDLER);
         result = handler(parser);
-        SET_FLAGS_OFF(parser->state, PARSER_IN_TOKEN_HANDLER);
+        SET_FLAGS_OFF(ParserState, parser->state, PARSER_IN_TOKEN_HANDLER);
         if (result != JSON_Parser_Continue)
         {
             JSON_Parser_SetErrorAtToken(parser, JSON_Error_AbortedByHandler);
@@ -1246,9 +1249,9 @@ static JSON_Status JSON_Parser_CallBooleanHandler(JSON_Parser parser)
     if (parser->booleanHandler)
     {
         JSON_Parser_HandlerResult result;
-        SET_FLAGS_ON(parser->state, PARSER_IN_TOKEN_HANDLER);
+        SET_FLAGS_ON(ParserState, parser->state, PARSER_IN_TOKEN_HANDLER);
         result = parser->booleanHandler(parser, parser->token == T_TRUE ? JSON_True : JSON_False);
-        SET_FLAGS_OFF(parser->state, PARSER_IN_TOKEN_HANDLER);
+        SET_FLAGS_OFF(ParserState, parser->state, PARSER_IN_TOKEN_HANDLER);
         if (result != JSON_Parser_Continue)
         {
             JSON_Parser_SetErrorAtToken(parser, JSON_Error_AbortedByHandler);
@@ -1265,9 +1268,9 @@ static JSON_Status JSON_Parser_CallStringHandler(JSON_Parser parser, int isObjec
     {
         JSON_Parser_HandlerResult result;
         JSON_Parser_NullTerminateToken(parser);
-        SET_FLAGS_ON(parser->state, PARSER_IN_TOKEN_HANDLER);
+        SET_FLAGS_ON(ParserState, parser->state, PARSER_IN_TOKEN_HANDLER);
         result = handler(parser, (char*)parser->pTokenBytes, parser->tokenBytesUsed, parser->tokenAttributes);
-        SET_FLAGS_OFF(parser->state, PARSER_IN_TOKEN_HANDLER);
+        SET_FLAGS_OFF(ParserState, parser->state, PARSER_IN_TOKEN_HANDLER);
         if (result != JSON_Parser_Continue)
         {
             JSON_Parser_SetErrorAtToken(parser, (isObjectMember && result == JSON_Parser_TreatAsDuplicateObjectMember)
@@ -1284,9 +1287,9 @@ static JSON_Status JSON_Parser_CallNumberHandler(JSON_Parser parser)
     {
         JSON_Parser_HandlerResult result;
         JSON_Parser_NullTerminateToken(parser);
-        SET_FLAGS_ON(parser->state, PARSER_IN_TOKEN_HANDLER);
+        SET_FLAGS_ON(ParserState, parser->state, PARSER_IN_TOKEN_HANDLER);
         result = parser->numberHandler(parser, (char*)parser->pTokenBytes, parser->tokenBytesUsed, parser->tokenAttributes);
-        SET_FLAGS_OFF(parser->state, PARSER_IN_TOKEN_HANDLER);
+        SET_FLAGS_OFF(ParserState, parser->state, PARSER_IN_TOKEN_HANDLER);
         if (result != JSON_Parser_Continue)
         {
             JSON_Parser_SetErrorAtToken(parser, JSON_Error_AbortedByHandler);
@@ -1301,10 +1304,10 @@ static JSON_Status JSON_Parser_CallSpecialNumberHandler(JSON_Parser parser)
     if (parser->specialNumberHandler)
     {
         JSON_Parser_HandlerResult result;
-        SET_FLAGS_ON(parser->state, PARSER_IN_TOKEN_HANDLER);
+        SET_FLAGS_ON(ParserState, parser->state, PARSER_IN_TOKEN_HANDLER);
         result = parser->specialNumberHandler(parser, parser->token == T_NAN ? JSON_NaN :
                                               (parser->token == T_INFINITY ? JSON_Infinity : JSON_NegativeInfinity));
-        SET_FLAGS_OFF(parser->state, PARSER_IN_TOKEN_HANDLER);
+        SET_FLAGS_OFF(ParserState, parser->state, PARSER_IN_TOKEN_HANDLER);
         if (result != JSON_Parser_Continue)
         {
             JSON_Parser_SetErrorAtToken(parser, JSON_Error_AbortedByHandler);
@@ -1316,13 +1319,13 @@ static JSON_Status JSON_Parser_CallSpecialNumberHandler(JSON_Parser parser)
 
 static JSON_Status JSON_Parser_HandleGrammarEvents(JSON_Parser parser, byte emit)
 {
-    if (emit & EMIT_ARRAY_ITEM)
+    if (GET_FLAGS(emit, EMIT_ARRAY_ITEM))
     {
         if (!JSON_Parser_CallSimpleTokenHandler(parser, parser->arrayItemHandler))
         {
             return JSON_Failure;
         }
-        emit &= ~EMIT_ARRAY_ITEM;
+        SET_FLAGS_OFF(byte, emit, EMIT_ARRAY_ITEM);
     }
     switch (emit)
     {
@@ -1471,7 +1474,7 @@ static JSON_Status JSON_Parser_HandleInvalidEncodingSequence(JSON_Parser parser)
 
 static JSON_Status JSON_Parser_HandleInvalidNumber(JSON_Parser parser, Codepoint c, int codepointsSinceValidNumber, TokenAttributes attributesToRemove)
 {
-    SET_FLAGS_OFF(parser->tokenAttributes, attributesToRemove);
+    SET_FLAGS_OFF(TokenAttributes, parser->tokenAttributes, attributesToRemove);
     if (!parser->depth && GET_FLAGS(parser->flags, PARSER_EMBEDDED_DOCUMENT))
     {
         /* The invalid number is the top-level value of an embedded document,
@@ -1503,9 +1506,9 @@ static JSON_Status JSON_Parser_HandleInvalidNumber(JSON_Parser parser, Codepoint
                "1.2e+!" => "1.2"
                "1.2e-!" => "1.2"
         */
-        parser->codepointLocationByte -= codepointsSinceValidNumber * SHORTEST_ENCODING_SEQUENCE(parser->inputEncoding);
-        parser->codepointLocationColumn -= codepointsSinceValidNumber;
-        parser->tokenBytesUsed -= codepointsSinceValidNumber * SHORTEST_ENCODING_SEQUENCE(parser->numberEncoding);
+        parser->codepointLocationByte -= (size_t)codepointsSinceValidNumber * SHORTEST_ENCODING_SEQUENCE(parser->inputEncoding);
+        parser->codepointLocationColumn -= (size_t)codepointsSinceValidNumber;
+        parser->tokenBytesUsed -= (size_t)codepointsSinceValidNumber * SHORTEST_ENCODING_SEQUENCE(parser->numberEncoding);
         return JSON_Parser_ProcessToken(parser); /* always fails */
     }
     else if (c == EOF_CODEPOINT)
@@ -1541,7 +1544,7 @@ static JSON_Status JSON_Parser_ProcessCodepoint(JSON_Parser parser, Codepoint c,
         {
             parser->codepointLocationLine--;
         }
-        SET_FLAGS_OFF(parser->state, PARSER_AFTER_CARRIAGE_RETURN);
+        SET_FLAGS_OFF(ParserState, parser->state, PARSER_AFTER_CARRIAGE_RETURN);
     }
 
 reprocess:
@@ -1997,14 +2000,14 @@ reprocess:
         if (c == '.')
         {
             codepointToRecord = '.';
-            parser->tokenAttributes |= JSON_ContainsDecimalPoint;
+            SET_FLAGS_ON(TokenAttributes, parser->tokenAttributes, JSON_ContainsDecimalPoint);
             parser->lexerState = LEXING_NUMBER_AFTER_DOT;
             goto recordNumberCodepointAndAdvance;
         }
         else if (c == 'e' || c == 'E')
         {
             codepointToRecord = c;
-            parser->tokenAttributes |= JSON_ContainsExponent;
+            SET_FLAGS_ON(TokenAttributes, parser->tokenAttributes, JSON_ContainsExponent);
             parser->lexerState = LEXING_NUMBER_AFTER_E;
             goto recordNumberCodepointAndAdvance;
         }
@@ -2022,7 +2025,7 @@ reprocess:
                  GET_FLAGS(parser->flags, PARSER_ALLOW_HEX_NUMBERS))
         {
             codepointToRecord = c;
-            parser->tokenAttributes |= JSON_IsHex;
+            SET_FLAGS_ON(TokenAttributes, parser->tokenAttributes, JSON_IsHex);
             parser->lexerState = LEXING_NUMBER_AFTER_X;
             goto recordNumberCodepointAndAdvance;
         }
@@ -2076,14 +2079,14 @@ reprocess:
         else if (c == '.')
         {
             codepointToRecord = '.';
-            parser->tokenAttributes |= JSON_ContainsDecimalPoint;
+            SET_FLAGS_ON(TokenAttributes, parser->tokenAttributes, JSON_ContainsDecimalPoint);
             parser->lexerState = LEXING_NUMBER_AFTER_DOT;
             goto recordNumberCodepointAndAdvance;
         }
         else if (c == 'e' || c == 'E')
         {
             codepointToRecord = c;
-            parser->tokenAttributes |= JSON_ContainsExponent;
+            SET_FLAGS_ON(TokenAttributes, parser->tokenAttributes, JSON_ContainsExponent);
             parser->lexerState = LEXING_NUMBER_AFTER_E;
             goto recordNumberCodepointAndAdvance;
         }
@@ -2120,7 +2123,7 @@ reprocess:
         else if (c == 'e' || c == 'E')
         {
             codepointToRecord = c;
-            parser->tokenAttributes |= JSON_ContainsExponent;
+            SET_FLAGS_ON(TokenAttributes, parser->tokenAttributes, JSON_ContainsExponent);
             parser->lexerState = LEXING_NUMBER_AFTER_E;
             goto recordNumberCodepointAndAdvance;
         }
@@ -2145,7 +2148,7 @@ reprocess:
         else if (c == '-')
         {
             codepointToRecord = c;
-            parser->tokenAttributes |= JSON_ContainsNegativeExponent;
+            SET_FLAGS_ON(TokenAttributes, parser->tokenAttributes, JSON_ContainsNegativeExponent);
             parser->lexerState = LEXING_NUMBER_AFTER_EXPONENT_SIGN;
             goto recordNumberCodepointAndAdvance;
         }
@@ -2239,19 +2242,19 @@ recordStringCodepointAndAdvance:
     maxTokenLength = parser->maxStringLength;
     if (!codepointToRecord)
     {
-        parser->tokenAttributes |= JSON_ContainsNullCharacter | JSON_ContainsControlCharacter;
+        SET_FLAGS_ON(TokenAttributes, parser->tokenAttributes, JSON_ContainsNullCharacter | JSON_ContainsControlCharacter);
     }
     else if (codepointToRecord < FIRST_NON_CONTROL_CODEPOINT)
     {
-        parser->tokenAttributes |= JSON_ContainsControlCharacter;
+        SET_FLAGS_ON(TokenAttributes, parser->tokenAttributes, JSON_ContainsControlCharacter);
     }
     else if (codepointToRecord >= FIRST_NON_BMP_CODEPOINT)
     {
-        parser->tokenAttributes |= JSON_ContainsNonASCIICharacter | JSON_ContainsNonBMPCharacter;
+        SET_FLAGS_ON(TokenAttributes, parser->tokenAttributes, JSON_ContainsNonASCIICharacter | JSON_ContainsNonBMPCharacter);
     }
     else if (codepointToRecord >= FIRST_NON_ASCII_CODEPOINT)
     {
-        parser->tokenAttributes |= JSON_ContainsNonASCIICharacter;
+        SET_FLAGS_ON(TokenAttributes, parser->tokenAttributes, JSON_ContainsNonASCIICharacter);
     }
     goto recordCodepointAndAdvance;
 
@@ -2295,7 +2298,7 @@ advance:
        appear in the input stream. */
     if (c == CARRIAGE_RETURN_CODEPOINT)
     {
-        SET_FLAGS_ON(parser->state, PARSER_AFTER_CARRIAGE_RETURN);
+        SET_FLAGS_ON(ParserState, parser->state, PARSER_AFTER_CARRIAGE_RETURN);
     }
     if (c != EOF_CODEPOINT)
     {
@@ -2366,24 +2369,24 @@ static JSON_Status JSON_Parser_ProcessUnknownByte(JSON_Parser parser, byte b)
     {
     case DECODER_RESET:
         parser->decoderData.state = DECODED_1_OF_4;
-        parser->decoderData.bits = b << 24;
+        parser->decoderData.bits = (uint32_t)(b << 24);
         break;
 
     case DECODED_1_OF_4:
         parser->decoderData.state = DECODED_2_OF_4;
-        parser->decoderData.bits |= b << 16;
+        parser->decoderData.bits |= (uint32_t)(b << 16);
         break;
 
     case DECODED_2_OF_4:
         parser->decoderData.state = DECODED_3_OF_4;
-        parser->decoderData.bits |= b << 8;
+        parser->decoderData.bits |= (uint32_t)(b << 8);
         break;
 
     case DECODED_3_OF_4:
-        bytes[0] = parser->decoderData.bits >> 24;
-        bytes[1] = parser->decoderData.bits >> 16;
-        bytes[2] = parser->decoderData.bits >> 8;
-        bytes[3] = b;
+        bytes[0] = (byte)(parser->decoderData.bits >> 24);
+        bytes[1] = (byte)(parser->decoderData.bits >> 16);
+        bytes[2] = (byte)(parser->decoderData.bits >> 8);
+        bytes[3] = (byte)(b);
 
         /* We try to match the following patterns in order, where .. is any
            byte value and nz is any non-zero byte value:
@@ -2521,7 +2524,7 @@ JSON_Status JSON_Parser_ProcessInputBytes(JSON_Parser parser, const byte* pBytes
                        that is the only case where replacing the invalid
                        sequence avoids triggering an error and the string
                        attributes actually get passed to a handler. */
-                    parser->tokenAttributes |= JSON_ContainsReplacedCharacter;
+                    SET_FLAGS_ON(TokenAttributes, parser->tokenAttributes, JSON_ContainsReplacedCharacter);
                 }
                 if (!JSON_Parser_ProcessCodepoint(parser, REPLACEMENT_CHARACTER_CODEPOINT, DECODER_SEQUENCE_LENGTH(output)))
                 {
@@ -2558,9 +2561,9 @@ static JSON_Status JSON_Parser_FlushDecoder(JSON_Parser parser)
     {
         byte bytes[3];
         size_t length = 0;
-        bytes[0] = parser->decoderData.bits >> 24;
-        bytes[1] = parser->decoderData.bits >> 16;
-        bytes[2] = parser->decoderData.bits >> 8;
+        bytes[0] = (byte)(parser->decoderData.bits >> 24);
+        bytes[1] = (byte)(parser->decoderData.bits >> 16);
+        bytes[2] = (byte)(parser->decoderData.bits >> 8);
         switch (parser->decoderData.state)
         {
         case DECODED_1_OF_4:
@@ -2661,7 +2664,7 @@ JSON_Status JSON_CALL JSON_Parser_Free(JSON_Parser parser)
     {
         return JSON_Failure;
     }
-    SET_FLAGS_ON(parser->state, PARSER_IN_PROTECTED_API);
+    SET_FLAGS_ON(ParserState, parser->state, PARSER_IN_PROTECTED_API);
     if (parser->pTokenBytes != parser->defaultTokenBytes)
     {
         parser->memorySuite.free(parser->memorySuite.userData, parser->pTokenBytes);
@@ -2681,7 +2684,7 @@ JSON_Status JSON_CALL JSON_Parser_Reset(JSON_Parser parser)
     {
         return JSON_Failure;
     }
-    SET_FLAGS_ON(parser->state, PARSER_IN_PROTECTED_API);
+    SET_FLAGS_ON(ParserState, parser->state, PARSER_IN_PROTECTED_API);
     JSON_Parser_ResetData(parser, 1/* isInitialized */);
     /* Note that JSON_Parser_ResetData() unset PARSER_IN_PROTECTED_API for us. */
     return JSON_Success;
@@ -2788,7 +2791,7 @@ JSON_Status JSON_CALL JSON_Parser_SetAllowBOM(JSON_Parser parser, JSON_Boolean a
     {
         return JSON_Failure;
     }
-    SET_FLAGS(parser->flags, PARSER_ALLOW_BOM, allowBOM);
+    SET_FLAGS(ParserFlags, parser->flags, PARSER_ALLOW_BOM, allowBOM);
     return JSON_Success;
 }
 
@@ -2803,7 +2806,7 @@ JSON_Status JSON_CALL JSON_Parser_SetAllowComments(JSON_Parser parser, JSON_Bool
     {
         return JSON_Failure;
     }
-    SET_FLAGS(parser->flags, PARSER_ALLOW_COMMENTS, allowComments);
+    SET_FLAGS(ParserFlags, parser->flags, PARSER_ALLOW_COMMENTS, allowComments);
     return JSON_Success;
 }
 
@@ -2818,7 +2821,7 @@ JSON_Status JSON_CALL JSON_Parser_SetAllowSpecialNumbers(JSON_Parser parser, JSO
     {
         return JSON_Failure;
     }
-    SET_FLAGS(parser->flags, PARSER_ALLOW_SPECIAL_NUMBERS, allowSpecialNumbers);
+    SET_FLAGS(ParserFlags, parser->flags, PARSER_ALLOW_SPECIAL_NUMBERS, allowSpecialNumbers);
     return JSON_Success;
 }
 
@@ -2833,7 +2836,7 @@ JSON_Status JSON_CALL JSON_Parser_SetAllowHexNumbers(JSON_Parser parser, JSON_Bo
     {
         return JSON_Failure;
     }
-    SET_FLAGS(parser->flags, PARSER_ALLOW_HEX_NUMBERS, allowHexNumbers);
+    SET_FLAGS(ParserFlags, parser->flags, PARSER_ALLOW_HEX_NUMBERS, allowHexNumbers);
     return JSON_Success;
 }
 
@@ -2848,7 +2851,7 @@ JSON_Status JSON_CALL JSON_Parser_SetAllowUnescapedControlCharacters(JSON_Parser
     {
         return JSON_Failure;
     }
-    SET_FLAGS(parser->flags, PARSER_ALLOW_CONTROL_CHARS, allowUnescapedControlCharacters);
+    SET_FLAGS(ParserFlags, parser->flags, PARSER_ALLOW_CONTROL_CHARS, allowUnescapedControlCharacters);
     return JSON_Success;
 }
 
@@ -2863,7 +2866,7 @@ JSON_Status JSON_CALL JSON_Parser_SetReplaceInvalidEncodingSequences(JSON_Parser
     {
         return JSON_Failure;
     }
-    SET_FLAGS(parser->flags, PARSER_REPLACE_INVALID, replaceInvalidEncodingSequences);
+    SET_FLAGS(ParserFlags, parser->flags, PARSER_REPLACE_INVALID, replaceInvalidEncodingSequences);
     return JSON_Success;
 }
 
@@ -2878,7 +2881,7 @@ JSON_Status JSON_CALL JSON_Parser_SetTrackObjectMembers(JSON_Parser parser, JSON
     {
         return JSON_Failure;
     }
-    SET_FLAGS(parser->flags, PARSER_TRACK_OBJECT_MEMBERS, trackObjectMembers);
+    SET_FLAGS(ParserFlags, parser->flags, PARSER_TRACK_OBJECT_MEMBERS, trackObjectMembers);
     return JSON_Success;
 }
 
@@ -2893,7 +2896,7 @@ JSON_Status JSON_CALL JSON_Parser_SetStopAfterEmbeddedDocument(JSON_Parser parse
     {
         return JSON_Failure;
     }
-    SET_FLAGS(parser->flags, PARSER_EMBEDDED_DOCUMENT, stopAfterEmbeddedDocument);
+    SET_FLAGS(ParserFlags, parser->flags, PARSER_EMBEDDED_DOCUMENT, stopAfterEmbeddedDocument);
     return JSON_Success;
 }
 
@@ -3136,7 +3139,7 @@ JSON_Status JSON_CALL JSON_Parser_Parse(JSON_Parser parser, const char* pBytes, 
     if (parser && (pBytes || !length) && !GET_FLAGS(parser->state, PARSER_FINISHED | PARSER_IN_PROTECTED_API))
     {
         int finishedParsing = 0;
-        SET_FLAGS_ON(parser->state, PARSER_STARTED | PARSER_IN_PROTECTED_API);
+        SET_FLAGS_ON(ParserState, parser->state, PARSER_STARTED | PARSER_IN_PROTECTED_API);
         if (JSON_Parser_ProcessInputBytes(parser, (const byte*)pBytes, length))
         {
             /* New input was parsed successfully. */
@@ -3164,9 +3167,9 @@ JSON_Status JSON_CALL JSON_Parser_Parse(JSON_Parser parser, const char* pBytes, 
         }
         if (finishedParsing)
         {
-            SET_FLAGS_ON(parser->state, PARSER_FINISHED);
+            SET_FLAGS_ON(ParserState, parser->state, PARSER_FINISHED);
         }
-        SET_FLAGS_OFF(parser->state, PARSER_IN_PROTECTED_API);
+        SET_FLAGS_OFF(ParserState, parser->state, PARSER_IN_PROTECTED_API);
     }
     return status;
 }
@@ -3250,7 +3253,7 @@ static JSON_Status JSON_Writer_OutputBytes(JSON_Writer writer, const byte* pByte
     return JSON_Success;
 }
 
-static char JSON_Writer_GetCodepointEscapeCharacter(JSON_Writer writer, Codepoint c)
+static Codepoint JSON_Writer_GetCodepointEscapeCharacter(JSON_Writer writer, Codepoint c)
 {
     switch (c)
     {
@@ -3397,7 +3400,7 @@ static JSON_Status JSON_Writer_OutputString(JSON_Writer writer, const byte* pByt
         DecoderOutput output = Decoder_ProcessByte(&decoderData, encoding, pBytes[i]);
         DecoderResultCode result = DECODER_RESULT_CODE(output);
         Codepoint c;
-        char escapeCharacter;
+        Codepoint escapeCharacter;
         switch (result)
         {
         case SEQUENCE_PENDING:
@@ -3768,13 +3771,13 @@ static JSON_Status JSON_Writer_WriteSimpleToken(JSON_Writer writer, Symbol token
     if (writer && !GET_FLAGS(writer->state, WRITER_IN_PROTECTED_API) && writer->error == JSON_Error_None)
     {
         size_t encodedLength = length * SHORTEST_ENCODING_SEQUENCE(writer->outputEncoding);
-        SET_FLAGS_ON(writer->state, WRITER_STARTED | WRITER_IN_PROTECTED_API);
+        SET_FLAGS_ON(WriterState, writer->state, WRITER_STARTED | WRITER_IN_PROTECTED_API);
         if (JSON_Writer_ProcessToken(writer, token) &&
             JSON_Writer_OutputBytes(writer, encodings[writer->outputEncoding - 1], encodedLength))
         {
             status = JSON_Success;
         }
-        SET_FLAGS_OFF(writer->state, WRITER_IN_PROTECTED_API);
+        SET_FLAGS_OFF(WriterState, writer->state, WRITER_IN_PROTECTED_API);
     }
     return status;
 }
@@ -3814,7 +3817,7 @@ JSON_Status JSON_CALL JSON_Writer_Free(JSON_Writer writer)
     {
         return JSON_Failure;
     }
-    SET_FLAGS_ON(writer->state, WRITER_IN_PROTECTED_API);
+    SET_FLAGS_ON(WriterState, writer->state, WRITER_IN_PROTECTED_API);
     Grammarian_FreeAllocations(&writer->grammarianData, &writer->memorySuite);
     writer->memorySuite.free(writer->memorySuite.userData, writer);
     return JSON_Success;
@@ -3826,7 +3829,7 @@ JSON_Status JSON_CALL JSON_Writer_Reset(JSON_Writer writer)
     {
         return JSON_Failure;
     }
-    SET_FLAGS_ON(writer->state, WRITER_IN_PROTECTED_API);
+    SET_FLAGS_ON(WriterState, writer->state, WRITER_IN_PROTECTED_API);
     JSON_Writer_ResetData(writer, 1/* isInitialized */);
     /* Note that JSON_Writer_ResetData() unset WRITER_IN_PROTECTED_API for us. */
     return JSON_Success;
@@ -3873,7 +3876,7 @@ JSON_Status JSON_CALL JSON_Writer_SetUseCRLF(JSON_Writer writer, JSON_Boolean us
     {
         return JSON_Failure;
     }
-    SET_FLAGS(writer->flags, WRITER_USE_CRLF, useCRLF);
+    SET_FLAGS(WriterFlags, writer->flags, WRITER_USE_CRLF, useCRLF);
     return JSON_Success;
 }
 
@@ -3888,7 +3891,7 @@ JSON_Status JSON_CALL JSON_Writer_SetReplaceInvalidEncodingSequences(JSON_Writer
     {
         return JSON_Failure;
     }
-    SET_FLAGS(writer->flags, WRITER_REPLACE_INVALID, replaceInvalidEncodingSequences);
+    SET_FLAGS(WriterFlags, writer->flags, WRITER_REPLACE_INVALID, replaceInvalidEncodingSequences);
     return JSON_Success;
 }
 
@@ -3903,7 +3906,7 @@ JSON_Status JSON_CALL JSON_Writer_SetEscapeAllNonASCIICharacters(JSON_Writer wri
     {
         return JSON_Failure;
     }
-    SET_FLAGS(writer->flags, WRITER_ESCAPE_NON_ASCII, escapeAllNonASCIICharacters);
+    SET_FLAGS(WriterFlags, writer->flags, WRITER_ESCAPE_NON_ASCII, escapeAllNonASCIICharacters);
     return JSON_Success;
 }
 
@@ -3973,12 +3976,12 @@ JSON_Status JSON_CALL JSON_Writer_WriteString(JSON_Writer writer, const char* pV
     if (writer && (pValue || !length) && encoding > JSON_UnknownEncoding && encoding <= JSON_UTF32BE &&
         !GET_FLAGS(writer->state, WRITER_IN_PROTECTED_API) && writer->error == JSON_Error_None)
     {
-        SET_FLAGS_ON(writer->state, WRITER_STARTED | WRITER_IN_PROTECTED_API);
+        SET_FLAGS_ON(WriterState, writer->state, WRITER_STARTED | WRITER_IN_PROTECTED_API);
         if (JSON_Writer_ProcessToken(writer, T_STRING))
         {
             status = JSON_Writer_OutputString(writer, (const byte*)pValue, length, (Encoding)encoding);
         }
-        SET_FLAGS_OFF(writer->state, WRITER_IN_PROTECTED_API);
+        SET_FLAGS_OFF(WriterState, writer->state, WRITER_IN_PROTECTED_API);
     }
     return status;
 }
@@ -3989,12 +3992,12 @@ JSON_Status JSON_CALL JSON_Writer_WriteNumber(JSON_Writer writer, const char* pV
     if (writer && pValue && length && encoding > JSON_UnknownEncoding && encoding <= JSON_UTF32BE &&
         !GET_FLAGS(writer->state, WRITER_IN_PROTECTED_API) && writer->error == JSON_Error_None)
     {
-        SET_FLAGS_ON(writer->state, WRITER_STARTED | WRITER_IN_PROTECTED_API);
+        SET_FLAGS_ON(WriterState, writer->state, WRITER_STARTED | WRITER_IN_PROTECTED_API);
         if (JSON_Writer_ProcessToken(writer, T_NUMBER))
         {
             status = JSON_Writer_OutputNumber(writer, (const byte*)pValue, length, (Encoding)encoding);
         }
-        SET_FLAGS_OFF(writer->state, WRITER_IN_PROTECTED_API);
+        SET_FLAGS_OFF(WriterState, writer->state, WRITER_IN_PROTECTED_API);
     }
     return status;
 }
@@ -4089,9 +4092,9 @@ JSON_Status JSON_CALL JSON_Writer_WriteSpace(JSON_Writer writer, size_t numberOf
     JSON_Status status = JSON_Failure;
     if (writer && !GET_FLAGS(writer->state, WRITER_IN_PROTECTED_API) && writer->error == JSON_Error_None)
     {
-        SET_FLAGS_ON(writer->state, WRITER_STARTED | WRITER_IN_PROTECTED_API);
+        SET_FLAGS_ON(WriterState, writer->state, WRITER_STARTED | WRITER_IN_PROTECTED_API);
         status = JSON_Writer_OutputSpaces(writer, numberOfSpaces);
-        SET_FLAGS_OFF(writer->state, WRITER_IN_PROTECTED_API);
+        SET_FLAGS_OFF(WriterState, writer->state, WRITER_IN_PROTECTED_API);
     }
     return status;
 }
@@ -4112,7 +4115,7 @@ JSON_Status JSON_CALL JSON_Writer_WriteNewLine(JSON_Writer writer)
         const byte* const* encodings;
         size_t length;
         size_t encodedLength;
-        SET_FLAGS_ON(writer->state, WRITER_STARTED | WRITER_IN_PROTECTED_API);
+        SET_FLAGS_ON(WriterState, writer->state, WRITER_STARTED | WRITER_IN_PROTECTED_API);
         if (GET_FLAGS(writer->flags, WRITER_USE_CRLF))
         {
             encodings = crlfEncodings;
@@ -4128,7 +4131,7 @@ JSON_Status JSON_CALL JSON_Writer_WriteNewLine(JSON_Writer writer)
         {
             status = JSON_Success;
         }
-        SET_FLAGS_OFF(writer->state, WRITER_IN_PROTECTED_API);
+        SET_FLAGS_OFF(WriterState, writer->state, WRITER_IN_PROTECTED_API);
     }
     return status;
 }

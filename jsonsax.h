@@ -26,7 +26,7 @@
 /* The library version */
 #define JSON_MAJOR_VERSION 1
 #define JSON_MINOR_VERSION 4
-#define JSON_MICRO_VERSION 0
+#define JSON_MICRO_VERSION 1
 
 /* JSON_NO_PARSER and JSON_NO_WRITER, if defined, remove the corresponding
  * APIs and functionality from the library.

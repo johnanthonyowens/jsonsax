@@ -107,7 +107,7 @@ static void JSON_CALL FreeHandler(void* caller, void* ptr)
 }
 
 static char s_outputBuffer[4096]; /* big enough for all unit tests */
-size_t s_outputLength = 0;
+int s_outputLength = 0;
 
 static void OutputFormatted(const char* pFormat, ...)
 {
@@ -157,7 +157,7 @@ static void OutputByteSequence(const unsigned char* pBytes, size_t length, JSON_
         {
             if (IsSimpleCharacter(pBytes[i]))
             {
-                OutputCharacter(pBytes[i]);
+                OutputCharacter((char)pBytes[i]);
             }
             else
             {
@@ -174,7 +174,7 @@ static void OutputByteSequence(const unsigned char* pBytes, size_t length, JSON_
             if (IsSimpleCharacter(pBytes[i]) &&
                 pBytes[i + 1] == 0)
             {
-                OutputCharacter(pBytes[i]);
+                OutputCharacter((char)pBytes[i]);
                 OutputCharacter('_');
             }
             else
@@ -195,7 +195,7 @@ static void OutputByteSequence(const unsigned char* pBytes, size_t length, JSON_
                 pBytes[i] == 0)
             {
                 OutputCharacter('_');
-                OutputCharacter(pBytes[i + 1]);
+                OutputCharacter((char)pBytes[i + 1]);
             }
             else
             {
@@ -216,7 +216,7 @@ static void OutputByteSequence(const unsigned char* pBytes, size_t length, JSON_
                 pBytes[i + 2] == 0 &&
                 pBytes[i + 3] == 0)
             {
-                OutputCharacter(pBytes[i]);
+                OutputCharacter((char)pBytes[i]);
                 OutputCharacter('_');
                 OutputCharacter('_');
                 OutputCharacter('_');
@@ -247,7 +247,7 @@ static void OutputByteSequence(const unsigned char* pBytes, size_t length, JSON_
                 OutputCharacter('_');
                 OutputCharacter('_');
                 OutputCharacter('_');
-                OutputCharacter(pBytes[i + 3]);
+                OutputCharacter((char)pBytes[i + 3]);
             }
             else
             {
@@ -1625,12 +1625,9 @@ static void TestParserSetInvalidSettings(void)
     printf("Test setting invalid parser settings ... ");
     InitParserSettings(&settings);
     if (CheckParserCreate(NULL, JSON_Success, &parser) &&
-        CheckParserSetInputEncoding(parser, (JSON_Encoding)-1, JSON_Failure) &&
         CheckParserSetInputEncoding(parser, (JSON_Encoding)(JSON_UTF32BE + 1), JSON_Failure) &&
-        CheckParserSetStringEncoding(parser, (JSON_Encoding)-1, JSON_Failure) &&
         CheckParserSetStringEncoding(parser, JSON_UnknownEncoding, JSON_Failure) &&
         CheckParserSetStringEncoding(parser, (JSON_Encoding)(JSON_UTF32BE + 1), JSON_Failure) &&
-        CheckParserSetNumberEncoding(parser, (JSON_Encoding)-1, JSON_Failure) &&
         CheckParserSetNumberEncoding(parser, JSON_UnknownEncoding, JSON_Failure) &&
         CheckParserSetNumberEncoding(parser, (JSON_Encoding)(JSON_UTF32BE + 1), JSON_Failure) &&
         CheckParserParse(parser, NULL, 1, JSON_False, JSON_Failure) &&
@@ -3703,7 +3700,6 @@ static void TestWriterSetInvalidSettings(void)
     printf("Test setting invalid writer settings ... ");
     InitWriterSettings(&settings);
     if (CheckWriterCreate(NULL, JSON_Success, &writer) &&
-        CheckWriterSetOutputEncoding(writer, (JSON_Encoding)-1, JSON_Failure) &&
         CheckWriterSetOutputEncoding(writer, JSON_UnknownEncoding, JSON_Failure) &&
         CheckWriterSetOutputEncoding(writer, (JSON_Encoding)(JSON_UTF32BE + 1), JSON_Failure) &&
         CheckWriterWriteString(writer, NULL, 1, JSON_UTF8, JSON_Failure) &&
@@ -4895,33 +4891,47 @@ static int CheckErrorString(JSON_Error error, const char* pExpectedMessage)
 
 static void TestErrorStrings(void)
 {
+    static const struct
+    {
+        int error;
+        const char* message;
+    } cases[] = {
+        { -1000, "" },
+        { -1, "" },
+
+        { JSON_Error_None, "no error" },
+        { JSON_Error_OutOfMemory, "could not allocate enough memory" },
+        { JSON_Error_AbortedByHandler, "the operation was aborted by a handler" },
+        { JSON_Error_BOMNotAllowed, "the input begins with a byte-order mark (BOM), which is not allowed by RFC 4627" },
+        { JSON_Error_InvalidEncodingSequence, "the input contains a byte or sequence of bytes that is not valid for the input encoding" },
+        { JSON_Error_UnknownToken, "the input contains an unknown token" },
+        { JSON_Error_UnexpectedToken, "the input contains an unexpected token" },
+        { JSON_Error_IncompleteToken,  "the input ends in the middle of a token" },
+        { JSON_Error_ExpectedMoreTokens, "the input ends when more tokens are expected" },
+        { JSON_Error_UnescapedControlCharacter, "the input contains a string containing an unescaped control character (U+0000 - U+001F)" },
+        { JSON_Error_InvalidEscapeSequence, "the input contains a string containing an invalid escape sequence" },
+        { JSON_Error_UnpairedSurrogateEscapeSequence, "the input contains a string containing an unmatched UTF-16 surrogate codepoint" },
+        { JSON_Error_TooLongString, "the input contains a string that is too long" },
+        { JSON_Error_InvalidNumber, "the input contains an invalid number" },
+        { JSON_Error_TooLongNumber, "the input contains a number that is too long" },
+        { JSON_Error_DuplicateObjectMember, "the input contains an object with duplicate members" },
+        { JSON_Error_StoppedAfterEmbeddedDocument, "the end of the embedded document was reached"},
+
+        { JSON_Error_StoppedAfterEmbeddedDocument + 1, "" },
+        { 1000, "" }
+    };
+
+    size_t i;
     printf("Test error strings ... ");
-    if (CheckErrorString(JSON_Error_None, "no error") &&
-        CheckErrorString(JSON_Error_OutOfMemory, "could not allocate enough memory") &&
-        CheckErrorString(JSON_Error_AbortedByHandler, "the operation was aborted by a handler") &&
-        CheckErrorString(JSON_Error_BOMNotAllowed, "the input begins with a byte-order mark (BOM), which is not allowed by RFC 4627") &&
-        CheckErrorString(JSON_Error_InvalidEncodingSequence, "the input contains a byte or sequence of bytes that is not valid for the input encoding") &&
-        CheckErrorString(JSON_Error_UnknownToken, "the input contains an unknown token") &&
-        CheckErrorString(JSON_Error_UnexpectedToken, "the input contains an unexpected token") &&
-        CheckErrorString(JSON_Error_IncompleteToken,  "the input ends in the middle of a token") &&
-        CheckErrorString(JSON_Error_ExpectedMoreTokens, "the input ends when more tokens are expected") &&
-        CheckErrorString(JSON_Error_UnescapedControlCharacter, "the input contains a string containing an unescaped control character (U+0000 - U+001F)") &&
-        CheckErrorString(JSON_Error_InvalidEscapeSequence, "the input contains a string containing an invalid escape sequence") &&
-        CheckErrorString(JSON_Error_UnpairedSurrogateEscapeSequence, "the input contains a string containing an unmatched UTF-16 surrogate codepoint") &&
-        CheckErrorString(JSON_Error_TooLongString, "the input contains a string that is too long") &&
-        CheckErrorString(JSON_Error_InvalidNumber, "the input contains an invalid number") &&
-        CheckErrorString(JSON_Error_TooLongNumber, "the input contains a number that is too long") &&
-        CheckErrorString(JSON_Error_DuplicateObjectMember, "the input contains an object with duplicate members") &&
-        CheckErrorString(JSON_Error_StoppedAfterEmbeddedDocument, "the end of the embedded document was reached") &&
-        CheckErrorString((JSON_Error)-1, "") &&
-        CheckErrorString((JSON_Error)1000, ""))
+    for (i = 0; i < sizeof(cases) / sizeof(cases[0]); ++i)
     {
-        printf("OK\n");
+        if (!CheckErrorString((JSON_Error)cases[i].error, cases[i].message))
+        {
+            s_failureCount++;
+            return;
+        }
     }
-    else
-    {
-        s_failureCount++;
-    }
+    printf("OK\n");
 }
 
 static void TestNativeUTF16Encoding(void)
