@@ -56,7 +56,8 @@ static const char* errorNames[] =
     "TooLongString",
     "InvalidNumber",
     "TooLongNumber",
-    "DuplicateObjectMember"
+    "DuplicateObjectMember",
+    "StoppedAfterEmbeddedDocument"
 };
 
 static void* JSON_CALL ReallocHandler(void* caller, void* ptr, size_t size)
@@ -441,6 +442,7 @@ typedef struct tag_ParserSettings
     JSON_Boolean  allowUnescapedControlCharacters;
     JSON_Boolean  replaceInvalidEncodingSequences;
     JSON_Boolean  trackObjectMembers;
+    JSON_Boolean  stopAfterEmbeddedDocument;
 } ParserSettings;
 
 static void InitParserSettings(ParserSettings* pSettings)
@@ -458,6 +460,7 @@ static void InitParserSettings(ParserSettings* pSettings)
     pSettings->allowUnescapedControlCharacters = JSON_False;
     pSettings->replaceInvalidEncodingSequences = JSON_False;
     pSettings->trackObjectMembers = JSON_False;
+    pSettings->stopAfterEmbeddedDocument = JSON_False;
 }
 
 static void GetParserSettings(JSON_Parser parser, ParserSettings* pSettings)
@@ -475,6 +478,7 @@ static void GetParserSettings(JSON_Parser parser, ParserSettings* pSettings)
     pSettings->allowUnescapedControlCharacters = JSON_Parser_GetAllowUnescapedControlCharacters(parser);
     pSettings->replaceInvalidEncodingSequences = JSON_Parser_GetReplaceInvalidEncodingSequences(parser);
     pSettings->trackObjectMembers = JSON_Parser_GetTrackObjectMembers(parser);
+    pSettings->stopAfterEmbeddedDocument = JSON_Parser_GetStopAfterEmbeddedDocument(parser);
 }
 
 static int ParserSettingsAreIdentical(const ParserSettings* pSettings1, const ParserSettings* pSettings2)
@@ -491,7 +495,8 @@ static int ParserSettingsAreIdentical(const ParserSettings* pSettings1, const Pa
             pSettings1->allowHexNumbers == pSettings2->allowHexNumbers &&
             pSettings1->allowUnescapedControlCharacters == pSettings2->allowUnescapedControlCharacters &&
             pSettings1->replaceInvalidEncodingSequences == pSettings2->replaceInvalidEncodingSequences &&
-            pSettings1->trackObjectMembers == pSettings2->trackObjectMembers);
+            pSettings1->trackObjectMembers == pSettings2->trackObjectMembers &&
+            pSettings1->stopAfterEmbeddedDocument == pSettings2->stopAfterEmbeddedDocument);
 }
 
 static int CheckParserSettings(JSON_Parser parser, const ParserSettings* pExpectedSettings)
@@ -525,6 +530,7 @@ static int CheckParserSettings(JSON_Parser parser, const ParserSettings* pExpect
                "  JSON_Parser_GetAllowUnescapedControlCharacters() %8d   %8d\n"
                "  JSON_Parser_GetReplaceInvalidEncodingSequences() %8d   %8d\n"
                "  JSON_Parser_GetTrackObjectMembers()              %8d   %8d\n"
+               "  JSON_Parser_GetStopAfterEmbeddedDocument()       %8d   %8d\n"
                ,
                (int)pExpectedSettings->allowBOM, (int)actualSettings.allowBOM,
                (int)pExpectedSettings->allowComments, (int)actualSettings.allowComments,
@@ -532,7 +538,8 @@ static int CheckParserSettings(JSON_Parser parser, const ParserSettings* pExpect
                (int)pExpectedSettings->allowHexNumbers, (int)actualSettings.allowHexNumbers,
                (int)pExpectedSettings->allowUnescapedControlCharacters, (int)actualSettings.allowUnescapedControlCharacters,
                (int)pExpectedSettings->replaceInvalidEncodingSequences, (int)actualSettings.replaceInvalidEncodingSequences,
-               (int)pExpectedSettings->trackObjectMembers, (int)actualSettings.trackObjectMembers
+               (int)pExpectedSettings->trackObjectMembers, (int)actualSettings.trackObjectMembers,
+               (int)pExpectedSettings->stopAfterEmbeddedDocument, (int)actualSettings.stopAfterEmbeddedDocument
             );
     }
     return identical;
@@ -864,6 +871,16 @@ static int CheckParserSetTrackObjectMembers(JSON_Parser parser, JSON_Boolean tra
     return 1;
 }
 
+static int CheckParserSetStopAfterEmbeddedDocument(JSON_Parser parser, JSON_Boolean stopAfterEmbeddedDocument, JSON_Status expectedStatus)
+{
+    if (JSON_Parser_SetStopAfterEmbeddedDocument(parser, stopAfterEmbeddedDocument) != expectedStatus)
+    {
+        printf("FAILURE: expected JSON_Parser_SetStopAfterEmbeddedDocument() to return %s\n", (expectedStatus == JSON_Success) ? "JSON_Success" : "JSON_Failure");
+        return 0;
+    }
+    return 1;
+}
+
 static int CheckParserSetEncodingDetectedHandler(JSON_Parser parser, JSON_Parser_EncodingDetectedHandler handler, JSON_Status expectedStatus)
 {
     if (JSON_Parser_SetEncodingDetectedHandler(parser, handler) != expectedStatus)
@@ -1012,6 +1029,7 @@ static int TryToMisbehaveInParseHandler(JSON_Parser parser)
         !CheckParserSetAllowUnescapedControlCharacters(parser, JSON_True, JSON_Failure) ||
         !CheckParserSetReplaceInvalidEncodingSequences(parser, JSON_True, JSON_Failure) ||
         !CheckParserSetTrackObjectMembers(parser, JSON_True, JSON_Failure) ||
+        !CheckParserSetStopAfterEmbeddedDocument(parser, JSON_True, JSON_Failure) ||
         !CheckParserParse(parser, " ", 1, JSON_False, JSON_Failure))
     {
         return 1;
@@ -1396,7 +1414,8 @@ typedef enum tag_ParserParam
     AllowHexNumbers                 = 1 << 15,
     AllowUnescapedControlCharacters = 1 << 16,
     ReplaceInvalidEncodingSequences = 1 << 17,
-    TrackObjectMembers              = 1 << 18
+    TrackObjectMembers              = 1 << 18,
+    StopAfterEmbeddedDocument       = 1 << 19
 } ParserParam;
 typedef unsigned int ParserParams;
 
@@ -1442,6 +1461,7 @@ static void RunParseTest(const ParseTest* pTest)
     settings.allowUnescapedControlCharacters = (JSON_Boolean)((pTest->parserParams >> 16) & 0x1);
     settings.replaceInvalidEncodingSequences = (JSON_Boolean)((pTest->parserParams >> 17) & 0x1);
     settings.trackObjectMembers = (JSON_Boolean)((pTest->parserParams >> 18) & 0x1);
+    settings.stopAfterEmbeddedDocument = (JSON_Boolean)((pTest->parserParams >> 19) & 0x1);
 
     InitParserState(&state);
     state.inputEncoding = pTest->inputEncoding;
@@ -1471,7 +1491,8 @@ static void RunParseTest(const ParseTest* pTest)
         CheckParserSetAllowHexNumbers(parser, settings.allowHexNumbers, JSON_Success) &&
         CheckParserSetAllowUnescapedControlCharacters(parser, settings.allowUnescapedControlCharacters, JSON_Success) &&
         CheckParserSetReplaceInvalidEncodingSequences(parser, settings.replaceInvalidEncodingSequences, JSON_Success) &&
-        CheckParserSetTrackObjectMembers(parser, settings.trackObjectMembers, JSON_Success))
+        CheckParserSetTrackObjectMembers(parser, settings.trackObjectMembers, JSON_Success) &&
+        CheckParserSetStopAfterEmbeddedDocument(parser, settings.stopAfterEmbeddedDocument, JSON_Success))
     {
         JSON_Parser_Parse(parser, pTest->pInput, pTest->length, pTest->isFinal);
         state.error = JSON_Parser_GetError(parser);
@@ -1570,6 +1591,7 @@ static void TestParserSetSettings(void)
     settings.allowUnescapedControlCharacters = JSON_True;
     settings.replaceInvalidEncodingSequences = JSON_True;
     settings.trackObjectMembers = JSON_True;
+    settings.stopAfterEmbeddedDocument = JSON_True;
     if (CheckParserCreate(NULL, JSON_Success, &parser) &&
         CheckParserSetUserData(parser, settings.userData, JSON_Success) &&
         CheckParserSetInputEncoding(parser, settings.inputEncoding, JSON_Success) &&
@@ -1584,6 +1606,7 @@ static void TestParserSetSettings(void)
         CheckParserSetAllowUnescapedControlCharacters(parser, settings.allowUnescapedControlCharacters, JSON_Success) &&
         CheckParserSetReplaceInvalidEncodingSequences(parser, settings.replaceInvalidEncodingSequences, JSON_Success) &&
         CheckParserSetTrackObjectMembers(parser, settings.trackObjectMembers, JSON_Success) &&
+        CheckParserSetStopAfterEmbeddedDocument(parser, settings.stopAfterEmbeddedDocument, JSON_Success) &&
         CheckParserSettings(parser, &settings))
     {
         printf("OK\n");
@@ -2864,6 +2887,253 @@ PARSE_TEST("multi-line input error (4)", Standard, "[\r1,\n2\r\n", FINAL, UTF8, 
 PARSE_TEST("multi-line input error (5)", Standard, "[\r\"x\n", FINAL, UTF8, "u(8) [:0,0,0,0-1,0,1,0 !(UnescapedControlCharacter):4,1,2,1")
 PARSE_TEST("multi-line input error (6)", Standard, "[\n\"x\n", FINAL, UTF8, "u(8) [:0,0,0,0-1,0,1,0 !(UnescapedControlCharacter):4,1,2,1")
 PARSE_TEST("multi-line input error (7)", Standard, "[\r\n\"x\r\n", FINAL, UTF8, "u(8) [:0,0,0,0-1,0,1,0 !(UnescapedControlCharacter):5,1,2,1")
+
+/* embedded document */
+
+PARSE_TEST("embedded empty document", StopAfterEmbeddedDocument, "", FINAL, UnknownEncoding, "!(ExpectedMoreTokens):0,0,0,0")
+
+PARSE_TEST("embedded document invalid sequence (1)", StopAfterEmbeddedDocument, "\xFF", FINAL, UTF8, "u(8) !(ExpectedMoreTokens):0,0,0,0")
+PARSE_TEST("embedded document invalid sequence (2)", StopAfterEmbeddedDocument, "\xFF\xFF", FINAL, UTF8, "u(8) !(ExpectedMoreTokens):0,0,0,0")
+PARSE_TEST("embedded document invalid sequence (3)", StopAfterEmbeddedDocument, "\xFF\xFF\xFF", FINAL, UTF8, "u(8) !(ExpectedMoreTokens):0,0,0,0")
+PARSE_TEST("embedded document invalid sequence (4)", StopAfterEmbeddedDocument, "\x00\x00\x00\x00", FINAL, UTF8, "u(8) !(UnknownToken):0,0,0,0")
+PARSE_TEST("embedded document invalid sequence (5)", StopAfterEmbeddedDocument, "\x00\x00", FINAL, UnknownEncoding, "!(ExpectedMoreTokens):0,0,0,0")
+PARSE_TEST("embedded document invalid sequence (6)", StopAfterEmbeddedDocument, " \x00\x00 ", FINAL, UTF8, "u(8) !(UnknownToken):1,0,1,0")
+PARSE_TEST("embedded document invalid sequence (7)", StopAfterEmbeddedDocument, "{\xFF ", FINAL, UTF8, "u(8) {:0,0,0,0-1,0,1,0 !(InvalidEncodingSequence):1,0,1,1")
+
+PARSE_TEST("embedded document invalid UTF-16LE sequence (1)", UTF16LEIn | StopAfterEmbeddedDocument, "\x00", FINAL, UTF16LE, "!(ExpectedMoreTokens):0,0,0,0")
+PARSE_TEST("embedded document invalid UTF-16LE sequence (2)", UTF16LEIn | StopAfterEmbeddedDocument, " \x00 ", FINAL, UTF16LE, "!(ExpectedMoreTokens):2,0,1,0")
+PARSE_TEST("embedded document invalid UTF-16LE sequence (3)", UTF16LEIn | StopAfterEmbeddedDocument, "{\x00\xFF", FINAL, UTF16LE, "{:0,0,0,0-2,0,1,0 !(InvalidEncodingSequence):2,0,1,1")
+
+PARSE_TEST("embedded document invalid UTF-16BE sequence (1)", UTF16BEIn | StopAfterEmbeddedDocument, "\x00", FINAL, UTF16BE, "!(ExpectedMoreTokens):0,0,0,0")
+PARSE_TEST("embedded document invalid UTF-16BE sequence (2)", UTF16BEIn | StopAfterEmbeddedDocument, "\x00 \x00", FINAL, UTF16BE, "!(ExpectedMoreTokens):2,0,1,0")
+PARSE_TEST("embedded document invalid UTF-16BE sequence (3)", UTF16BEIn | StopAfterEmbeddedDocument, "\x00{\xFF", FINAL, UTF16BE, "{:0,0,0,0-2,0,1,0 !(InvalidEncodingSequence):2,0,1,1")
+
+PARSE_TEST("embedded document invalid UTF-32LE sequence (1)", UTF32LEIn | StopAfterEmbeddedDocument, "\x00", FINAL, UTF32LE, "!(ExpectedMoreTokens):0,0,0,0")
+PARSE_TEST("embedded document invalid UTF-32LE sequence (2)", UTF32LEIn | StopAfterEmbeddedDocument, "\x00\x00", FINAL, UTF32LE, "!(ExpectedMoreTokens):0,0,0,0")
+PARSE_TEST("embedded document invalid UTF-32LE sequence (3)", UTF32LEIn | StopAfterEmbeddedDocument, "\x00\x00\x00", FINAL, UTF32LE, "!(ExpectedMoreTokens):0,0,0,0")
+PARSE_TEST("embedded document invalid UTF-32LE sequence (4)", UTF32LEIn | StopAfterEmbeddedDocument, "\x00\x00\x00\xFF", FINAL, UTF32LE, "!(ExpectedMoreTokens):0,0,0,0")
+PARSE_TEST("embedded document invalid UTF-32LE sequence (5)", UTF32LEIn | StopAfterEmbeddedDocument, "{\x00\x00\x00\x00\x00\x00\xFF", FINAL, UTF32LE, "{:0,0,0,0-4,0,1,0 !(InvalidEncodingSequence):4,0,1,1")
+
+PARSE_TEST("embedded document invalid UTF-32BE sequence (1)", UTF32BEIn | StopAfterEmbeddedDocument, "\x00", FINAL, UTF32BE, "!(ExpectedMoreTokens):0,0,0,0")
+PARSE_TEST("embedded document invalid UTF-32BE sequence (2)", UTF32BEIn | StopAfterEmbeddedDocument, "\x00\x00", FINAL, UTF32BE, "!(ExpectedMoreTokens):0,0,0,0")
+PARSE_TEST("embedded document invalid UTF-32BE sequence (3)", UTF32BEIn | StopAfterEmbeddedDocument, "\x00\x00\x00", FINAL, UTF32BE, "!(ExpectedMoreTokens):0,0,0,0")
+PARSE_TEST("embedded document invalid UTF-32BE sequence (4)", UTF32BEIn | StopAfterEmbeddedDocument, "\xFF\x00\x00\x00", FINAL, UTF32BE, "!(ExpectedMoreTokens):0,0,0,0")
+PARSE_TEST("embedded document invalid UTF-32BE sequence (5)", UTF32BEIn | StopAfterEmbeddedDocument, "\x00\x00\x00{\xFF\x00\x00\x00", FINAL, UTF32BE, "{:0,0,0,0-4,0,1,0 !(InvalidEncodingSequence):4,0,1,1")
+
+PARSE_TEST("embedded empty document followed by invalid UTF-8 sequence (1)", StopAfterEmbeddedDocument, "\xC2", FINAL, UTF8, "u(8) !(ExpectedMoreTokens):0,0,0,0")
+PARSE_TEST("embedded empty document followed by invalid UTF-8 sequence (2)", StopAfterEmbeddedDocument, "\xE0", FINAL, UTF8, "u(8) !(ExpectedMoreTokens):0,0,0,0")
+PARSE_TEST("embedded empty document followed by invalid UTF-8 sequence (3)", StopAfterEmbeddedDocument, "\xE0\xBF", FINAL, UTF8, "u(8) !(ExpectedMoreTokens):0,0,0,0")
+PARSE_TEST("embedded empty document followed by invalid UTF-8 sequence (4)", StopAfterEmbeddedDocument, "\xF0\xBF", FINAL, UTF8, "u(8) !(ExpectedMoreTokens):0,0,0,0")
+PARSE_TEST("embedded empty document followed by invalid UTF-8 sequence (5)", StopAfterEmbeddedDocument, "\xF0\xBF\xBF", FINAL, UTF8, "u(8) !(ExpectedMoreTokens):0,0,0,0")
+PARSE_TEST("embedded empty document followed by invalid UTF-8 sequence (6)", StopAfterEmbeddedDocument, "\xC0", FINAL, UTF8, "u(8) !(ExpectedMoreTokens):0,0,0,0")
+PARSE_TEST("embedded empty document followed by invalid UTF-8 sequence (7)", StopAfterEmbeddedDocument, "\xE0\x80", FINAL, UTF8, "u(8) !(ExpectedMoreTokens):0,0,0,0")
+PARSE_TEST("embedded empty document followed by invalid UTF-8 sequence (8)", StopAfterEmbeddedDocument, "\xED\xA0", FINAL, UTF8, "u(8) !(ExpectedMoreTokens):0,0,0,0")
+PARSE_TEST("embedded empty document followed by invalid UTF-8 sequence (9)", StopAfterEmbeddedDocument, "\xF0\x80", FINAL, UTF8, "u(8) !(ExpectedMoreTokens):0,0,0,0")
+PARSE_TEST("embedded empty document followed by invalid UTF-8 sequence (10)", StopAfterEmbeddedDocument, "\xF4\x90", FINAL, UTF8, "u(8) !(ExpectedMoreTokens):0,0,0,0")
+PARSE_TEST("embedded empty document followed by invalid UTF-8 sequence (11)", StopAfterEmbeddedDocument, "\x80", FINAL, UTF8, "u(8) !(ExpectedMoreTokens):0,0,0,0")
+PARSE_TEST("embedded empty document followed by invalid UTF-8 sequence (12)", StopAfterEmbeddedDocument, "\xC2\x7F", FINAL, UTF8, "u(8) !(ExpectedMoreTokens):0,0,0,0")
+PARSE_TEST("embedded empty document followed by invalid UTF-8 sequence (13)", StopAfterEmbeddedDocument, "\xE1\xBF\x7F", FINAL, UTF8, "u(8) !(ExpectedMoreTokens):0,0,0,0")
+PARSE_TEST("embedded empty document followed by invalid UTF-8 sequence (14)", StopAfterEmbeddedDocument, "\xF1\x7F", FINAL, UTF8, "u(8) !(ExpectedMoreTokens):0,0,0,0")
+PARSE_TEST("embedded empty document followed by invalid UTF-8 sequence (15)", StopAfterEmbeddedDocument, "\xF1\xBF\x7F", FINAL, UTF8, "u(8) !(ExpectedMoreTokens):0,0,0,0")
+PARSE_TEST("embedded empty document followed by invalid UTF-8 sequence (16)", StopAfterEmbeddedDocument, "\xF1\xBF\xBF\x7F", FINAL, UTF8, "u(8) !(ExpectedMoreTokens):0,0,0,0")
+
+PARSE_TEST("embedded one-character document followed by invalid UTF-8 sequence (1)", StopAfterEmbeddedDocument, "0\xC2", FINAL, UTF8, "u(8) #(0):0,0,0,0-1,0,1,0 !(StoppedAfterEmbeddedDocument):1,0,1,0")
+PARSE_TEST("embedded one-character document followed by invalid UTF-8 sequence (2)", StopAfterEmbeddedDocument, "0\xE0", FINAL, UTF8, "u(8) #(0):0,0,0,0-1,0,1,0 !(StoppedAfterEmbeddedDocument):1,0,1,0")
+PARSE_TEST("embedded one-character document followed by invalid UTF-8 sequence (3)", StopAfterEmbeddedDocument, "0\xE0\xBF", FINAL, UTF8, "u(8) #(0):0,0,0,0-1,0,1,0 !(StoppedAfterEmbeddedDocument):1,0,1,0")
+PARSE_TEST("embedded one-character document followed by invalid UTF-8 sequence (4)", StopAfterEmbeddedDocument, "0\xF0\xBF", FINAL, UTF8, "u(8) #(0):0,0,0,0-1,0,1,0 !(StoppedAfterEmbeddedDocument):1,0,1,0")
+PARSE_TEST("embedded one-character document followed by invalid UTF-8 sequence (5)", StopAfterEmbeddedDocument, "0\xF0\xBF\xBF", FINAL, UTF8, "u(8) #(0):0,0,0,0-1,0,1,0 !(StoppedAfterEmbeddedDocument):1,0,1,0")
+PARSE_TEST("embedded one-character document followed by invalid UTF-8 sequence (6)", StopAfterEmbeddedDocument, "0\xC0", FINAL, UTF8, "u(8) #(0):0,0,0,0-1,0,1,0 !(StoppedAfterEmbeddedDocument):1,0,1,0")
+PARSE_TEST("embedded one-character document followed by invalid UTF-8 sequence (7)", StopAfterEmbeddedDocument, "0\xE0\x80", FINAL, UTF8, "u(8) #(0):0,0,0,0-1,0,1,0 !(StoppedAfterEmbeddedDocument):1,0,1,0")
+PARSE_TEST("embedded one-character document followed by invalid UTF-8 sequence (8)", StopAfterEmbeddedDocument, "0\xED\xA0", FINAL, UTF8, "u(8) #(0):0,0,0,0-1,0,1,0 !(StoppedAfterEmbeddedDocument):1,0,1,0")
+PARSE_TEST("embedded one-character document followed by invalid UTF-8 sequence (9)", StopAfterEmbeddedDocument, "0\xF0\x80", FINAL, UTF8, "u(8) #(0):0,0,0,0-1,0,1,0 !(StoppedAfterEmbeddedDocument):1,0,1,0")
+PARSE_TEST("embedded one-character document followed by invalid UTF-8 sequence (10)", StopAfterEmbeddedDocument, "0\xF4\x90", FINAL, UTF8, "u(8) #(0):0,0,0,0-1,0,1,0 !(StoppedAfterEmbeddedDocument):1,0,1,0")
+PARSE_TEST("embedded one-character document followed by invalid UTF-8 sequence (11)", StopAfterEmbeddedDocument, "0\x80", FINAL, UTF8, "u(8) #(0):0,0,0,0-1,0,1,0 !(StoppedAfterEmbeddedDocument):1,0,1,0")
+PARSE_TEST("embedded one-character document followed by invalid UTF-8 sequence (12)", StopAfterEmbeddedDocument, "0\xC2\x7F", FINAL, UTF8, "u(8) #(0):0,0,0,0-1,0,1,0 !(StoppedAfterEmbeddedDocument):1,0,1,0")
+PARSE_TEST("embedded one-character document followed by invalid UTF-8 sequence (13)", StopAfterEmbeddedDocument, "0\xE1\xBF\x7F", FINAL, UTF8, "u(8) #(0):0,0,0,0-1,0,1,0 !(StoppedAfterEmbeddedDocument):1,0,1,0")
+PARSE_TEST("embedded one-character document followed by invalid UTF-8 sequence (14)", StopAfterEmbeddedDocument, "0\xF1\x7F", FINAL, UTF8, "u(8) #(0):0,0,0,0-1,0,1,0 !(StoppedAfterEmbeddedDocument):1,0,1,0")
+PARSE_TEST("embedded one-character document followed by invalid UTF-8 sequence (15)", StopAfterEmbeddedDocument, "0\xF1\xBF\x7F", FINAL, UTF8, "u(8) #(0):0,0,0,0-1,0,1,0 !(StoppedAfterEmbeddedDocument):1,0,1,0")
+PARSE_TEST("embedded one-character document followed by invalid UTF-8 sequence (16)", StopAfterEmbeddedDocument, "0\xF1\xBF\xBF\x7F", FINAL, UTF8, "u(8) #(0):0,0,0,0-1,0,1,0 !(StoppedAfterEmbeddedDocument):1,0,1,0")
+
+PARSE_TEST("embedded null (1)", StopAfterEmbeddedDocument, "nul", FINAL, UTF8, "u(8) !(UnknownToken):0,0,0,0")
+PARSE_TEST("embedded null (2)", StopAfterEmbeddedDocument, "nulx", FINAL, UTF8, "u(8) !(UnknownToken):0,0,0,0")
+PARSE_TEST("embedded null (3)", StopAfterEmbeddedDocument, "null", FINAL, UTF8, "u(8) n:0,0,0,0-4,0,4,0 !(StoppedAfterEmbeddedDocument):4,0,4,0")
+PARSE_TEST("embedded null (4)", StopAfterEmbeddedDocument, " null ", FINAL, UTF8, "u(8) n:1,0,1,0-5,0,5,0 !(StoppedAfterEmbeddedDocument):5,0,5,0")
+PARSE_TEST("embedded null (5)", StopAfterEmbeddedDocument, "null!", FINAL, UTF8, "u(8) n:0,0,0,0-4,0,4,0 !(StoppedAfterEmbeddedDocument):4,0,4,0")
+PARSE_TEST("embedded null (6)", StopAfterEmbeddedDocument, " null!", FINAL, UTF8, "u(8) n:1,0,1,0-5,0,5,0 !(StoppedAfterEmbeddedDocument):5,0,5,0")
+PARSE_TEST("embedded null (7)", StopAfterEmbeddedDocument, "nullx", FINAL, UTF8, "u(8) n:0,0,0,0-4,0,4,0 !(StoppedAfterEmbeddedDocument):4,0,4,0")
+PARSE_TEST("embedded null (8)", StopAfterEmbeddedDocument, "[nullx]", FINAL, UTF8, "u(8) [:0,0,0,0-1,0,1,0 !(UnknownToken):1,0,1,1")
+PARSE_TEST("embedded null (9)", StopAfterEmbeddedDocument, "{\"a\":nullx}", FINAL, UTF8, "u(8) {:0,0,0,0-1,0,1,0 m(a):1,0,1,1-4,0,4,1 !(UnknownToken):5,0,5,1")
+
+PARSE_TEST("embedded true (1)", StopAfterEmbeddedDocument, "tru", FINAL, UTF8, "u(8) !(UnknownToken):0,0,0,0")
+PARSE_TEST("embedded true (2)", StopAfterEmbeddedDocument, "trux", FINAL, UTF8, "u(8) !(UnknownToken):0,0,0,0")
+PARSE_TEST("embedded true (3)", StopAfterEmbeddedDocument, "true", FINAL, UTF8, "u(8) t:0,0,0,0-4,0,4,0 !(StoppedAfterEmbeddedDocument):4,0,4,0")
+PARSE_TEST("embedded true (4)", StopAfterEmbeddedDocument, " true ", FINAL, UTF8, "u(8) t:1,0,1,0-5,0,5,0 !(StoppedAfterEmbeddedDocument):5,0,5,0")
+PARSE_TEST("embedded true (5)", StopAfterEmbeddedDocument, "true!", FINAL, UTF8, "u(8) t:0,0,0,0-4,0,4,0 !(StoppedAfterEmbeddedDocument):4,0,4,0")
+PARSE_TEST("embedded true (6)", StopAfterEmbeddedDocument, " true!", FINAL, UTF8, "u(8) t:1,0,1,0-5,0,5,0 !(StoppedAfterEmbeddedDocument):5,0,5,0")
+PARSE_TEST("embedded true (7)", StopAfterEmbeddedDocument, "truex", FINAL, UTF8, "u(8) t:0,0,0,0-4,0,4,0 !(StoppedAfterEmbeddedDocument):4,0,4,0")
+PARSE_TEST("embedded true (8)", StopAfterEmbeddedDocument, "[truex]", FINAL, UTF8, "u(8) [:0,0,0,0-1,0,1,0 !(UnknownToken):1,0,1,1")
+PARSE_TEST("embedded true (9)", StopAfterEmbeddedDocument, "{\"a\":truex}", FINAL, UTF8, "u(8) {:0,0,0,0-1,0,1,0 m(a):1,0,1,1-4,0,4,1 !(UnknownToken):5,0,5,1")
+
+PARSE_TEST("embedded false (1)", StopAfterEmbeddedDocument, "fals", FINAL, UTF8, "u(8) !(UnknownToken):0,0,0,0")
+PARSE_TEST("embedded false (2)", StopAfterEmbeddedDocument, "falsx", FINAL, UTF8, "u(8) !(UnknownToken):0,0,0,0")
+PARSE_TEST("embedded false (3)", StopAfterEmbeddedDocument, "false", FINAL, UTF8, "u(8) f:0,0,0,0-5,0,5,0 !(StoppedAfterEmbeddedDocument):5,0,5,0")
+PARSE_TEST("embedded false (5)", StopAfterEmbeddedDocument, " false ", FINAL, UTF8, "u(8) f:1,0,1,0-6,0,6,0 !(StoppedAfterEmbeddedDocument):6,0,6,0")
+PARSE_TEST("embedded false (6)", StopAfterEmbeddedDocument, "false!", FINAL, UTF8, "u(8) f:0,0,0,0-5,0,5,0 !(StoppedAfterEmbeddedDocument):5,0,5,0")
+PARSE_TEST("embedded false (6)", StopAfterEmbeddedDocument, " false!", FINAL, UTF8, "u(8) f:1,0,1,0-6,0,6,0 !(StoppedAfterEmbeddedDocument):6,0,6,0")
+PARSE_TEST("embedded false (7)", StopAfterEmbeddedDocument, "falsex", FINAL, UTF8, "u(8) f:0,0,0,0-5,0,5,0 !(StoppedAfterEmbeddedDocument):5,0,5,0")
+PARSE_TEST("embedded false (8)", StopAfterEmbeddedDocument, "[falsex]", FINAL, UTF8, "u(8) [:0,0,0,0-1,0,1,0 !(UnknownToken):1,0,1,1")
+PARSE_TEST("embedded false (9)", StopAfterEmbeddedDocument, "{\"a\":falsex}", FINAL, UTF8, "u(8) {:0,0,0,0-1,0,1,0 m(a):1,0,1,1-4,0,4,1 !(UnknownToken):5,0,5,1")
+
+PARSE_TEST("embedded NaN (1)", AllowSpecialNumbers | StopAfterEmbeddedDocument, "Na", FINAL, UTF8, "u(8) !(UnknownToken):0,0,0,0")
+PARSE_TEST("embedded NaN (2)", AllowSpecialNumbers | StopAfterEmbeddedDocument, "Nax", FINAL, UTF8, "u(8) !(UnknownToken):0,0,0,0")
+PARSE_TEST("embedded NaN (3)", AllowSpecialNumbers | StopAfterEmbeddedDocument, "NaN", FINAL, UTF8, "u(8) #(NaN):0,0,0,0-3,0,3,0 !(StoppedAfterEmbeddedDocument):3,0,3,0")
+PARSE_TEST("embedded NaN (4)", AllowSpecialNumbers | StopAfterEmbeddedDocument, " NaN ", FINAL, UTF8, "u(8) #(NaN):1,0,1,0-4,0,4,0 !(StoppedAfterEmbeddedDocument):4,0,4,0")
+PARSE_TEST("embedded NaN (5)", AllowSpecialNumbers | StopAfterEmbeddedDocument, "NaN!", FINAL, UTF8, "u(8) #(NaN):0,0,0,0-3,0,3,0 !(StoppedAfterEmbeddedDocument):3,0,3,0")
+PARSE_TEST("embedded NaN (6)", AllowSpecialNumbers | StopAfterEmbeddedDocument, " NaN!", FINAL, UTF8, "u(8) #(NaN):1,0,1,0-4,0,4,0 !(StoppedAfterEmbeddedDocument):4,0,4,0")
+PARSE_TEST("embedded NaN (7)", AllowSpecialNumbers | StopAfterEmbeddedDocument, "NaNx", FINAL, UTF8, "u(8) #(NaN):0,0,0,0-3,0,3,0 !(StoppedAfterEmbeddedDocument):3,0,3,0")
+PARSE_TEST("embedded NaN (8)", AllowSpecialNumbers | StopAfterEmbeddedDocument, "[NaNx]", FINAL, UTF8, "u(8) [:0,0,0,0-1,0,1,0 !(UnknownToken):1,0,1,1")
+PARSE_TEST("embedded NaN (9)", AllowSpecialNumbers | StopAfterEmbeddedDocument, "{\"a\":NaNx}", FINAL, UTF8, "u(8) {:0,0,0,0-1,0,1,0 m(a):1,0,1,1-4,0,4,1 !(UnknownToken):5,0,5,1")
+
+PARSE_TEST("embedded Infinity (1)", AllowSpecialNumbers | StopAfterEmbeddedDocument, "Infinit", FINAL, UTF8, "u(8) !(UnknownToken):0,0,0,0")
+PARSE_TEST("embedded Infinity (2)", AllowSpecialNumbers | StopAfterEmbeddedDocument, "Infinitx", FINAL, UTF8, "u(8) !(UnknownToken):0,0,0,0")
+PARSE_TEST("embedded Infinity (3)", AllowSpecialNumbers | StopAfterEmbeddedDocument, "Infinity", FINAL, UTF8, "u(8) #(Infinity):0,0,0,0-8,0,8,0 !(StoppedAfterEmbeddedDocument):8,0,8,0")
+PARSE_TEST("embedded Infinity (4)", AllowSpecialNumbers | StopAfterEmbeddedDocument, " Infinity ", FINAL, UTF8, "u(8) #(Infinity):1,0,1,0-9,0,9,0 !(StoppedAfterEmbeddedDocument):9,0,9,0")
+PARSE_TEST("embedded Infinity (5)", AllowSpecialNumbers | StopAfterEmbeddedDocument, "Infinity!", FINAL, UTF8, "u(8) #(Infinity):0,0,0,0-8,0,8,0 !(StoppedAfterEmbeddedDocument):8,0,8,0")
+PARSE_TEST("embedded Infinity (6)", AllowSpecialNumbers | StopAfterEmbeddedDocument, " Infinity!", FINAL, UTF8, "u(8) #(Infinity):1,0,1,0-9,0,9,0 !(StoppedAfterEmbeddedDocument):9,0,9,0")
+PARSE_TEST("embedded Infinity (7)", AllowSpecialNumbers | StopAfterEmbeddedDocument, "Infinityx", FINAL, UTF8, "u(8) #(Infinity):0,0,0,0-8,0,8,0 !(StoppedAfterEmbeddedDocument):8,0,8,0")
+PARSE_TEST("embedded Infinity (8)", AllowSpecialNumbers | StopAfterEmbeddedDocument, "[Infinityx]", FINAL, UTF8, "u(8) [:0,0,0,0-1,0,1,0 !(UnknownToken):1,0,1,1")
+PARSE_TEST("embedded Infinity (9)", AllowSpecialNumbers | StopAfterEmbeddedDocument, "{\"a\":Infinityx}", FINAL, UTF8, "u(8) {:0,0,0,0-1,0,1,0 m(a):1,0,1,1-4,0,4,1 !(UnknownToken):5,0,5,1")
+
+PARSE_TEST("embedded -Infinity (1)", AllowSpecialNumbers | StopAfterEmbeddedDocument, "-Infinit", FINAL, UTF8, "u(8) !(UnknownToken):0,0,0,0")
+PARSE_TEST("embedded -Infinity (2)", AllowSpecialNumbers | StopAfterEmbeddedDocument, "-Infinitx", FINAL, UTF8, "u(8) !(UnknownToken):0,0,0,0")
+PARSE_TEST("embedded -Infinity (3)", AllowSpecialNumbers | StopAfterEmbeddedDocument, "-Infinity", FINAL, UTF8, "u(8) #(-Infinity):0,0,0,0-9,0,9,0 !(StoppedAfterEmbeddedDocument):9,0,9,0")
+PARSE_TEST("embedded -Infinity (4)", AllowSpecialNumbers | StopAfterEmbeddedDocument, " -Infinity ", FINAL, UTF8, "u(8) #(-Infinity):1,0,1,0-10,0,10,0 !(StoppedAfterEmbeddedDocument):10,0,10,0")
+PARSE_TEST("embedded -Infinity (5)", AllowSpecialNumbers | StopAfterEmbeddedDocument, "-Infinity!", FINAL, UTF8, "u(8) #(-Infinity):0,0,0,0-9,0,9,0 !(StoppedAfterEmbeddedDocument):9,0,9,0")
+PARSE_TEST("embedded -Infinity (6)", AllowSpecialNumbers | StopAfterEmbeddedDocument, " -Infinity!", FINAL, UTF8, "u(8) #(-Infinity):1,0,1,0-10,0,10,0 !(StoppedAfterEmbeddedDocument):10,0,10,0")
+PARSE_TEST("embedded -Infinity (7)", AllowSpecialNumbers | StopAfterEmbeddedDocument, "-Infinityx", FINAL, UTF8, "u(8) #(-Infinity):0,0,0,0-9,0,9,0 !(StoppedAfterEmbeddedDocument):9,0,9,0")
+PARSE_TEST("embedded -Infinity (8)", AllowSpecialNumbers | StopAfterEmbeddedDocument, "[-Infinityx]", FINAL, UTF8, "u(8) [:0,0,0,0-1,0,1,0 !(UnknownToken):1,0,1,1")
+PARSE_TEST("embedded -Infinity (9)", AllowSpecialNumbers | StopAfterEmbeddedDocument, "{\"a\":-Infinityx}", FINAL, UTF8, "u(8) {:0,0,0,0-1,0,1,0 m(a):1,0,1,1-4,0,4,1 !(UnknownToken):5,0,5,1")
+
+PARSE_TEST("embedded 0 (1)", StopAfterEmbeddedDocument, "0", FINAL, UTF8, "u(8) #(0):0,0,0,0-1,0,1,0 !(StoppedAfterEmbeddedDocument):1,0,1,0")
+PARSE_TEST("embedded 0 (2)", StopAfterEmbeddedDocument, " 0 ", FINAL, UTF8, "u(8) #(0):1,0,1,0-2,0,2,0 !(StoppedAfterEmbeddedDocument):2,0,2,0")
+PARSE_TEST("embedded 0 (3)", StopAfterEmbeddedDocument, "00", FINAL, UTF8, "u(8) #(0):0,0,0,0-1,0,1,0 !(StoppedAfterEmbeddedDocument):1,0,1,0")
+PARSE_TEST("embedded 0 (4)", StopAfterEmbeddedDocument, "01", FINAL, UTF8, "u(8) #(0):0,0,0,0-1,0,1,0 !(StoppedAfterEmbeddedDocument):1,0,1,0")
+PARSE_TEST("embedded 0 (5)", StopAfterEmbeddedDocument, "0!", FINAL, UTF8, "u(8) #(0):0,0,0,0-1,0,1,0 !(StoppedAfterEmbeddedDocument):1,0,1,0")
+PARSE_TEST("embedded 0 (6)", StopAfterEmbeddedDocument, "0x", FINAL, UTF8, "u(8) #(0):0,0,0,0-1,0,1,0 !(StoppedAfterEmbeddedDocument):1,0,1,0")
+PARSE_TEST("embedded 0 (7)", StopAfterEmbeddedDocument, "[01]", FINAL, UTF8, "u(8) [:0,0,0,0-1,0,1,0 !(InvalidNumber):1,0,1,1")
+PARSE_TEST("embedded 0 (8)", StopAfterEmbeddedDocument, "{\"a\":01}", FINAL, UTF8, "u(8) {:0,0,0,0-1,0,1,0 m(a):1,0,1,1-4,0,4,1 !(InvalidNumber):5,0,5,1")
+
+PARSE_TEST("embedded -0 (1)", StopAfterEmbeddedDocument, "-0", FINAL, UTF8, "u(8) #(- -0):0,0,0,0-2,0,2,0 !(StoppedAfterEmbeddedDocument):2,0,2,0")
+PARSE_TEST("embedded -0 (2)", StopAfterEmbeddedDocument, " -0 ", FINAL, UTF8, "u(8) #(- -0):1,0,1,0-3,0,3,0 !(StoppedAfterEmbeddedDocument):3,0,3,0")
+PARSE_TEST("embedded -0 (3)", StopAfterEmbeddedDocument, "-00", FINAL, UTF8, "u(8) #(- -0):0,0,0,0-2,0,2,0 !(StoppedAfterEmbeddedDocument):2,0,2,0")
+PARSE_TEST("embedded -0 (4)", StopAfterEmbeddedDocument, "-01", FINAL, UTF8, "u(8) #(- -0):0,0,0,0-2,0,2,0 !(StoppedAfterEmbeddedDocument):2,0,2,0")
+PARSE_TEST("embedded -0 (5)", StopAfterEmbeddedDocument, "-0!", FINAL, UTF8, "u(8) #(- -0):0,0,0,0-2,0,2,0 !(StoppedAfterEmbeddedDocument):2,0,2,0")
+PARSE_TEST("embedded -0 (6)", StopAfterEmbeddedDocument, "-0x", FINAL, UTF8, "u(8) #(- -0):0,0,0,0-2,0,2,0 !(StoppedAfterEmbeddedDocument):2,0,2,0")
+PARSE_TEST("embedded -0 (7)", StopAfterEmbeddedDocument, "[-01]", FINAL, UTF8, "u(8) [:0,0,0,0-1,0,1,0 !(InvalidNumber):1,0,1,1")
+PARSE_TEST("embedded -0 (8)", StopAfterEmbeddedDocument, "{\"a\":-01}", FINAL, UTF8, "u(8) {:0,0,0,0-1,0,1,0 m(a):1,0,1,1-4,0,4,1 !(InvalidNumber):5,0,5,1")
+
+PARSE_TEST("embedded 123 (1)", StopAfterEmbeddedDocument, "123", FINAL, UTF8, "u(8) #(123):0,0,0,0-3,0,3,0 !(StoppedAfterEmbeddedDocument):3,0,3,0")
+PARSE_TEST("embedded 123 (2)", StopAfterEmbeddedDocument, " 123 ", FINAL, UTF8, "u(8) #(123):1,0,1,0-4,0,4,0 !(StoppedAfterEmbeddedDocument):4,0,4,0")
+PARSE_TEST("embedded 123 (5)", StopAfterEmbeddedDocument, "123!", FINAL, UTF8, "u(8) #(123):0,0,0,0-3,0,3,0 !(StoppedAfterEmbeddedDocument):3,0,3,0")
+PARSE_TEST("embedded 123 (6)", StopAfterEmbeddedDocument, "123e", FINAL, UTF8, "u(8) #(123):0,0,0,0-3,0,3,0 !(StoppedAfterEmbeddedDocument):3,0,3,0")
+PARSE_TEST("embedded 123 (7)", StopAfterEmbeddedDocument, "[123e]", FINAL, UTF8, "u(8) [:0,0,0,0-1,0,1,0 !(InvalidNumber):1,0,1,1")
+PARSE_TEST("embedded 123 (8)", StopAfterEmbeddedDocument, "{\"a\":123e}", FINAL, UTF8, "u(8) {:0,0,0,0-1,0,1,0 m(a):1,0,1,1-4,0,4,1 !(InvalidNumber):5,0,5,1")
+
+PARSE_TEST("embedded 1. (1)", StopAfterEmbeddedDocument, "1.", FINAL, UTF8, "u(8) #(1):0,0,0,0-1,0,1,0 !(StoppedAfterEmbeddedDocument):1,0,1,0")
+PARSE_TEST("embedded 1. (2)", StopAfterEmbeddedDocument, "1.!", FINAL, UTF8, "u(8) #(1):0,0,0,0-1,0,1,0 !(StoppedAfterEmbeddedDocument):1,0,1,0")
+PARSE_TEST("embedded 1. (3)", StopAfterEmbeddedDocument, "[123.]", FINAL, UTF8, "u(8) [:0,0,0,0-1,0,1,0 !(InvalidNumber):1,0,1,1")
+PARSE_TEST("embedded 1. (4)", StopAfterEmbeddedDocument, "{\"a\":1.}", FINAL, UTF8, "u(8) {:0,0,0,0-1,0,1,0 m(a):1,0,1,1-4,0,4,1 !(InvalidNumber):5,0,5,1")
+
+PARSE_TEST("embedded 1e (1)", StopAfterEmbeddedDocument, "1e", FINAL, UTF8, "u(8) #(1):0,0,0,0-1,0,1,0 !(StoppedAfterEmbeddedDocument):1,0,1,0")
+PARSE_TEST("embedded 1e (2)", StopAfterEmbeddedDocument, "1e!", FINAL, UTF8, "u(8) #(1):0,0,0,0-1,0,1,0 !(StoppedAfterEmbeddedDocument):1,0,1,0")
+PARSE_TEST("embedded 1e (3)", StopAfterEmbeddedDocument, "[123e]", FINAL, UTF8, "u(8) [:0,0,0,0-1,0,1,0 !(InvalidNumber):1,0,1,1")
+PARSE_TEST("embedded 1e (4)", StopAfterEmbeddedDocument, "{\"a\":1e}", FINAL, UTF8, "u(8) {:0,0,0,0-1,0,1,0 m(a):1,0,1,1-4,0,4,1 !(InvalidNumber):5,0,5,1")
+
+PARSE_TEST("embedded 1e+ (1)", StopAfterEmbeddedDocument, "1e+", FINAL, UTF8, "u(8) #(1):0,0,0,0-1,0,1,0 !(StoppedAfterEmbeddedDocument):1,0,1,0")
+PARSE_TEST("embedded 1e+ (2)", StopAfterEmbeddedDocument, "1e+!", FINAL, UTF8, "u(8) #(1):0,0,0,0-1,0,1,0 !(StoppedAfterEmbeddedDocument):1,0,1,0")
+PARSE_TEST("embedded 1e+ (3)", StopAfterEmbeddedDocument, "[123e+]", FINAL, UTF8, "u(8) [:0,0,0,0-1,0,1,0 !(InvalidNumber):1,0,1,1")
+PARSE_TEST("embedded 1e+ (4)", StopAfterEmbeddedDocument, "{\"a\":1e+}", FINAL, UTF8, "u(8) {:0,0,0,0-1,0,1,0 m(a):1,0,1,1-4,0,4,1 !(InvalidNumber):5,0,5,1")
+
+PARSE_TEST("embedded 1e- (1)", StopAfterEmbeddedDocument, "1e-", FINAL, UTF8, "u(8) #(1):0,0,0,0-1,0,1,0 !(StoppedAfterEmbeddedDocument):1,0,1,0")
+PARSE_TEST("embedded 1e- (2)", StopAfterEmbeddedDocument, "1e-!", FINAL, UTF8, "u(8) #(1):0,0,0,0-1,0,1,0 !(StoppedAfterEmbeddedDocument):1,0,1,0")
+PARSE_TEST("embedded 1e- (3)", StopAfterEmbeddedDocument, "[123e-]", FINAL, UTF8, "u(8) [:0,0,0,0-1,0,1,0 !(InvalidNumber):1,0,1,1")
+PARSE_TEST("embedded 1e- (4)", StopAfterEmbeddedDocument, "{\"a\":1e-}", FINAL, UTF8, "u(8) {:0,0,0,0-1,0,1,0 m(a):1,0,1,1-4,0,4,1 !(InvalidNumber):5,0,5,1")
+
+PARSE_TEST("embedded 1.2e (1)", StopAfterEmbeddedDocument, "1.2e", FINAL, UTF8, "u(8) #(. 1.2):0,0,0,0-3,0,3,0 !(StoppedAfterEmbeddedDocument):3,0,3,0")
+PARSE_TEST("embedded 1.2e (2)", StopAfterEmbeddedDocument, "1.2e!", FINAL, UTF8, "u(8) #(. 1.2):0,0,0,0-3,0,3,0 !(StoppedAfterEmbeddedDocument):3,0,3,0")
+PARSE_TEST("embedded 1.2e (3)", StopAfterEmbeddedDocument, "[1.2e]", FINAL, UTF8, "u(8) [:0,0,0,0-1,0,1,0 !(InvalidNumber):1,0,1,1")
+PARSE_TEST("embedded 1.2e (4)", StopAfterEmbeddedDocument, "{\"a\":1.2e}", FINAL, UTF8, "u(8) {:0,0,0,0-1,0,1,0 m(a):1,0,1,1-4,0,4,1 !(InvalidNumber):5,0,5,1")
+
+PARSE_TEST("embedded 1.2e+ (1)", StopAfterEmbeddedDocument, "1.2e+", FINAL, UTF8, "u(8) #(. 1.2):0,0,0,0-3,0,3,0 !(StoppedAfterEmbeddedDocument):3,0,3,0")
+PARSE_TEST("embedded 1.2e+ (2)", StopAfterEmbeddedDocument, "1.2e+!", FINAL, UTF8, "u(8) #(. 1.2):0,0,0,0-3,0,3,0 !(StoppedAfterEmbeddedDocument):3,0,3,0")
+PARSE_TEST("embedded 1.2e+ (3)", StopAfterEmbeddedDocument, "[1.2e+]", FINAL, UTF8, "u(8) [:0,0,0,0-1,0,1,0 !(InvalidNumber):1,0,1,1")
+PARSE_TEST("embedded 1.2e+ (4)", StopAfterEmbeddedDocument, "{\"a\":1.2e+}", FINAL, UTF8, "u(8) {:0,0,0,0-1,0,1,0 m(a):1,0,1,1-4,0,4,1 !(InvalidNumber):5,0,5,1")
+
+PARSE_TEST("embedded 1.2e- (1)", StopAfterEmbeddedDocument, "1.2e-", FINAL, UTF8, "u(8) #(. 1.2):0,0,0,0-3,0,3,0 !(StoppedAfterEmbeddedDocument):3,0,3,0")
+PARSE_TEST("embedded 1.2e- (2)", StopAfterEmbeddedDocument, "1.2e-!", FINAL, UTF8, "u(8) #(. 1.2):0,0,0,0-3,0,3,0 !(StoppedAfterEmbeddedDocument):3,0,3,0")
+PARSE_TEST("embedded 1.2e- (3)", StopAfterEmbeddedDocument, "[1.2e-]", FINAL, UTF8, "u(8) [:0,0,0,0-1,0,1,0 !(InvalidNumber):1,0,1,1")
+PARSE_TEST("embedded 1.2e- (4)", StopAfterEmbeddedDocument, "{\"a\":1.2e-}", FINAL, UTF8, "u(8) {:0,0,0,0-1,0,1,0 m(a):1,0,1,1-4,0,4,1 !(InvalidNumber):5,0,5,1")
+
+PARSE_TEST("embedded 0x (1)", AllowHexNumbers | StopAfterEmbeddedDocument, "0x", FINAL, UTF8, "u(8) #(0):0,0,0,0-1,0,1,0 !(StoppedAfterEmbeddedDocument):1,0,1,0")
+PARSE_TEST("embedded 0x (2)", AllowHexNumbers | StopAfterEmbeddedDocument, "0x!", FINAL, UTF8, "u(8) #(0):0,0,0,0-1,0,1,0 !(StoppedAfterEmbeddedDocument):1,0,1,0")
+PARSE_TEST("embedded 0x (3)", AllowHexNumbers | StopAfterEmbeddedDocument, "[0x]", FINAL, UTF8, "u(8) [:0,0,0,0-1,0,1,0 !(InvalidNumber):1,0,1,1")
+PARSE_TEST("embedded 0x (4)", AllowHexNumbers | StopAfterEmbeddedDocument, "{\"a\":0x}", FINAL, UTF8, "u(8) {:0,0,0,0-1,0,1,0 m(a):1,0,1,1-4,0,4,1 !(InvalidNumber):5,0,5,1")
+
+PARSE_TEST("embedded -12 (1)", StopAfterEmbeddedDocument, "-12", FINAL, UTF8, "u(8) #(- -12):0,0,0,0-3,0,3,0 !(StoppedAfterEmbeddedDocument):3,0,3,0")
+PARSE_TEST("embedded -12 (2)", StopAfterEmbeddedDocument, " -12 ", FINAL, UTF8, "u(8) #(- -12):1,0,1,0-4,0,4,0 !(StoppedAfterEmbeddedDocument):4,0,4,0")
+PARSE_TEST("embedded 1.2 (1)", StopAfterEmbeddedDocument, "1.2", FINAL, UTF8, "u(8) #(. 1.2):0,0,0,0-3,0,3,0 !(StoppedAfterEmbeddedDocument):3,0,3,0")
+PARSE_TEST("embedded 1.2 (2)", StopAfterEmbeddedDocument, " 1.2 ", FINAL, UTF8, "u(8) #(. 1.2):1,0,1,0-4,0,4,0 !(StoppedAfterEmbeddedDocument):4,0,4,0")
+PARSE_TEST("embedded 1e2 (1)", StopAfterEmbeddedDocument, "1e2", FINAL, UTF8, "u(8) #(e 1e2):0,0,0,0-3,0,3,0 !(StoppedAfterEmbeddedDocument):3,0,3,0")
+PARSE_TEST("embedded 1e2 (2)", StopAfterEmbeddedDocument, " 1e2 ", FINAL, UTF8, "u(8) #(e 1e2):1,0,1,0-4,0,4,0 !(StoppedAfterEmbeddedDocument):4,0,4,0")
+PARSE_TEST("embedded 1e+2 (1)", StopAfterEmbeddedDocument, "1e+2", FINAL, UTF8, "u(8) #(e 1e+2):0,0,0,0-4,0,4,0 !(StoppedAfterEmbeddedDocument):4,0,4,0")
+PARSE_TEST("embedded 1e+2 (2)", StopAfterEmbeddedDocument, " 1e+2 ", FINAL, UTF8, "u(8) #(e 1e+2):1,0,1,0-5,0,5,0 !(StoppedAfterEmbeddedDocument):5,0,5,0")
+PARSE_TEST("embedded 1e-2 (1)", StopAfterEmbeddedDocument, "1e-2", FINAL, UTF8, "u(8) #(e- 1e-2):0,0,0,0-4,0,4,0 !(StoppedAfterEmbeddedDocument):4,0,4,0")
+PARSE_TEST("embedded 1e-2 (2)", StopAfterEmbeddedDocument, " 1e-2 ", FINAL, UTF8, "u(8) #(e- 1e-2):1,0,1,0-5,0,5,0 !(StoppedAfterEmbeddedDocument):5,0,5,0")
+PARSE_TEST("embedded 1.2e3 (1)", StopAfterEmbeddedDocument, "1.2e3", FINAL, UTF8, "u(8) #(.e 1.2e3):0,0,0,0-5,0,5,0 !(StoppedAfterEmbeddedDocument):5,0,5,0")
+PARSE_TEST("embedded 1.2e3 (2)", StopAfterEmbeddedDocument, " 1.2e3 ", FINAL, UTF8, "u(8) #(.e 1.2e3):1,0,1,0-6,0,6,0 !(StoppedAfterEmbeddedDocument):6,0,6,0")
+PARSE_TEST("embedded 1.2e+3 (1)", StopAfterEmbeddedDocument, "1.2e+3", FINAL, UTF8, "u(8) #(.e 1.2e+3):0,0,0,0-6,0,6,0 !(StoppedAfterEmbeddedDocument):6,0,6,0")
+PARSE_TEST("embedded 1.2e+3 (2)", StopAfterEmbeddedDocument, " 1.2e+3 ", FINAL, UTF8, "u(8) #(.e 1.2e+3):1,0,1,0-7,0,7,0 !(StoppedAfterEmbeddedDocument):7,0,7,0")
+PARSE_TEST("embedded 1.2e-3 (1)", StopAfterEmbeddedDocument, "1.2e-3", FINAL, UTF8, "u(8) #(.e- 1.2e-3):0,0,0,0-6,0,6,0 !(StoppedAfterEmbeddedDocument):6,0,6,0")
+PARSE_TEST("embedded 1.2e-3 (2)", StopAfterEmbeddedDocument, " 1.2e-3 ", FINAL, UTF8, "u(8) #(.e- 1.2e-3):1,0,1,0-7,0,7,0 !(StoppedAfterEmbeddedDocument):7,0,7,0")
+PARSE_TEST("embedded 0x1 (1)", AllowHexNumbers | StopAfterEmbeddedDocument, "0x1", FINAL, UTF8, "u(8) #(x 0x1):0,0,0,0-3,0,3,0 !(StoppedAfterEmbeddedDocument):3,0,3,0")
+PARSE_TEST("embedded 0x1 (2)", AllowHexNumbers | StopAfterEmbeddedDocument, " 0x1 ", FINAL, UTF8, "u(8) #(x 0x1):1,0,1,0-4,0,4,0 !(StoppedAfterEmbeddedDocument):4,0,4,0")
+
+PARSE_TEST("embedded 1.2e- in UTF-16LE", StopAfterEmbeddedDocument, "1\x00" ".\x00" "2\x00" "e\x00" "-\x00", FINAL, UTF16LE, "u(16LE) #(. 1.2):0,0,0,0-6,0,3,0 !(StoppedAfterEmbeddedDocument):6,0,3,0")
+PARSE_TEST("embedded 12. in UTF-16BE", StopAfterEmbeddedDocument, "\x00" "1\x00" "2\x00" ".", FINAL, UTF16BE, "u(16BE) #(12):0,0,0,0-4,0,2,0 !(StoppedAfterEmbeddedDocument):4,0,2,0")
+PARSE_TEST("embedded 1.2e in UTF-32LE", StopAfterEmbeddedDocument, "1\x00\x00\x00" ".\x00\x00\x00" "2\x00\x00\x00" "e\x00\x00\x00" "-\x00\x00\x00", FINAL, UTF32LE, "u(32LE) #(. 1.2):0,0,0,0-12,0,3,0 !(StoppedAfterEmbeddedDocument):12,0,3,0")
+PARSE_TEST("embedded 00 in UTF-32BE", StopAfterEmbeddedDocument, "\x00\x00\x00" "0\x00\x00\x00" "0\x00\x00\x00" "0", FINAL, UTF32BE, "u(32BE) #(0):0,0,0,0-4,0,1,0 !(StoppedAfterEmbeddedDocument):4,0,1,0")
+
+PARSE_TEST("embedded empty string (1)", StopAfterEmbeddedDocument, "\"\"", FINAL, UTF8, "u(8) s():0,0,0,0-2,0,2,0 !(StoppedAfterEmbeddedDocument):2,0,2,0")
+PARSE_TEST("embedded empty string (2)", StopAfterEmbeddedDocument, "\"\"junk", FINAL, UTF8, "u(8) s():0,0,0,0-2,0,2,0 !(StoppedAfterEmbeddedDocument):2,0,2,0")
+PARSE_TEST("embedded string (1)", StopAfterEmbeddedDocument, "\"foo\"", FINAL, UTF8, "u(8) s(foo):0,0,0,0-5,0,5,0 !(StoppedAfterEmbeddedDocument):5,0,5,0")
+PARSE_TEST("embedded string (2)", StopAfterEmbeddedDocument, "\"foo\"junk", FINAL, UTF8, "u(8) s(foo):0,0,0,0-5,0,5,0 !(StoppedAfterEmbeddedDocument):5,0,5,0")
+PARSE_TEST("embedded string with newline", StopAfterEmbeddedDocument, "\"foo\\nbar\"", FINAL, UTF8, "u(8) s(c foo<0A>bar):0,0,0,0-10,0,10,0 !(StoppedAfterEmbeddedDocument):10,0,10,0")
+PARSE_TEST("embedded string with unescaped newline (1)", StopAfterEmbeddedDocument, "\"foo\nbar\"", FINAL, UTF8, "u(8) !(UnescapedControlCharacter):4,0,4,0")
+PARSE_TEST("embedded string with unescaped newline (2)", AllowUnescapedControlCharacters | StopAfterEmbeddedDocument, "\"foo\nbar\"", FINAL, UTF8, "u(8) s(c foo<0A>bar):0,0,0,0-9,1,4,0 !(StoppedAfterEmbeddedDocument):9,1,4,0")
+PARSE_TEST("unfinished embedded string (1)", StopAfterEmbeddedDocument, "\"foo", FINAL, UTF8, "u(8) !(IncompleteToken):0,0,0,0")
+PARSE_TEST("unfinished embedded string (2)", StopAfterEmbeddedDocument, "\"foo\xFF", FINAL, UTF8, "u(8) !(IncompleteToken):0,0,0,0")
+PARSE_TEST("embedded string containing invalid sequence (1)", StopAfterEmbeddedDocument, "\"foo\xFF\"", FINAL, UTF8, "u(8) !(IncompleteToken):0,0,0,0")
+PARSE_TEST("embedded string containing invalid sequence (2)", ReplaceInvalidEncodingSequences | StopAfterEmbeddedDocument, "\"foo\xFF\"", FINAL, UTF8, "u(8) s(ar foo<EF><BF><BD>):0,0,0,0-6,0,6,0 !(StoppedAfterEmbeddedDocument):6,0,6,0")
+
+PARSE_TEST("embedded empty array (1)", StopAfterEmbeddedDocument, "[]", FINAL, UTF8, "u(8) [:0,0,0,0-1,0,1,0 ]:1,0,1,0-2,0,2,0 !(StoppedAfterEmbeddedDocument):2,0,2,0")
+PARSE_TEST("embedded empty array (2)", StopAfterEmbeddedDocument, "[]!", FINAL, UTF8, "u(8) [:0,0,0,0-1,0,1,0 ]:1,0,1,0-2,0,2,0 !(StoppedAfterEmbeddedDocument):2,0,2,0")
+PARSE_TEST("embedded array (1)", StopAfterEmbeddedDocument, "[1]", FINAL, UTF8, "u(8) [:0,0,0,0-1,0,1,0 i:1,0,1,1-2,0,2,1 #(1):1,0,1,1-2,0,2,1 ]:2,0,2,0-3,0,3,0 !(StoppedAfterEmbeddedDocument):3,0,3,0")
+PARSE_TEST("embedded array (2)", StopAfterEmbeddedDocument, "[1]!", FINAL, UTF8, "u(8) [:0,0,0,0-1,0,1,0 i:1,0,1,1-2,0,2,1 #(1):1,0,1,1-2,0,2,1 ]:2,0,2,0-3,0,3,0 !(StoppedAfterEmbeddedDocument):3,0,3,0")
+PARSE_TEST("embedded nested array (1)", StopAfterEmbeddedDocument, "[[1]]", FINAL, UTF8, "u(8) [:0,0,0,0-1,0,1,0 i:1,0,1,1-2,0,2,1 [:1,0,1,1-2,0,2,1 i:2,0,2,2-3,0,3,2 #(1):2,0,2,2-3,0,3,2 ]:3,0,3,1-4,0,4,1 ]:4,0,4,0-5,0,5,0 !(StoppedAfterEmbeddedDocument):5,0,5,0")
+PARSE_TEST("embedded nested array (2)", StopAfterEmbeddedDocument, "[[1]]!", FINAL, UTF8, "u(8) [:0,0,0,0-1,0,1,0 i:1,0,1,1-2,0,2,1 [:1,0,1,1-2,0,2,1 i:2,0,2,2-3,0,3,2 #(1):2,0,2,2-3,0,3,2 ]:3,0,3,1-4,0,4,1 ]:4,0,4,0-5,0,5,0 !(StoppedAfterEmbeddedDocument):5,0,5,0")
+PARSE_TEST("embedded unclosed array (1)", StopAfterEmbeddedDocument, "[", FINAL, UTF8, "u(8) [:0,0,0,0-1,0,1,0 !(ExpectedMoreTokens):1,0,1,1")
+PARSE_TEST("embedded unclosed array (2)", StopAfterEmbeddedDocument, "[!", FINAL, UTF8, "u(8) [:0,0,0,0-1,0,1,0 !(UnknownToken):1,0,1,1")
+PARSE_TEST("embedded unclosed array (2)", StopAfterEmbeddedDocument, "[\xFF", FINAL, UTF8, "u(8) [:0,0,0,0-1,0,1,0 !(InvalidEncodingSequence):1,0,1,1")
+
+PARSE_TEST("embedded empty object (1)", StopAfterEmbeddedDocument, "{}", FINAL, UTF8, "u(8) {:0,0,0,0-1,0,1,0 }:1,0,1,0-2,0,2,0 !(StoppedAfterEmbeddedDocument):2,0,2,0")
+PARSE_TEST("embedded empty object (2)", StopAfterEmbeddedDocument, "{}!", FINAL, UTF8, "u(8) {:0,0,0,0-1,0,1,0 }:1,0,1,0-2,0,2,0 !(StoppedAfterEmbeddedDocument):2,0,2,0")
+PARSE_TEST("embedded object (1)", StopAfterEmbeddedDocument, "{\"a\":1}", FINAL, UTF8, "u(8) {:0,0,0,0-1,0,1,0 m(a):1,0,1,1-4,0,4,1 #(1):5,0,5,1-6,0,6,1 }:6,0,6,0-7,0,7,0 !(StoppedAfterEmbeddedDocument):7,0,7,0")
+PARSE_TEST("embedded object (2)", StopAfterEmbeddedDocument, "{\"a\":1}!", FINAL, UTF8, "u(8) {:0,0,0,0-1,0,1,0 m(a):1,0,1,1-4,0,4,1 #(1):5,0,5,1-6,0,6,1 }:6,0,6,0-7,0,7,0 !(StoppedAfterEmbeddedDocument):7,0,7,0")
+PARSE_TEST("embedded nested object (1)", StopAfterEmbeddedDocument, "{\"a\":{\"b\":1}}", FINAL, UTF8, "u(8) {:0,0,0,0-1,0,1,0 m(a):1,0,1,1-4,0,4,1 {:5,0,5,1-6,0,6,1 m(b):6,0,6,2-9,0,9,2 #(1):10,0,10,2-11,0,11,2 }:11,0,11,1-12,0,12,1 }:12,0,12,0-13,0,13,0 !(StoppedAfterEmbeddedDocument):13,0,13,0")
+PARSE_TEST("embedded nested object (2)", StopAfterEmbeddedDocument, "{\"a\":{\"b\":1}}!", FINAL, UTF8, "u(8) {:0,0,0,0-1,0,1,0 m(a):1,0,1,1-4,0,4,1 {:5,0,5,1-6,0,6,1 m(b):6,0,6,2-9,0,9,2 #(1):10,0,10,2-11,0,11,2 }:11,0,11,1-12,0,12,1 }:12,0,12,0-13,0,13,0 !(StoppedAfterEmbeddedDocument):13,0,13,0")
+PARSE_TEST("embedded unclosed object (1)", StopAfterEmbeddedDocument, "{", FINAL, UTF8, "u(8) {:0,0,0,0-1,0,1,0 !(ExpectedMoreTokens):1,0,1,1")
+PARSE_TEST("embedded unclosed object (2)", StopAfterEmbeddedDocument, "{!", FINAL, UTF8, "u(8) {:0,0,0,0-1,0,1,0 !(UnknownToken):1,0,1,1")
+PARSE_TEST("embedded unclosed object (2)", StopAfterEmbeddedDocument, "{\xFF", FINAL, UTF8, "u(8) {:0,0,0,0-1,0,1,0 !(InvalidEncodingSequence):1,0,1,1")
 
 };
 
@@ -4642,6 +4912,7 @@ static void TestErrorStrings(void)
         CheckErrorString(JSON_Error_InvalidNumber, "the input contains an invalid number") &&
         CheckErrorString(JSON_Error_TooLongNumber, "the input contains a number that is too long") &&
         CheckErrorString(JSON_Error_DuplicateObjectMember, "the input contains an object with duplicate members") &&
+        CheckErrorString(JSON_Error_StoppedAfterEmbeddedDocument, "the end of the embedded document was reached") &&
         CheckErrorString((JSON_Error)-1, "") &&
         CheckErrorString((JSON_Error)1000, ""))
     {

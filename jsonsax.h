@@ -25,8 +25,8 @@
 
 /* The library version */
 #define JSON_MAJOR_VERSION 1
-#define JSON_MINOR_VERSION 3
-#define JSON_MICRO_VERSION 2
+#define JSON_MINOR_VERSION 4
+#define JSON_MICRO_VERSION 0
 
 /* JSON_NO_PARSER and JSON_NO_WRITER, if defined, remove the corresponding
  * APIs and functionality from the library.
@@ -114,7 +114,8 @@ typedef enum tag_JSON_Error
     JSON_Error_TooLongString                   = 12,
     JSON_Error_InvalidNumber                   = 13,
     JSON_Error_TooLongNumber                   = 14,
-    JSON_Error_DuplicateObjectMember           = 15
+    JSON_Error_DuplicateObjectMember           = 15,
+    JSON_Error_StoppedAfterEmbeddedDocument    = 16
 } JSON_Error;
 
 /* Text encodings. */
@@ -452,6 +453,23 @@ JSON_API(JSON_Status) JSON_Parser_SetReplaceInvalidEncodingSequences(JSON_Parser
  */
 JSON_API(JSON_Boolean) JSON_Parser_GetTrackObjectMembers(JSON_Parser parser);
 JSON_API(JSON_Status) JSON_Parser_SetTrackObjectMembers(JSON_Parser parser, JSON_Boolean trackObjectMembers);
+
+/* Get and set whether a parser instance stops parsing as soon as the end of
+ * the top-level JSON document is parsed.
+ *
+ * This setting allows the client to parse JSON content that is embedded
+ * inside a larger data stream. If this setting is enabled, the parser will,
+ * upon successfully parsing the end of the embedded JSON document, set its
+ * error to JSON_Error_StoppedAfterEmbeddedDocument, set its error location
+ * to the location in the input stream immediately following the end of the
+ * document, and return JSON_Failure from JSON_Parser_Parse().
+ *
+ * The default value of this setting is JSON_False.
+ *
+ * This setting cannot be changed once the parser has started parsing.
+ */
+JSON_API(JSON_Boolean) JSON_Parser_GetStopAfterEmbeddedDocument(JSON_Parser parser);
+JSON_API(JSON_Status) JSON_Parser_SetStopAfterEmbeddedDocument(JSON_Parser parser, JSON_Boolean stopAfterEmbeddedDocument);
 
 /* Get the type of error, if any, encountered by a parser instance.
  *

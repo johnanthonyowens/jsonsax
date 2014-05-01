@@ -961,6 +961,7 @@ typedef byte ParserState;
 #define PARSER_REPLACE_INVALID       0x10
 #define PARSER_TRACK_OBJECT_MEMBERS  0x20
 #define PARSER_ALLOW_CONTROL_CHARS   0x40
+#define PARSER_EMBEDDED_DOCUMENT     0x80
 typedef byte ParserFlags;
 
 /* Sentinel value for parser error location offset. */
@@ -1211,64 +1212,6 @@ static void JSON_Parser_NullTerminateToken(JSON_Parser parser)
     memcpy(parser->pTokenBytes + parser->tokenBytesUsed, nullTerminatorBytes, SHORTEST_ENCODING_SEQUENCE(encoding));
 }
 
-static JSON_Status JSON_Parser_RecordTokenCodepoint(JSON_Parser parser, Codepoint c)
-{
-    Encoding encoding;
-    size_t maxLength;
-    if (parser->token == T_NUMBER)
-    {
-        encoding = parser->numberEncoding;
-        maxLength = parser->maxNumberLength;
-    }
-    else
-    {
-        encoding = parser->stringEncoding;
-        maxLength = parser->maxStringLength;
-        if (parser->token == T_STRING)
-        {
-            if (!c)
-            {
-                parser->tokenAttributes |= JSON_ContainsNullCharacter | JSON_ContainsControlCharacter;
-            }
-            else if (c < FIRST_NON_CONTROL_CODEPOINT)
-            {
-                parser->tokenAttributes |= JSON_ContainsControlCharacter;
-            }
-            else if (c >= FIRST_NON_BMP_CODEPOINT)
-            {
-                parser->tokenAttributes |= JSON_ContainsNonASCIICharacter | JSON_ContainsNonBMPCharacter;
-            }
-            else if (c >= FIRST_NON_ASCII_CODEPOINT)
-            {
-                parser->tokenAttributes |= JSON_ContainsNonASCIICharacter;
-            }
-        }
-    }
-    /* We always ensure that there are LONGEST_ENCODING_SEQUENCE bytes
-       available in the buffer for the next codepoint, so we don't have to
-       check whether there is room when we decode a new codepoint, and if
-       there isn't another codepoint, we have space already allocated for
-       the encoded null terminator.*/
-    parser->tokenBytesUsed += EncodeCodepoint(c, encoding, parser->pTokenBytes + parser->tokenBytesUsed);
-    if (parser->tokenBytesUsed > maxLength)
-    {
-        JSON_Parser_SetErrorAtToken(parser, parser->token == T_NUMBER ? JSON_Error_TooLongNumber : JSON_Error_TooLongString);
-        return JSON_Failure;
-    }
-    if (parser->tokenBytesUsed > parser->tokenBytesLength - LONGEST_ENCODING_SEQUENCE)
-    {
-        byte* pBiggerBuffer = DoubleBuffer(&parser->memorySuite, parser->defaultTokenBytes, parser->pTokenBytes, parser->tokenBytesLength);
-        if (!pBiggerBuffer)
-        {
-            JSON_Parser_SetErrorAtCodepoint(parser, JSON_Error_OutOfMemory);
-            return JSON_Failure;
-        }
-        parser->pTokenBytes = pBiggerBuffer;
-        parser->tokenBytesLength *= 2;
-    }
-    return JSON_Success;
-}
-
 static JSON_Status JSON_Parser_FlushParser(JSON_Parser parser)
 {
     /* The symbol stack should be empty when parsing finishes. */
@@ -1458,6 +1401,11 @@ static JSON_Status JSON_Parser_HandleGrammarEvents(JSON_Parser parser, byte emit
         }
         break;
     }
+    if (!parser->depth && GET_FLAGS(parser->flags, PARSER_EMBEDDED_DOCUMENT))
+    {
+        JSON_Parser_SetErrorAtCodepoint(parser, JSON_Error_StoppedAfterEmbeddedDocument);
+        return JSON_Failure;
+    }
     return JSON_Success;
 }
 
@@ -1502,6 +1450,73 @@ static const byte expectedLiteralChars[] = { 'u', 'l', 'l', 0, 'r', 'u', 'e', 0,
 #define NAN_LITERAL_EXPECTED_CHARS_START_INDEX      13
 #define INFINITY_LITERAL_EXPECTED_CHARS_START_INDEX 16
 
+/* Forward declaration. */
+static JSON_Status JSON_Parser_FlushLexer(JSON_Parser parser);
+
+static JSON_Status JSON_Parser_HandleInvalidEncodingSequence(JSON_Parser parser) {
+    if (!parser->depth && GET_FLAGS(parser->flags, PARSER_EMBEDDED_DOCUMENT))
+    {
+        /* Since we're parsing the top-level value of an embedded
+           document, assume that the invalid encoding sequence we've
+           encountered does not actually belong to the document, and
+           finish parsing by pretending that we've encountered EOF
+           instead of an invalid sequence. If the content is valid,
+           this will fail with JSON_Error_StoppedAfterEmbeddedDocument;
+           otherwise, it will fail with an appropriate error. */
+        return JSON_Parser_FlushLexer(parser);
+    }
+    JSON_Parser_SetErrorAtCodepoint(parser, JSON_Error_InvalidEncodingSequence);
+    return JSON_Failure;
+}
+
+static JSON_Status JSON_Parser_HandleInvalidNumber(JSON_Parser parser, Codepoint c, int codepointsSinceValidNumber, TokenAttributes attributesToRemove)
+{
+    SET_FLAGS_OFF(parser->tokenAttributes, attributesToRemove);
+    if (!parser->depth && GET_FLAGS(parser->flags, PARSER_EMBEDDED_DOCUMENT))
+    {
+        /* The invalid number is the top-level value of an embedded document,
+           and it has a prefix that can be interpreted as a valid number.
+           We want to backtrack so that we are at the end of that prefix,
+           and then process the valid token.
+
+           Note that backtracking requires us to make three assumptions, which
+           are always valid in the context of a number token:
+
+           1. The input encoding is not JSON_UnknownEncoding.
+
+           2 The codepoints we are backing up across are all in the range
+           U+0000 - U+007F, aka ASCII, so we can assume the number of
+           bytes comprising them based on the input encoding.
+
+           3. The codepoints we are backing up across do not include any
+           line breaks, so we can assume that the line number stays the
+           same and the column number can simply be decremented.
+
+           For example:
+
+               "01"     => "0"
+               "123.!"  => "123"
+               "123e!"  => "123"
+               "123e+!" => "123"
+               "123e-!" => "123"
+               "1.2e!"  => "1.2"
+               "1.2e+!" => "1.2"
+               "1.2e-!" => "1.2"
+        */
+        parser->codepointLocationByte -= codepointsSinceValidNumber * SHORTEST_ENCODING_SEQUENCE(parser->inputEncoding);
+        parser->codepointLocationColumn -= codepointsSinceValidNumber;
+        parser->tokenBytesUsed -= codepointsSinceValidNumber * SHORTEST_ENCODING_SEQUENCE(parser->numberEncoding);
+        return JSON_Parser_ProcessToken(parser); /* always fails */
+    }
+    else if (c == EOF_CODEPOINT)
+    {
+        /* Allow JSON_Parser_FlushLexer() to fail. */
+        return JSON_Success;
+    }
+    JSON_Parser_SetErrorAtToken(parser, JSON_Error_InvalidNumber);
+    return JSON_Failure;
+}
+
 static void JSON_Parser_StartToken(JSON_Parser parser, Symbol token)
 {
     parser->token = token;
@@ -1512,7 +1527,9 @@ static void JSON_Parser_StartToken(JSON_Parser parser, Symbol token)
 
 static JSON_Status JSON_Parser_ProcessCodepoint(JSON_Parser parser, Codepoint c, size_t encodedLength)
 {
-    Codepoint codepointToOutput = EOF_CODEPOINT;
+    Codepoint codepointToRecord = EOF_CODEPOINT;
+    Encoding tokenEncoding;
+    size_t maxTokenLength;
     int tokenFinished = 0;
 
     /* If the previous codepoint was U+000D (CARRIAGE RETURN), and the current
@@ -1589,20 +1606,23 @@ reprocess:
         {
             JSON_Parser_StartToken(parser, T_NUMBER);
             parser->tokenAttributes = JSON_IsNegative;
-            codepointToOutput = '-';
+            codepointToRecord = '-';
             parser->lexerState = LEXING_NUMBER_AFTER_MINUS;
+            goto recordNumberCodepointAndAdvance;
         }
         else if (c == '0')
         {
             JSON_Parser_StartToken(parser, T_NUMBER);
-            codepointToOutput = '0';
+            codepointToRecord = '0';
             parser->lexerState = LEXING_NUMBER_AFTER_LEADING_ZERO;
+            goto recordNumberCodepointAndAdvance;
         }
         else if (c >= '1' && c <= '9')
         {
             JSON_Parser_StartToken(parser, T_NUMBER);
-            codepointToOutput = c;
+            codepointToRecord = c;
             parser->lexerState = LEXING_NUMBER_DECIMAL_DIGITS;
+            goto recordNumberCodepointAndAdvance;
         }
         else if (c == ' ' || c == TAB_CODEPOINT || c == LINE_FEED_CODEPOINT ||
                  c == CARRIAGE_RETURN_CODEPOINT || c == EOF_CODEPOINT)
@@ -1647,7 +1667,7 @@ reprocess:
             JSON_Parser_SetErrorAtCodepoint(parser, JSON_Error_UnknownToken);
             return JSON_Failure;
         }
-        break;
+        goto advance;
 
     case LEXING_LITERAL:
         /* While lexing a literal we store an index into expectedLiteralChars
@@ -1661,6 +1681,18 @@ reprocess:
                 return JSON_Failure;
             }
             parser->lexerBits++;
+
+            /* If the literal is the top-level value of an embedded document,
+               process it as soon as we consume its last expected codepoint.
+               Normally we defer processing until the following codepoint
+               has been examined, so that we can treat sequences like "nullx"
+               as a single, unknown token rather than a null literal followed
+               by an unknown token. */
+            if (!parser->depth && GET_FLAGS(parser->flags, PARSER_EMBEDDED_DOCUMENT) &&
+                !expectedLiteralChars[parser->lexerBits])
+            {
+                tokenFinished = 1;
+            }
         }
         else
         {
@@ -1681,12 +1713,12 @@ reprocess:
             }
             goto reprocess;
         }
-        break;
+        goto advance;
 
     case LEXING_STRING:
         if (c == EOF_CODEPOINT)
         {
-            /* JSON_Parser_FlushLexer() will fail. */
+            /* Allow JSON_Parser_FlushLexer() to fail. */
         }
         else if (c == '"')
         {
@@ -1705,14 +1737,15 @@ reprocess:
         }
         else
         {
-            codepointToOutput = c;
+            codepointToRecord = c;
+            goto recordStringCodepointAndAdvance;
         }
-        break;
+        goto advance;
 
     case LEXING_STRING_ESCAPE:
         if (c == EOF_CODEPOINT)
         {
-            /* JSON_Parser_FlushLexer() will fail. */
+            /* Allow JSON_Parser_FlushLexer() to fail. */
         }
         else
         {
@@ -1724,27 +1757,27 @@ reprocess:
             {
                 if (c == '"' || c == '\\' || c == '/')
                 {
-                    codepointToOutput = c;
+                    codepointToRecord = c;
                 }
                 else if (c == 'b')
                 {
-                    codepointToOutput = BACKSPACE_CODEPOINT;
+                    codepointToRecord = BACKSPACE_CODEPOINT;
                 }
                 else if (c == 't')
                 {
-                    codepointToOutput = TAB_CODEPOINT;
+                    codepointToRecord = TAB_CODEPOINT;
                 }
                 else if (c == 'n')
                 {
-                    codepointToOutput = LINE_FEED_CODEPOINT;
+                    codepointToRecord = LINE_FEED_CODEPOINT;
                 }
                 else if (c == 'f')
                 {
-                    codepointToOutput = FORM_FEED_CODEPOINT;
+                    codepointToRecord = FORM_FEED_CODEPOINT;
                 }
                 else if (c == 'r')
                 {
-                    codepointToOutput = CARRIAGE_RETURN_CODEPOINT;
+                    codepointToRecord = CARRIAGE_RETURN_CODEPOINT;
                 }
                 else
                 {
@@ -1756,9 +1789,10 @@ reprocess:
                     return JSON_Failure;
                 }
                 parser->lexerState = LEXING_STRING;
+                goto recordStringCodepointAndAdvance;
             }
         }
-        break;
+        goto advance;
 
     case LEXING_STRING_HEX_ESCAPE_BYTE_1:
     case LEXING_STRING_HEX_ESCAPE_BYTE_2:
@@ -1770,7 +1804,7 @@ reprocess:
     case LEXING_STRING_HEX_ESCAPE_BYTE_8:
         if (c == EOF_CODEPOINT)
         {
-            /* JSON_Parser_FlushLexer() will fail. */
+            /* Allow JSON_Parser_FlushLexer() to fail. */
         }
         else
         {
@@ -1834,9 +1868,10 @@ reprocess:
                 else
                 {
                     /* The escape sequence represents a BMP codepoint. */
-                    codepointToOutput = parser->lexerBits;
+                    codepointToRecord = parser->lexerBits;
                     parser->lexerBits = 0;
                     parser->lexerState = LEXING_STRING;
+                    goto recordStringCodepointAndAdvance;
                 }
             }
             else if (parser->lexerState == LEXING_STRING_HEX_ESCAPE_BYTE_8)
@@ -1855,21 +1890,22 @@ reprocess:
                     return JSON_Failure;
                 }
                 /* The escape sequence represents a non-BMP codepoint. */
-                codepointToOutput = CODEPOINT_FROM_SURROGATES(parser->lexerBits);
+                codepointToRecord = CODEPOINT_FROM_SURROGATES(parser->lexerBits);
                 parser->lexerBits = 0;
                 parser->lexerState = LEXING_STRING;
+                goto recordStringCodepointAndAdvance;
             }
             else
             {
                 parser->lexerState++;
             }
         }
-        break;
+        goto advance;
 
     case LEXING_STRING_TRAILING_SURROGATE_HEX_ESCAPE_BACKSLASH:
         if (c == EOF_CODEPOINT)
         {
-            /* JSON_Parser_FlushLexer() will fail. */
+            /* Allow JSON_Parser_FlushLexer() to fail. */
         }
         else
         {
@@ -1884,12 +1920,12 @@ reprocess:
             }
             parser->lexerState = LEXING_STRING_TRAILING_SURROGATE_HEX_ESCAPE_U;
         }
-        break;
+        goto advance;
 
     case LEXING_STRING_TRAILING_SURROGATE_HEX_ESCAPE_U:
         if (c == EOF_CODEPOINT)
         {
-            /* JSON_Parser_FlushLexer() will fail. */
+            /* Allow JSON_Parser_FlushLexer() to fail. */
         }
         else
         {
@@ -1919,12 +1955,12 @@ reprocess:
             }
             parser->lexerState = LEXING_STRING_HEX_ESCAPE_BYTE_5;
         }
-        break;
+        goto advance;
 
     case LEXING_NUMBER_AFTER_MINUS:
         if (c == EOF_CODEPOINT)
         {
-            /* JSON_Parser_FlushLexer() will fail. */
+            /* Allow JSON_Parser_FlushLexer() to fail. */
         }
         else if (c == 'I' && GET_FLAGS(parser->flags, PARSER_ALLOW_SPECIAL_NUMBERS))
         {
@@ -1936,13 +1972,15 @@ reprocess:
         {
             if (c == '0')
             {
-                codepointToOutput = '0';
+                codepointToRecord = '0';
                 parser->lexerState = LEXING_NUMBER_AFTER_LEADING_NEGATIVE_ZERO;
+                goto recordNumberCodepointAndAdvance;
             }
             else if (c >= '1' && c <= '9')
             {
-                codepointToOutput = c;
+                codepointToRecord = c;
                 parser->lexerState = LEXING_NUMBER_DECIMAL_DIGITS;
+                goto recordNumberCodepointAndAdvance;
             }
             else
             {
@@ -1952,34 +1990,41 @@ reprocess:
                 return JSON_Failure;
             }
         }
-        break;
+        goto advance;
 
     case LEXING_NUMBER_AFTER_LEADING_ZERO:
     case LEXING_NUMBER_AFTER_LEADING_NEGATIVE_ZERO:
         if (c == '.')
         {
-            codepointToOutput = '.';
+            codepointToRecord = '.';
             parser->tokenAttributes |= JSON_ContainsDecimalPoint;
             parser->lexerState = LEXING_NUMBER_AFTER_DOT;
+            goto recordNumberCodepointAndAdvance;
         }
         else if (c == 'e' || c == 'E')
         {
-            codepointToOutput = c;
+            codepointToRecord = c;
             parser->tokenAttributes |= JSON_ContainsExponent;
             parser->lexerState = LEXING_NUMBER_AFTER_E;
+            goto recordNumberCodepointAndAdvance;
         }
         else if (c >= '0' && c <= '9')
         {
-            JSON_Parser_SetErrorAtToken(parser, JSON_Error_InvalidNumber);
-            return JSON_Failure;
+            /* JSON does not allow the integer part of a number to have any
+               digits after a leading zero. */
+            if (!JSON_Parser_HandleInvalidNumber(parser, c, 0, 0))
+            {
+                return JSON_Failure;
+            }
         }
         else if ((c == 'x' || c == 'X') &&
                  parser->lexerState == LEXING_NUMBER_AFTER_LEADING_ZERO &&
                  GET_FLAGS(parser->flags, PARSER_ALLOW_HEX_NUMBERS))
         {
-            codepointToOutput = c;
+            codepointToRecord = c;
             parser->tokenAttributes |= JSON_IsHex;
             parser->lexerState = LEXING_NUMBER_AFTER_X;
+            goto recordNumberCodepointAndAdvance;
         }
         else
         {
@@ -1990,29 +2035,26 @@ reprocess:
             }
             goto reprocess;
         }
-        break;
+        goto advance;
 
     case LEXING_NUMBER_AFTER_X:
-        if (c == EOF_CODEPOINT)
+        if ((c >= '0' && c <= '9') || (c >= 'A' && c <= 'F') || (c >= 'a' && c <= 'f'))
         {
-            /* JSON_Parser_FlushLexer() will fail. */
-        }
-        else if ((c >= '0' && c <= '9') || (c >= 'A' && c <= 'F') || (c >= 'a' && c <= 'f'))
-        {
-            codepointToOutput = c;
+            codepointToRecord = c;
             parser->lexerState = LEXING_NUMBER_HEX_DIGITS;
+            goto recordNumberCodepointAndAdvance;
         }
-        else
+        else if (!JSON_Parser_HandleInvalidNumber(parser, c, 1, JSON_IsHex))
         {
-            JSON_Parser_SetErrorAtToken(parser, JSON_Error_InvalidNumber);
             return JSON_Failure;
         }
-        break;
+        goto advance;
 
     case LEXING_NUMBER_HEX_DIGITS:
         if ((c >= '0' && c <= '9') || (c >= 'A' && c <= 'F') || (c >= 'a' && c <= 'f'))
         {
-            codepointToOutput = c;
+            codepointToRecord = c;
+            goto recordNumberCodepointAndAdvance;
         }
         else
         {
@@ -2023,24 +2065,27 @@ reprocess:
             }
             goto reprocess;
         }
-        break;
+        goto advance;
 
     case LEXING_NUMBER_DECIMAL_DIGITS:
         if (c >= '0' && c <= '9')
         {
-            codepointToOutput = c;
+            codepointToRecord = c;
+            goto recordNumberCodepointAndAdvance;
         }
         else if (c == '.')
         {
-            codepointToOutput = '.';
+            codepointToRecord = '.';
             parser->tokenAttributes |= JSON_ContainsDecimalPoint;
             parser->lexerState = LEXING_NUMBER_AFTER_DOT;
+            goto recordNumberCodepointAndAdvance;
         }
         else if (c == 'e' || c == 'E')
         {
-            codepointToOutput = c;
+            codepointToRecord = c;
             parser->tokenAttributes |= JSON_ContainsExponent;
             parser->lexerState = LEXING_NUMBER_AFTER_E;
+            goto recordNumberCodepointAndAdvance;
         }
         else
         {
@@ -2051,35 +2096,33 @@ reprocess:
             }
             goto reprocess;
         }
-        break;
+        goto advance;
 
     case LEXING_NUMBER_AFTER_DOT:
-        if (c == EOF_CODEPOINT)
+        if (c >= '0' && c <= '9')
         {
-            /* JSON_Parser_FlushLexer() will fail. */
-        }
-        else if (c >= '0' && c <= '9')
-        {
-            codepointToOutput = c;
+            codepointToRecord = c;
             parser->lexerState = LEXING_NUMBER_FRACTIONAL_DIGITS;
+            goto recordNumberCodepointAndAdvance;
         }
-        else
+        else if (!JSON_Parser_HandleInvalidNumber(parser, c, 1, JSON_ContainsDecimalPoint))
         {
-            JSON_Parser_SetErrorAtToken(parser, JSON_Error_InvalidNumber);
             return JSON_Failure;
         }
-        break;
+        goto advance;
 
     case LEXING_NUMBER_FRACTIONAL_DIGITS:
         if (c >= '0' && c <= '9')
         {
-            codepointToOutput = c;
+            codepointToRecord = c;
+            goto recordNumberCodepointAndAdvance;
         }
         else if (c == 'e' || c == 'E')
         {
-            codepointToOutput = c;
+            codepointToRecord = c;
             parser->tokenAttributes |= JSON_ContainsExponent;
             parser->lexerState = LEXING_NUMBER_AFTER_E;
+            goto recordNumberCodepointAndAdvance;
         }
         else
         {
@@ -2090,57 +2133,52 @@ reprocess:
             }
             goto reprocess;
         }
-        break;
+        goto advance;
 
     case LEXING_NUMBER_AFTER_E:
-        if (c == EOF_CODEPOINT)
+        if (c == '+')
         {
-            /* JSON_Parser_FlushLexer() will fail. */
-        }
-        else if (c == '+')
-        {
-            codepointToOutput = c;
+            codepointToRecord = c;
             parser->lexerState = LEXING_NUMBER_AFTER_EXPONENT_SIGN;
+            goto recordNumberCodepointAndAdvance;
         }
         else if (c == '-')
         {
-            codepointToOutput = c;
+            codepointToRecord = c;
             parser->tokenAttributes |= JSON_ContainsNegativeExponent;
             parser->lexerState = LEXING_NUMBER_AFTER_EXPONENT_SIGN;
+            goto recordNumberCodepointAndAdvance;
         }
         else if (c >= '0' && c <= '9')
         {
-            codepointToOutput = c;
+            codepointToRecord = c;
             parser->lexerState = LEXING_NUMBER_EXPONENT_DIGITS;
+            goto recordNumberCodepointAndAdvance;
         }
-        else
+        else if (!JSON_Parser_HandleInvalidNumber(parser, c, 1, JSON_ContainsExponent))
         {
-            JSON_Parser_SetErrorAtToken(parser, JSON_Error_InvalidNumber);
             return JSON_Failure;
         }
-        break;
+        goto advance;
 
     case LEXING_NUMBER_AFTER_EXPONENT_SIGN:
-        if (c == EOF_CODEPOINT)
+        if (c >= '0' && c <= '9')
         {
-            /* JSON_Parser_FlushLexer() will fail. */
-        }
-        else if (c >= '0' && c <= '9')
-        {
-            codepointToOutput = c;
+            codepointToRecord = c;
             parser->lexerState = LEXING_NUMBER_EXPONENT_DIGITS;
+            goto recordNumberCodepointAndAdvance;
         }
-        else
+        else if (!JSON_Parser_HandleInvalidNumber(parser, c, 2, JSON_ContainsExponent | JSON_ContainsNegativeExponent))
         {
-            JSON_Parser_SetErrorAtToken(parser, JSON_Error_InvalidNumber);
             return JSON_Failure;
         }
-        break;
+        goto advance;
 
     case LEXING_NUMBER_EXPONENT_DIGITS:
         if (c >= '0' && c <= '9')
         {
-            codepointToOutput = c;
+            codepointToRecord = c;
+            goto recordNumberCodepointAndAdvance;
         }
         else
         {
@@ -2151,7 +2189,7 @@ reprocess:
             }
             goto reprocess;
         }
-        break;
+        goto advance;
 
     case LEXING_COMMENT_AFTER_SLASH:
         if (c == '/')
@@ -2167,21 +2205,21 @@ reprocess:
             JSON_Parser_SetErrorAtToken(parser, JSON_Error_UnknownToken);
             return JSON_Failure;
         }
-        break;
+        goto advance;
 
     case LEXING_SINGLE_LINE_COMMENT:
         if (c == CARRIAGE_RETURN_CODEPOINT || c == LINE_FEED_CODEPOINT || c == EOF_CODEPOINT)
         {
             parser->lexerState = LEXING_WHITESPACE;
         }
-        break;
+        goto advance;
 
     case LEXING_MULTI_LINE_COMMENT:
         if (c == '*')
         {
             parser->lexerState = LEXING_MULTI_LINE_COMMENT_AFTER_STAR;
         }
-        break;
+        goto advance;
 
     case LEXING_MULTI_LINE_COMMENT_AFTER_STAR:
         if (c == '/')
@@ -2192,16 +2230,64 @@ reprocess:
         {
             parser->lexerState = LEXING_MULTI_LINE_COMMENT;
         }
-        break;
+        goto advance;
     }
 
-    if (codepointToOutput != EOF_CODEPOINT)
+recordStringCodepointAndAdvance:
+
+    tokenEncoding = parser->stringEncoding;
+    maxTokenLength = parser->maxStringLength;
+    if (!codepointToRecord)
     {
-        if (!JSON_Parser_RecordTokenCodepoint(parser, codepointToOutput))
+        parser->tokenAttributes |= JSON_ContainsNullCharacter | JSON_ContainsControlCharacter;
+    }
+    else if (codepointToRecord < FIRST_NON_CONTROL_CODEPOINT)
+    {
+        parser->tokenAttributes |= JSON_ContainsControlCharacter;
+    }
+    else if (codepointToRecord >= FIRST_NON_BMP_CODEPOINT)
+    {
+        parser->tokenAttributes |= JSON_ContainsNonASCIICharacter | JSON_ContainsNonBMPCharacter;
+    }
+    else if (codepointToRecord >= FIRST_NON_ASCII_CODEPOINT)
+    {
+        parser->tokenAttributes |= JSON_ContainsNonASCIICharacter;
+    }
+    goto recordCodepointAndAdvance;
+
+recordNumberCodepointAndAdvance:
+
+    tokenEncoding = parser->numberEncoding;
+    maxTokenLength = parser->maxNumberLength;
+    goto recordCodepointAndAdvance;
+
+recordCodepointAndAdvance:
+
+    /* We always ensure that there are LONGEST_ENCODING_SEQUENCE bytes
+       available in the buffer for the next codepoint, so we don't have to
+       check whether there is room when we decode a new codepoint, and if
+       there isn't another codepoint, we have space already allocated for
+       the encoded null terminator.*/
+    parser->tokenBytesUsed += EncodeCodepoint(codepointToRecord, tokenEncoding, parser->pTokenBytes + parser->tokenBytesUsed);
+    if (parser->tokenBytesUsed > maxTokenLength)
+    {
+        JSON_Parser_SetErrorAtToken(parser, parser->token == T_NUMBER ? JSON_Error_TooLongNumber : JSON_Error_TooLongString);
+        return JSON_Failure;
+    }
+    if (parser->tokenBytesUsed > parser->tokenBytesLength - LONGEST_ENCODING_SEQUENCE)
+    {
+        byte* pBiggerBuffer = DoubleBuffer(&parser->memorySuite, parser->defaultTokenBytes, parser->pTokenBytes, parser->tokenBytesLength);
+        if (!pBiggerBuffer)
         {
+            JSON_Parser_SetErrorAtCodepoint(parser, JSON_Error_OutOfMemory);
             return JSON_Failure;
         }
+        parser->pTokenBytes = pBiggerBuffer;
+        parser->tokenBytesLength *= 2;
     }
+    goto advance;
+
+advance:
 
     /* The current codepoint has been accepted, so advance the codepoint
        location counters accordingly. Note that the one time we don't
@@ -2374,8 +2460,7 @@ static JSON_Status JSON_Parser_ProcessUnknownByte(JSON_Parser parser, byte b)
 
         if (parser->inputEncoding == JSON_UnknownEncoding)
         {
-            JSON_Parser_SetErrorAtCodepoint(parser, JSON_Error_InvalidEncodingSequence);
-            return JSON_Failure;
+            return JSON_Parser_HandleInvalidEncodingSequence(parser);
         }
 
         if (!JSON_Parser_CallEncodingDetectedHandler(parser))
@@ -2430,11 +2515,12 @@ JSON_Status JSON_Parser_ProcessInputBytes(JSON_Parser parser, const byte* pBytes
             {
                 if (parser->lexerState == LEXING_STRING)
                 {
-                    /* Note that we set JSON_ContainsReplacedCharacter in the output
-                       attributes only when the encoding sequence represents a single
-                       codepoint inside a string token; that is the only case where
-                       replacing the invalid sequence avoids triggering an error and
-                       the string attributes actually get passed to a handler. */
+                    /* Note that we set JSON_ContainsReplacedCharacter in
+                       the output attributes only when the encoding sequence
+                       represents a single codepoint inside a string token;
+                       that is the only case where replacing the invalid
+                       sequence avoids triggering an error and the string
+                       attributes actually get passed to a handler. */
                     parser->tokenAttributes |= JSON_ContainsReplacedCharacter;
                 }
                 if (!JSON_Parser_ProcessCodepoint(parser, REPLACEMENT_CHARACTER_CODEPOINT, DECODER_SEQUENCE_LENGTH(output)))
@@ -2444,8 +2530,7 @@ JSON_Status JSON_Parser_ProcessInputBytes(JSON_Parser parser, const byte* pBytes
             }
             else
             {
-                JSON_Parser_SetErrorAtCodepoint(parser, JSON_Error_InvalidEncodingSequence);
-                return JSON_Failure;
+                return JSON_Parser_HandleInvalidEncodingSequence(parser);
             }
             break;
         }
@@ -2466,7 +2551,8 @@ static JSON_Status JSON_Parser_FlushDecoder(JSON_Parser parser)
          nz nz => UTF-8
          nz 00 => UTF-16LE
          00 nz => UTF-16BE
-         .. .. => unknown encoding */
+         .. .. => unknown encoding
+    */
     if (parser->inputEncoding == JSON_UnknownEncoding &&
         parser->decoderData.state != DECODER_RESET)
     {
@@ -2506,8 +2592,8 @@ static JSON_Status JSON_Parser_FlushDecoder(JSON_Parser parser)
             }
             else
             {
-                JSON_Parser_SetErrorAtCodepoint(parser, JSON_Error_InvalidEncodingSequence);
-                return JSON_Failure;
+                /* 00 00 */
+                return JSON_Parser_HandleInvalidEncodingSequence(parser);
             }
             length = 2;
             break;
@@ -2535,8 +2621,7 @@ static JSON_Status JSON_Parser_FlushDecoder(JSON_Parser parser)
     /* The decoder should be idle when parsing finishes. */
     if (Decoder_SequencePending(&parser->decoderData))
     {
-        JSON_Parser_SetErrorAtCodepoint(parser, JSON_Error_InvalidEncodingSequence);
-        return JSON_Failure;
+        return JSON_Parser_HandleInvalidEncodingSequence(parser);
     }
     return JSON_Success;
 }
@@ -2794,6 +2879,21 @@ JSON_Status JSON_CALL JSON_Parser_SetTrackObjectMembers(JSON_Parser parser, JSON
         return JSON_Failure;
     }
     SET_FLAGS(parser->flags, PARSER_TRACK_OBJECT_MEMBERS, trackObjectMembers);
+    return JSON_Success;
+}
+
+JSON_Boolean JSON_CALL JSON_Parser_GetStopAfterEmbeddedDocument(JSON_Parser parser)
+{
+    return (parser && GET_FLAGS(parser->flags, PARSER_EMBEDDED_DOCUMENT)) ? JSON_True : JSON_False;
+}
+
+JSON_Status JSON_CALL JSON_Parser_SetStopAfterEmbeddedDocument(JSON_Parser parser, JSON_Boolean stopAfterEmbeddedDocument)
+{
+    if (!parser || GET_FLAGS(parser->state, PARSER_STARTED))
+    {
+        return JSON_Failure;
+    }
+    SET_FLAGS(parser->flags, PARSER_EMBEDDED_DOCUMENT, stopAfterEmbeddedDocument);
     return JSON_Success;
 }
 
@@ -4063,7 +4163,8 @@ const char* JSON_CALL JSON_ErrorString(JSON_Error error)
     /* JSON_Error_TooLongString */                   "the input contains a string that is too long",
     /* JSON_Error_InvalidNumber */                   "the input contains an invalid number",
     /* JSON_Error_TooLongNumber */                   "the input contains a number that is too long",
-    /* JSON_Error_DuplicateObjectMember */           "the input contains an object with duplicate members"
+    /* JSON_Error_DuplicateObjectMember */           "the input contains an object with duplicate members",
+    /* JSON_Error_StoppedAfterEmbeddedDocument */    "the end of the embedded document was reached"
     };
     return ((unsigned int)error < (sizeof(errorStrings) / sizeof(errorStrings[0])))
         ? errorStrings[error]
