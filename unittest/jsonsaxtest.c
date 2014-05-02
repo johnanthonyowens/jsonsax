@@ -1815,13 +1815,18 @@ static void TestParserAbortInCallbacks(void)
     s_failHandler = 1;
     if (CheckParserCreate(NULL, JSON_Success, &parser) &&
         CheckParserSetEncodingDetectedHandler(parser, &EncodingDetectedHandler, JSON_Success) &&
+        CheckParserParse(parser, " ", 1, JSON_True, JSON_Failure) &&
+        CheckParserState(parser, &state) &&
+
+        CheckParserReset(parser, JSON_Success) &&
+        CheckParserSetEncodingDetectedHandler(parser, &EncodingDetectedHandler, JSON_Success) &&
         CheckParserParse(parser, "    ", 4, JSON_True, JSON_Failure) &&
         CheckParserState(parser, &state) &&
 
         !!(state.errorLocation.byte = 1) && /* hacky */
         !!(state.errorLocation.column = 1) &&
 
-        CheckParserCreate(NULL, JSON_Success, &parser) &&
+        CheckParserReset(parser, JSON_Success) &&
         CheckParserSetNullHandler(parser, &NullHandler, JSON_Success) &&
         CheckParserParse(parser, " null", 6, JSON_True, JSON_Failure) &&
         CheckParserState(parser, &state) &&
@@ -4401,16 +4406,32 @@ static void RunWriteNumberTest(const WriteTest* pTest)
 static const WriteTest s_writeNumberTests[] =
 {
 
+WRITE_NUMBER_TEST("0",         UTF8, UTF8, "0", "0")
+WRITE_NUMBER_TEST("-0",        UTF8, UTF8, "-0", "-0")
+WRITE_NUMBER_TEST("1",         UTF8, UTF8, "1", "1")
+WRITE_NUMBER_TEST("-1",        UTF8, UTF8, "-1", "-1")
+WRITE_NUMBER_TEST("0e1",       UTF8, UTF8, "0e1", "0e1")
+WRITE_NUMBER_TEST("-0e1",      UTF8, UTF8, "-0e1", "-0e1")
+WRITE_NUMBER_TEST("0e+1",      UTF8, UTF8, "0e+1", "0e+1")
+WRITE_NUMBER_TEST("-0e+1",     UTF8, UTF8, "-0e+1", "-0e+1")
+WRITE_NUMBER_TEST("0e-1",      UTF8, UTF8, "0e-1", "0e-1")
+WRITE_NUMBER_TEST("-0e-1",     UTF8, UTF8, "-0e-1", "-0e-1")
+WRITE_NUMBER_TEST("1E2",       UTF8, UTF8, "1E2", "1E2")
+WRITE_NUMBER_TEST("1.2",       UTF8, UTF8, "1.2", "1.2")
+WRITE_NUMBER_TEST("1.23456",   UTF8, UTF8, "1.23456", "1.23456")
+WRITE_NUMBER_TEST("12.34E+56", UTF8, UTF8, "12.34E+56", "12.34E+56")
+WRITE_NUMBER_TEST("12.34E-56", UTF8, UTF8, "12.34E-56", "12.34E-56")
+
 WRITE_NUMBER_TEST("-0.1e+2 UTF-8 -> UTF-8",    UTF8, UTF8,    "-0.1e+2", "-0.1e+2")
 WRITE_NUMBER_TEST("-0.1e+2 UTF-8 -> UTF-16LE", UTF8, UTF16LE, "-0.1e+2", "-_0_._1_e_+_2_")
 WRITE_NUMBER_TEST("-0.1e+2 UTF-8 -> UTF-16BE", UTF8, UTF16BE, "-0.1e+2", "_-_0_._1_e_+_2")
 WRITE_NUMBER_TEST("-0.1e+2 UTF-8 -> UTF-32LE", UTF8, UTF32LE, "-0.1e+2", "-___0___.___1___e___+___2___")
 WRITE_NUMBER_TEST("-0.1e+2 UTF-8 -> UTF-32BE", UTF8, UTF32BE, "-0.1e+2", "___-___0___.___1___e___+___2")
 
-WRITE_NUMBER_TEST("-0.1e+2 UTF-16LE -> UTF-8", UTF16LE, UTF8,    "-\x00" "0\x00" ".\x00" "1\x00" "e\x00" "+\x00" "2\x00", "-0.1e+2")
-WRITE_NUMBER_TEST("-0.1e+2 UTF-16BE -> UTF-8", UTF16BE, UTF8,    "\x00" "-\x00" "0\x00" ".\x00" "1\x00" "e\x00" "+\x00" "2", "-0.1e+2")
-WRITE_NUMBER_TEST("-0.1e+2 UTF-32LE -> UTF-8", UTF32LE, UTF8,    "-\x00\x00\x00" "0\x00\x00\x00" ".\x00\x00\x00" "1\x00\x00\x00" "e\x00\x00\x00" "+\x00\x00\x00" "2\x00\x00\x00", "-0.1e+2")
-WRITE_NUMBER_TEST("-0.1e+2 UTF-32BE -> UTF-8", UTF32BE, UTF8,    "\x00\x00\x00" "-\x00\x00\x00" "0\x00\x00\x00" ".\x00\x00\x00" "1\x00\x00\x00" "e\x00\x00\x00" "+\x00\x00\x00" "2", "-0.1e+2")
+WRITE_NUMBER_TEST("-0.1e+2 UTF-16LE -> UTF-8", UTF16LE, UTF8, "-\x00" "0\x00" ".\x00" "1\x00" "e\x00" "+\x00" "2\x00", "-0.1e+2")
+WRITE_NUMBER_TEST("-0.1e+2 UTF-16BE -> UTF-8", UTF16BE, UTF8, "\x00" "-\x00" "0\x00" ".\x00" "1\x00" "e\x00" "+\x00" "2", "-0.1e+2")
+WRITE_NUMBER_TEST("-0.1e+2 UTF-32LE -> UTF-8", UTF32LE, UTF8, "-\x00\x00\x00" "0\x00\x00\x00" ".\x00\x00\x00" "1\x00\x00\x00" "e\x00\x00\x00" "+\x00\x00\x00" "2\x00\x00\x00", "-0.1e+2")
+WRITE_NUMBER_TEST("-0.1e+2 UTF-32BE -> UTF-8", UTF32BE, UTF8, "\x00\x00\x00" "-\x00\x00\x00" "0\x00\x00\x00" ".\x00\x00\x00" "1\x00\x00\x00" "e\x00\x00\x00" "+\x00\x00\x00" "2", "-0.1e+2")
 
 WRITE_NUMBER_TEST("bad decimal (1)",  UTF8, UTF8, "-", "- !(InvalidNumber)")
 WRITE_NUMBER_TEST("bad decimal (2)",  UTF8, UTF8, " ", "!(InvalidNumber)")
@@ -4419,10 +4440,12 @@ WRITE_NUMBER_TEST("bad decimal (4)",  UTF8, UTF8, "1 ", "1 !(InvalidNumber)")
 WRITE_NUMBER_TEST("bad decimal (5)",  UTF8, UTF8, "01", "0 !(InvalidNumber)")
 WRITE_NUMBER_TEST("bad decimal (6)",  UTF8, UTF8, "1x", "1 !(InvalidNumber)")
 WRITE_NUMBER_TEST("bad decimal (7)",  UTF8, UTF8, "1.", "1. !(InvalidNumber)")
-WRITE_NUMBER_TEST("bad decimal (8)",  UTF8, UTF8, "1e", "1e !(InvalidNumber)")
-WRITE_NUMBER_TEST("bad decimal (9)",  UTF8, UTF8, "1e+", "1e+ !(InvalidNumber)")
-WRITE_NUMBER_TEST("bad decimal (10)", UTF8, UTF8, "1e-", "1e- !(InvalidNumber)")
-WRITE_NUMBER_TEST("bad decimal (11)", UTF8, UTF8, "1ex", "1e !(InvalidNumber)")
+WRITE_NUMBER_TEST("bad decimal (8)",  UTF8, UTF8, "1.2x", "1.2 !(InvalidNumber)")
+WRITE_NUMBER_TEST("bad decimal (9)",  UTF8, UTF8, "1e", "1e !(InvalidNumber)")
+WRITE_NUMBER_TEST("bad decimal (10)", UTF8, UTF8, "1e+", "1e+ !(InvalidNumber)")
+WRITE_NUMBER_TEST("bad decimal (11)", UTF8, UTF8, "1e-", "1e- !(InvalidNumber)")
+WRITE_NUMBER_TEST("bad decimal (12)", UTF8, UTF8, "1ex", "1e !(InvalidNumber)")
+WRITE_NUMBER_TEST("bad decimal (13)", UTF8, UTF8, "1e2x", "1e2 !(InvalidNumber)")
 
 WRITE_NUMBER_TEST("hex (1)", UTF8, UTF8, "0x0", "0x0")
 WRITE_NUMBER_TEST("hex (1)", UTF8, UTF8, "0X0", "0X0")
