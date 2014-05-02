@@ -148,14 +148,25 @@ static byte* DoubleBuffer(const JSON_MemorySuite* pMemorySuite, byte* pDefaultBu
 /******************** Unicode Decoder ********************/
 
 /* Mutually-exclusive decoder states. */
-#define DECODER_RESET  0
-#define DECODED_1_OF_2 1
-#define DECODED_1_OF_3 2
-#define DECODED_2_OF_3 3
-#define DECODED_1_OF_4 4
-#define DECODED_2_OF_4 5
-#define DECODED_3_OF_4 6
+/* The bits of DecoderState are layed out as follows:
+
+     ---lllnn
+
+     l = expected total sequence length (3 bits)
+     d = number of bytes decoded so far (2 bits)
+     - = unused (3 bits)
+ */
+
+#define DECODER_RESET  0x00
+#define DECODED_1_OF_2 0x09 /* 00001001 */
+#define DECODED_1_OF_3 0x0D /* 00001101 */
+#define DECODED_2_OF_3 0x0E /* 00001110 */
+#define DECODED_1_OF_4 0x11 /* 00010001 */
+#define DECODED_2_OF_4 0x12 /* 00010010 */
+#define DECODED_3_OF_4 0x13 /* 00010011 */
 typedef byte DecoderState;
+
+#define DECODER_STATE_BYTES(s) (size_t)((s) & 0x3)
 
 /* Decoder data. */
 typedef struct tag_DecoderData
@@ -1455,9 +1466,22 @@ static const byte expectedLiteralChars[] = { 'u', 'l', 'l', 0, 'r', 'u', 'e', 0,
 
 /* Forward declaration. */
 static JSON_Status JSON_Parser_FlushLexer(JSON_Parser parser);
+static JSON_Status JSON_Parser_ProcessCodepoint(JSON_Parser parser, Codepoint c, size_t encodedLength);
 
-static JSON_Status JSON_Parser_HandleInvalidEncodingSequence(JSON_Parser parser) {
-    if (!parser->depth && GET_FLAGS(parser->flags, PARSER_EMBEDDED_DOCUMENT))
+static JSON_Status JSON_Parser_HandleInvalidEncodingSequence(JSON_Parser parser, size_t encodedLength) {
+    if (parser->token == T_STRING && GET_FLAGS(parser->flags, PARSER_REPLACE_INVALID))
+    {
+        /* Since we're inside a string token, replacing the invalid sequence
+           with the Unicode replacement character as requested by the client
+           is a viable way to avoid a parse failure. Outside a string token,
+           such a replacement would simply trigger JSON_Error_UnknownToken
+           when we tried to process the replacement character, so it's less
+           confusing to stick with JSON_Error_InvalidEncodingSequence in that
+           case. */
+        SET_FLAGS_ON(TokenAttributes, parser->tokenAttributes, JSON_ContainsReplacedCharacter);
+        return JSON_Parser_ProcessCodepoint(parser, REPLACEMENT_CHARACTER_CODEPOINT, encodedLength);
+    }
+    else if (!parser->depth && GET_FLAGS(parser->flags, PARSER_EMBEDDED_DOCUMENT))
     {
         /* Since we're parsing the top-level value of an embedded
            document, assume that the invalid encoding sequence we've
@@ -1466,7 +1490,7 @@ static JSON_Status JSON_Parser_HandleInvalidEncodingSequence(JSON_Parser parser)
            instead of an invalid sequence. If the content is valid,
            this will fail with JSON_Error_StoppedAfterEmbeddedDocument;
            otherwise, it will fail with an appropriate error. */
-        return JSON_Parser_FlushLexer(parser);
+        return JSON_Parser_FlushLexer(parser) && JSON_Parser_FlushParser(parser);
     }
     JSON_Parser_SetErrorAtCodepoint(parser, JSON_Error_InvalidEncodingSequence);
     return JSON_Failure;
@@ -2463,7 +2487,7 @@ static JSON_Status JSON_Parser_ProcessUnknownByte(JSON_Parser parser, byte b)
 
         if (parser->inputEncoding == JSON_UnknownEncoding)
         {
-            return JSON_Parser_HandleInvalidEncodingSequence(parser);
+            return JSON_Parser_HandleInvalidEncodingSequence(parser, 4);
         }
 
         if (!JSON_Parser_CallEncodingDetectedHandler(parser))
@@ -2514,26 +2538,9 @@ JSON_Status JSON_Parser_ProcessInputBytes(JSON_Parser parser, const byte* pBytes
             i++;
             /* fallthrough */
         case SEQUENCE_INVALID_EXCLUSIVE:
-            if (GET_FLAGS(parser->flags, PARSER_REPLACE_INVALID))
+            if (!JSON_Parser_HandleInvalidEncodingSequence(parser, DECODER_SEQUENCE_LENGTH(output)))
             {
-                if (parser->lexerState == LEXING_STRING)
-                {
-                    /* Note that we set JSON_ContainsReplacedCharacter in
-                       the output attributes only when the encoding sequence
-                       represents a single codepoint inside a string token;
-                       that is the only case where replacing the invalid
-                       sequence avoids triggering an error and the string
-                       attributes actually get passed to a handler. */
-                    SET_FLAGS_ON(TokenAttributes, parser->tokenAttributes, JSON_ContainsReplacedCharacter);
-                }
-                if (!JSON_Parser_ProcessCodepoint(parser, REPLACEMENT_CHARACTER_CODEPOINT, DECODER_SEQUENCE_LENGTH(output)))
-                {
-                    return JSON_Failure;
-                }
-            }
-            else
-            {
-                return JSON_Parser_HandleInvalidEncodingSequence(parser);
+                return JSON_Failure;
             }
             break;
         }
@@ -2596,7 +2603,7 @@ static JSON_Status JSON_Parser_FlushDecoder(JSON_Parser parser)
             else
             {
                 /* 00 00 */
-                return JSON_Parser_HandleInvalidEncodingSequence(parser);
+                return JSON_Parser_HandleInvalidEncodingSequence(parser, 2);
             }
             length = 2;
             break;
@@ -2624,7 +2631,7 @@ static JSON_Status JSON_Parser_FlushDecoder(JSON_Parser parser)
     /* The decoder should be idle when parsing finishes. */
     if (Decoder_SequencePending(&parser->decoderData))
     {
-        return JSON_Parser_HandleInvalidEncodingSequence(parser);
+        return JSON_Parser_HandleInvalidEncodingSequence(parser, DECODER_STATE_BYTES(parser->decoderData.state));
     }
     return JSON_Success;
 }

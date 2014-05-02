@@ -26,7 +26,7 @@
 /* The library version */
 #define JSON_MAJOR_VERSION 1
 #define JSON_MINOR_VERSION 4
-#define JSON_MICRO_VERSION 2
+#define JSON_MICRO_VERSION 3
 
 /* JSON_NO_PARSER and JSON_NO_WRITER, if defined, remove the corresponding
  * APIs and functionality from the library.
@@ -410,7 +410,7 @@ JSON_API(JSON_Boolean) JSON_Parser_GetAllowUnescapedControlCharacters(JSON_Parse
 JSON_API(JSON_Status) JSON_Parser_SetAllowUnescapedControlCharacters(JSON_Parser parser, JSON_Boolean allowUnescapedControlCharacters);
 
 /* Get and set whether a parser instance replaces invalid encoding sequences
- * it encounters in the input stream with the Unicode replacement character
+ * it encounters inside string tokens with the Unicode replacement character
  * (U+FFFD) rather than triggering an error.
  *
  * By default, the parser is strict when decoding the input stream, and will

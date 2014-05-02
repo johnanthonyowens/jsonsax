@@ -1686,6 +1686,7 @@ static void TestParserSetHandlers(void)
 
 static void TestParserReset(void)
 {
+    static const char input[] = "{\"foo\":{\"bar\":[1,2]},\"bar\":{"; /* partial document */
     JSON_Parser parser = NULL;
     ParserState state;
     ParserSettings settings;
@@ -1696,7 +1697,7 @@ static void TestParserReset(void)
     InitParserHandlers(&handlers);
     if (CheckParserCreate(NULL, JSON_Success, &parser) &&
         CheckParserSetUserData(parser, (void*)1, JSON_Success) &&
-        CheckParserSetInputEncoding(parser, JSON_UTF16LE, JSON_Success) &&
+        CheckParserSetInputEncoding(parser, JSON_UTF8, JSON_Success) &&
         CheckParserSetStringEncoding(parser, JSON_UTF16LE, JSON_Success) &&
         CheckParserSetNumberEncoding(parser, JSON_UTF16LE, JSON_Success) &&
         CheckParserSetMaxStringLength(parser, 32, JSON_Success) &&
@@ -1720,7 +1721,7 @@ static void TestParserReset(void)
         CheckParserSetStartArrayHandler(parser, &StartArrayHandler, JSON_Success) &&
         CheckParserSetEndArrayHandler(parser, &EndArrayHandler, JSON_Success) &&
         CheckParserSetArrayItemHandler(parser, &ArrayItemHandler, JSON_Success) &&
-        CheckParserParse(parser, "7\x00", 2, JSON_True, JSON_Success) &&
+        CheckParserParse(parser, input, sizeof(input) - 1, JSON_False, JSON_Success) &&
         CheckParserReset(parser, JSON_Success) &&
         CheckParserState(parser, &state) &&
         CheckParserSettings(parser, &settings) &&
@@ -2416,6 +2417,19 @@ PARSE_TEST("replace UTF-32BE encoded out-of-range codepoint (2)", ReplaceInvalid
 PARSE_TEST("replace UTF-32BE encoded out-of-range codepoint (3)", ReplaceInvalidEncodingSequences, "\x00\x00\x00\"" "\x01\x00\x00\x00" "\x00\x00\x00\"", FINAL, UTF32BE, "u(32BE) s(ar <EF><BF><BD>):0,0,0,0-12,0,3,0")
 PARSE_TEST("replace UTF-32BE encoded out-of-range codepoint (4)", ReplaceInvalidEncodingSequences, "\x00\x00\x00\"" "\x01\x00\x00\x00" "\x00\x00\x00\"" "\x00\x00\x00!", FINAL, UTF32BE, "u(32BE) s(ar <EF><BF><BD>):0,0,0,0-12,0,3,0 !(UnknownToken):12,0,3,0")
 
+PARSE_TEST("replace invalid sequence outside string (1)", ReplaceInvalidEncodingSequences, "\xC2", FINAL, UTF8, "u(8) !(InvalidEncodingSequence):0,0,0,0")
+PARSE_TEST("replace invalid sequence outside string (2)", ReplaceInvalidEncodingSequences, "\xE0", FINAL, UTF8, "u(8) !(InvalidEncodingSequence):0,0,0,0")
+PARSE_TEST("replace invalid sequence outside string (3)", ReplaceInvalidEncodingSequences, "\xE0\xBF", FINAL, UTF8, "u(8) !(InvalidEncodingSequence):0,0,0,0")
+PARSE_TEST("replace invalid sequence outside string (4)", ReplaceInvalidEncodingSequences, "[\xC2", FINAL, UTF8, "u(8) [:0,0,0,0-1,0,1,0 !(InvalidEncodingSequence):1,0,1,1")
+PARSE_TEST("replace invalid sequence outside string (5)", ReplaceInvalidEncodingSequences, "[\xE0]", FINAL, UTF8, "u(8) [:0,0,0,0-1,0,1,0 !(InvalidEncodingSequence):1,0,1,1")
+PARSE_TEST("replace invalid sequence outside string (6)", ReplaceInvalidEncodingSequences, "[\xE0\xBF]", FINAL, UTF8, "u(8) [:0,0,0,0-1,0,1,0 !(InvalidEncodingSequence):1,0,1,1")
+PARSE_TEST("replace invalid sequence outside string (7)", ReplaceInvalidEncodingSequences, "123\xC2", FINAL, UTF8, "u(8) !(InvalidEncodingSequence):3,0,3,0")
+PARSE_TEST("replace invalid sequence outside string (8)", ReplaceInvalidEncodingSequences, "123\xE0", FINAL, UTF8, "u(8) !(InvalidEncodingSequence):3,0,3,0")
+PARSE_TEST("replace invalid sequence outside string (9)", ReplaceInvalidEncodingSequences, "123\xE0\xBF", FINAL, UTF8, "u(8) !(InvalidEncodingSequence):3,0,3,0")
+PARSE_TEST("replace invalid sequence outside string (10)", ReplaceInvalidEncodingSequences, "null\xC2", FINAL, UTF8, "u(8) !(InvalidEncodingSequence):4,0,4,0")
+PARSE_TEST("replace invalid sequence outside string (11)", ReplaceInvalidEncodingSequences, "null\xE0", FINAL, UTF8, "u(8) !(InvalidEncodingSequence):4,0,4,0")
+PARSE_TEST("replace invalid sequence outside string (12)", ReplaceInvalidEncodingSequences, "null\xE0\xBF", FINAL, UTF8, "u(8) !(InvalidEncodingSequence):4,0,4,0")
+
 /* general */
 
 PARSE_TEST("no input bytes (partial)", Standard, "", PARTIAL, UnknownEncoding, "")
@@ -2732,6 +2746,7 @@ PARSE_TEST("string requires escaped surrogates to appear in valid pairs (3)", St
 PARSE_TEST("string requires escaped surrogates to appear in valid pairs (4)", Standard, "\"\\uD834\\u0020\"", FINAL, UTF8, "u(8) !(UnpairedSurrogateEscapeSequence):1,0,1,0")
 PARSE_TEST("string requires escaped surrogates to appear in valid pairs (5)", Standard, "\"\\uD834\\uD834\"", FINAL, UTF8, "u(8) !(UnpairedSurrogateEscapeSequence):1,0,1,0")
 PARSE_TEST("string requires escaped surrogates to appear in valid pairs (6)", Standard, "\"\\uDC00\"", FINAL, UTF8, "u(8) !(UnpairedSurrogateEscapeSequence):1,0,1,0")
+PARSE_TEST("string requires escaped surrogates to appear in valid pairs (7)", Standard, "\"\\uD834\\x\"", FINAL, UTF8, "u(8) !(InvalidEscapeSequence):7,0,7,0")
 PARSE_TEST("string truncated after \\ of trailing surrogate escape sequence", Standard, "\"\\uD834\\", FINAL, UTF8, "u(8) !(IncompleteToken):0,0,0,0")
 PARSE_TEST("string truncated after \\u of trailing surrogate escape sequence", Standard, "\"\\uD834\\u", FINAL, UTF8, "u(8) !(IncompleteToken):0,0,0,0")
 PARSE_TEST("string truncated after \\ux of trailing surrogate escape sequence", Standard, "\"\\uD834\\uD", FINAL, UTF8, "u(8) !(IncompleteToken):0,0,0,0")
@@ -2892,9 +2907,9 @@ PARSE_TEST("embedded empty document", StopAfterEmbeddedDocument, "", FINAL, Unkn
 PARSE_TEST("embedded document invalid sequence (1)", StopAfterEmbeddedDocument, "\xFF", FINAL, UTF8, "u(8) !(ExpectedMoreTokens):0,0,0,0")
 PARSE_TEST("embedded document invalid sequence (2)", StopAfterEmbeddedDocument, "\xFF\xFF", FINAL, UTF8, "u(8) !(ExpectedMoreTokens):0,0,0,0")
 PARSE_TEST("embedded document invalid sequence (3)", StopAfterEmbeddedDocument, "\xFF\xFF\xFF", FINAL, UTF8, "u(8) !(ExpectedMoreTokens):0,0,0,0")
-PARSE_TEST("embedded document invalid sequence (4)", StopAfterEmbeddedDocument, "\x00\x00\x00\x00", FINAL, UTF8, "u(8) !(UnknownToken):0,0,0,0")
+PARSE_TEST("embedded document invalid sequence (4)", StopAfterEmbeddedDocument, "\x00\x00\x00\x00", FINAL, UnknownEncoding, "!(ExpectedMoreTokens):0,0,0,0")
 PARSE_TEST("embedded document invalid sequence (5)", StopAfterEmbeddedDocument, "\x00\x00", FINAL, UnknownEncoding, "!(ExpectedMoreTokens):0,0,0,0")
-PARSE_TEST("embedded document invalid sequence (6)", StopAfterEmbeddedDocument, " \x00\x00 ", FINAL, UTF8, "u(8) !(UnknownToken):1,0,1,0")
+PARSE_TEST("embedded document invalid sequence (6)", StopAfterEmbeddedDocument, " \x00\x00 ", FINAL, UnknownEncoding, "!(ExpectedMoreTokens):0,0,0,0")
 PARSE_TEST("embedded document invalid sequence (7)", StopAfterEmbeddedDocument, "{\xFF ", FINAL, UTF8, "u(8) {:0,0,0,0-1,0,1,0 !(InvalidEncodingSequence):1,0,1,1")
 
 PARSE_TEST("embedded document invalid UTF-16LE sequence (1)", UTF16LEIn | StopAfterEmbeddedDocument, "\x00", FINAL, UTF16LE, "!(ExpectedMoreTokens):0,0,0,0")
