@@ -1,3 +1,4 @@
 *~
+*.gcov
 unittest/build/*
 example/build/*
