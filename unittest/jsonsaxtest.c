@@ -1745,7 +1745,7 @@ static void TestParserMisbehaveInCallbacks(void)
         CheckParserSetEncodingDetectedHandler(parser, &EncodingDetectedHandler, JSON_Success) &&
         CheckParserParse(parser, "null", 4, JSON_True, JSON_Success) &&
 
-        CheckParserCreate(NULL, JSON_Success, &parser) &&
+        CheckParserReset(parser, JSON_Success) &&
         CheckParserSetNullHandler(parser, &NullHandler, JSON_Success) &&
         CheckParserParse(parser, "null", 4, JSON_True, JSON_Success) &&
 
