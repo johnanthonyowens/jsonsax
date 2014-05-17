@@ -152,9 +152,9 @@ static byte* DoubleBuffer(const JSON_MemorySuite* pMemorySuite, byte* pDefaultBu
 
      ---lllnn
 
+     - = unused (3 bits)
      l = expected total sequence length (3 bits)
      d = number of bytes decoded so far (2 bits)
-     - = unused (3 bits)
  */
 
 #define DECODER_RESET  0x00
@@ -178,12 +178,12 @@ typedef DecoderData* Decoder;
 
 /* The bits of DecoderOutput are layed out as follows:
 
-     --rr-lll---ccccccccccccccccccccc
+     ------rrlllccccccccccccccccccccc
 
+     - = unused (6 bits)
      r = result code (2 bits)
      l = sequence length (3 bits)
      c = codepoint (21 bits)
-     - = unused (6 bits)
  */
 #define SEQUENCE_PENDING           0
 #define SEQUENCE_COMPLETE          1
@@ -191,9 +191,9 @@ typedef DecoderData* Decoder;
 #define SEQUENCE_INVALID_EXCLUSIVE 3
 typedef uint32_t DecoderResultCode;
 
-#define DECODER_OUTPUT(r, l, c)    (DecoderOutput)(((r) << 28) | ((l) << 24) | (c))
-#define DECODER_RESULT_CODE(o)     (DecoderResultCode)((DecoderOutput)(o) >> 28)
-#define DECODER_SEQUENCE_LENGTH(o) (size_t)(((DecoderOutput)(o) >> 24) & 0x7)
+#define DECODER_OUTPUT(r, l, c)    (DecoderOutput)(((r) << 24) | ((l) << 21) | (c))
+#define DECODER_RESULT_CODE(o)     (DecoderResultCode)((DecoderOutput)(o) >> 24)
+#define DECODER_SEQUENCE_LENGTH(o) (size_t)(((DecoderOutput)(o) >> 21) & 0x7)
 #define DECODER_CODEPOINT(o)       (Codepoint)((DecoderOutput)(o) & 0x001FFFFF)
 typedef uint32_t DecoderOutput;
 
@@ -230,7 +230,7 @@ static DecoderOutput Decoder_ProcessByte(Decoder decoder, Encoding encoding, byt
             {
                 /* UTF-8 2-byte sequences that are overlong encodings can be
                    detected from just the first byte (C0 or C1). */
-                decoder->bits = (uint32_t)(BOTTOM_5_BITS(b) << 6);
+                decoder->bits = (uint32_t)BOTTOM_5_BITS(b) << 6;
                 if (decoder->bits < FIRST_2_BYTE_UTF8_CODEPOINT)
                 {
                     output = DECODER_OUTPUT(SEQUENCE_INVALID_INCLUSIVE, 1, 0);
@@ -243,7 +243,7 @@ static DecoderOutput Decoder_ProcessByte(Decoder decoder, Encoding encoding, byt
             }
             else if (IS_UTF8_FIRST_BYTE_OF_3(b))
             {
-                decoder->bits = BOTTOM_4_BITS(b) << 12;
+                decoder->bits = (uint32_t)BOTTOM_4_BITS(b) << 12;
                 decoder->state = DECODED_1_OF_3;
                 goto noreset;
             }
@@ -251,7 +251,7 @@ static DecoderOutput Decoder_ProcessByte(Decoder decoder, Encoding encoding, byt
             {
                 /* Some UTF-8 4-byte sequences that encode out-of-range
                    codepoints can be detected from the first byte (F5 - FF). */
-                decoder->bits = (uint32_t)(BOTTOM_3_BITS(b) << 18);
+                decoder->bits = (uint32_t)BOTTOM_3_BITS(b) << 18;
                 if (decoder->bits > MAX_CODEPOINT)
                 {
                     output = DECODER_OUTPUT(SEQUENCE_INVALID_INCLUSIVE, 1, 0);
@@ -287,7 +287,7 @@ static DecoderOutput Decoder_ProcessByte(Decoder decoder, Encoding encoding, byt
             {
                 /* UTF-8 3-byte sequences that are overlong encodings or encode
                    surrogate codepoints can be detected after 2 bytes. */
-                decoder->bits |= (uint32_t)(BOTTOM_6_BITS(b) << 6);
+                decoder->bits |= (uint32_t)BOTTOM_6_BITS(b) << 6;
                 if ((decoder->bits < FIRST_3_BYTE_UTF8_CODEPOINT) || IS_SURROGATE(decoder->bits))
                 {
                     output = DECODER_OUTPUT(SEQUENCE_INVALID_EXCLUSIVE, 1, 0);
@@ -320,7 +320,7 @@ static DecoderOutput Decoder_ProcessByte(Decoder decoder, Encoding encoding, byt
             {
                 /* UTF-8 4-byte sequences that are overlong encodings or encode
                    out-of-range codepoints can be detected after 2 bytes. */
-                decoder->bits |= (uint32_t)(BOTTOM_6_BITS(b) << 12);
+                decoder->bits |= (uint32_t)BOTTOM_6_BITS(b) << 12;
                 if ((decoder->bits < FIRST_4_BYTE_UTF8_CODEPOINT) || (decoder->bits > MAX_CODEPOINT))
                 {
                     output = DECODER_OUTPUT(SEQUENCE_INVALID_EXCLUSIVE, 1, 0);
@@ -340,7 +340,7 @@ static DecoderOutput Decoder_ProcessByte(Decoder decoder, Encoding encoding, byt
         case DECODED_2_OF_4:
             if (IS_UTF8_CONTINUATION_BYTE(b))
             {
-                decoder->bits |= (uint32_t)(BOTTOM_6_BITS(b) << 6);
+                decoder->bits |= (uint32_t)BOTTOM_6_BITS(b) << 6;
                 decoder->state = DECODED_3_OF_4;
                 goto noreset;
             }
@@ -780,14 +780,14 @@ typedef byte GrammarEvent;
 
 /* The bits of GrammarianOutput are layed out as follows:
 
-     rr-eeeee
+     -rreeeee
 
+     - = unused (1 bit)
      r = result code (2 bits)
      e = event (5 bits)
-     - = unused (1 bit)
  */
-#define GRAMMARIAN_OUTPUT(r, e)   (GrammarianOutput)(((GrammarianResultCode)(r) << 6) | (GrammarEvent)(e))
-#define GRAMMARIAN_RESULT_CODE(o) (GrammarianResultCode)((GrammarianOutput)(o) >> 6)
+#define GRAMMARIAN_OUTPUT(r, e)   (GrammarianOutput)(((GrammarianResultCode)(r) << 5) | (GrammarEvent)(e))
+#define GRAMMARIAN_RESULT_CODE(o) (GrammarianResultCode)((GrammarianOutput)(o) >> 5)
 #define GRAMMARIAN_EVENT(o)       (GrammarEvent)((GrammarianOutput)(o) & 0x1F)
 typedef byte GrammarianOutput;
 

@@ -1,5 +1,11 @@
-CC = gcc
-CXX = g++
+ifdef CLANG
+    CC = clang
+    CXX = clang++
+else
+    CC = gcc
+    CXX = g++
+endif
+
 AR = ar
 
 ROOTDIR = ..
