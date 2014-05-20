@@ -378,7 +378,7 @@ static DecoderOutput Decoder_ProcessByte(Decoder decoder, Encoding encoding, byt
             goto noreset;
 
         case DECODED_1_OF_2:
-            decoder->bits |= (uint32_t)(b << 8);
+            decoder->bits |= (uint32_t)b << 8;
             if (IS_TRAILING_SURROGATE(decoder->bits))
             {
                 /* A trailing surrogate cannot appear on its own. */
@@ -403,7 +403,7 @@ static DecoderOutput Decoder_ProcessByte(Decoder decoder, Encoding encoding, byt
             goto noreset;
 
         case DECODED_3_OF_4:
-            decoder->bits |= (uint32_t)(b << 8);
+            decoder->bits |= (uint32_t)b << 8;
             if (!IS_TRAILING_SURROGATE(decoder->bits & 0xFFFF))
             {
                 /* A leading surrogate must be followed by a trailing one.
@@ -432,7 +432,7 @@ static DecoderOutput Decoder_ProcessByte(Decoder decoder, Encoding encoding, byt
         switch (decoder->state)
         {
         case DECODER_RESET:
-            decoder->bits = (uint32_t)(b << 8);
+            decoder->bits = (uint32_t)b << 8;
             decoder->state = DECODED_1_OF_2;
             goto noreset;
 
@@ -457,7 +457,7 @@ static DecoderOutput Decoder_ProcessByte(Decoder decoder, Encoding encoding, byt
             break;
 
         case DECODED_2_OF_4:
-            decoder->bits |= (uint32_t)(b << 8);
+            decoder->bits |= (uint32_t)b << 8;
             decoder->state = DECODED_3_OF_4;
             goto noreset;
 
@@ -488,21 +488,21 @@ static DecoderOutput Decoder_ProcessByte(Decoder decoder, Encoding encoding, byt
         {
         case DECODER_RESET:
             decoder->state = DECODED_1_OF_4;
-            decoder->bits = b;
+            decoder->bits = (uint32_t)b;
             goto noreset;
 
         case DECODED_1_OF_4:
             decoder->state = DECODED_2_OF_4;
-            decoder->bits |= (uint32_t)(b << 8);
+            decoder->bits |= (uint32_t)b << 8;
             goto noreset;
 
         case DECODED_2_OF_4:
             decoder->state = DECODED_3_OF_4;
-            decoder->bits |= (uint32_t)(b << 16);
+            decoder->bits |= (uint32_t)b << 16;
             goto noreset;
 
         case DECODED_3_OF_4:
-            decoder->bits |= (uint32_t)(b << 24);
+            decoder->bits |= (uint32_t)b << 24;
             output = (IS_SURROGATE(decoder->bits) || (decoder->bits > MAX_CODEPOINT))
                 ? DECODER_OUTPUT(SEQUENCE_INVALID_INCLUSIVE, 4, 0)
                 : DECODER_OUTPUT(SEQUENCE_COMPLETE, 4, decoder->bits);
@@ -517,17 +517,17 @@ static DecoderOutput Decoder_ProcessByte(Decoder decoder, Encoding encoding, byt
         {
         case DECODER_RESET:
             decoder->state = DECODED_1_OF_4;
-            decoder->bits = (uint32_t)(b << 24);
+            decoder->bits = (uint32_t)b << 24;
             goto noreset;
 
         case DECODED_1_OF_4:
             decoder->state = DECODED_2_OF_4;
-            decoder->bits |= (uint32_t)(b << 16);
+            decoder->bits |= (uint32_t)b << 16;
             goto noreset;
 
         case DECODED_2_OF_4:
             decoder->state = DECODED_3_OF_4;
-            decoder->bits |= (uint32_t)(b << 8);
+            decoder->bits |= (uint32_t)b << 8;
             goto noreset;
 
         case DECODED_3_OF_4:
@@ -2393,17 +2393,17 @@ static JSON_Status JSON_Parser_ProcessUnknownByte(JSON_Parser parser, byte b)
     {
     case DECODER_RESET:
         parser->decoderData.state = DECODED_1_OF_4;
-        parser->decoderData.bits = (uint32_t)(b << 24);
+        parser->decoderData.bits = (uint32_t)b << 24;
         break;
 
     case DECODED_1_OF_4:
         parser->decoderData.state = DECODED_2_OF_4;
-        parser->decoderData.bits |= (uint32_t)(b << 16);
+        parser->decoderData.bits |= (uint32_t)b << 16;
         break;
 
     case DECODED_2_OF_4:
         parser->decoderData.state = DECODED_3_OF_4;
-        parser->decoderData.bits |= (uint32_t)(b << 8);
+        parser->decoderData.bits |= (uint32_t)b << 8;
         break;
 
     case DECODED_3_OF_4:
