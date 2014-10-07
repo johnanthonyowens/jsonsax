@@ -4166,6 +4166,11 @@ WRITE_STRING_TEST("UTF-8 -> escaped UTF-16BE",       UTF8,    UTF16BE, NO_REPLAC
 WRITE_STRING_TEST("UTF-8 -> escaped UTF-32LE",       UTF8,    UTF32LE, NO_REPLACE, ESCAPE_ALL, "\x61\xC2\xA9\xE4\xB8\x81\xF0\x9F\x80\x84", "\"___a___\\___u___0___0___A___9___\\___u___4___E___0___1___\\___u___D___8___3___C___\\___u___D___C___0___4___\"___")
 WRITE_STRING_TEST("UTF-8 -> escaped UTF-32BE",       UTF8,    UTF32BE, NO_REPLACE, ESCAPE_ALL, "\x61\xC2\xA9\xE4\xB8\x81\xF0\x9F\x80\x84", "___\"___a___\\___u___0___0___A___9___\\___u___4___E___0___1___\\___u___D___8___3___C___\\___u___D___C___0___4___\"")
 
+/* surrogate pairs */
+
+WRITE_STRING_TEST("non-BMP character -> UTF-16LE", UTF32BE, UTF16LE, NO_REPLACE, NO_ESCAPE_ALL, "\x00\x01\x00\x00" "\x00\x10\xFF\x01", "\"_<00 D8><00 DC><FF DB><01 DF>\"_")
+WRITE_STRING_TEST("non-BMP character -> UTF-16BE", UTF32BE, UTF16BE, NO_REPLACE, NO_ESCAPE_ALL, "\x00\x01\x00\x00" "\x00\x10\xFF\x01", "_\"<D8 00><DC 00><DB FF><DF 01>_\"")
+
 /* escape sequences */
 
 WRITE_STRING_TEST("simple escape sequences -> UTF-8",    UTF8, UTF8,    NO_REPLACE, NO_ESCAPE_ALL, "\\" "\"" "/" "\t" "\n" "\r" "\f" "\b", "\"\\\\\\\"\\/\\t\\n\\r\\f\\b\"")
